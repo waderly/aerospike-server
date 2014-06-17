@@ -307,6 +307,17 @@ as_record_allocate_key(as_record* r, const uint8_t* key, uint32_t key_size)
 	r->dim = (void*)rec_space;
 }
 
+// Called only for data-in-memory multi-bin, with a key currently stored.
+// Note - have to modify if/when other metadata joins key in as_rec_space.
+void
+as_record_remove_key(as_record* r)
+{
+	as_bin_space* p_bin_space = ((as_rec_space*)r->dim)->bin_space;
+
+	cf_free(r->dim);
+	r->dim = (void*)p_bin_space;
+}
+
 // AS RECORD serializes as such:
 //  N BINS-16
 //    BINNAME-LEN-8
@@ -975,20 +986,28 @@ as_record_apply_properties(as_record *r, as_namespace *ns, const as_rec_props *p
 		}
 	}
 
-	// If a key wasn't stored, and we got one, accommodate it.
-	// TODO - do this differently so we can remove keys.
-	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
-		uint32_t key_size;
-		uint8_t* key;
+	uint32_t key_size;
+	uint8_t* key;
+	int result = as_rec_props_get_value(p_rec_props, CL_REC_PROPS_FIELD_KEY,
+					&key_size, &key);
 
-		if (as_rec_props_get_value(p_rec_props, CL_REC_PROPS_FIELD_KEY,
-				&key_size, &key) == 0) {
+	// If a key wasn't stored, and we got one, accommodate it.
+	if (! as_index_is_flag_set(r, AS_INDEX_FLAG_KEY_STORED)) {
+		if (result == 0) {
 			if (ns->storage_data_in_memory) {
 				as_record_allocate_key(r, key, key_size);
 			}
 
 			as_index_set_flags(r, AS_INDEX_FLAG_KEY_STORED);
 		}
+	}
+	// If a key was stored, but we didn't get one, remove the key.
+	else if (result != 0) {
+		if (ns->storage_data_in_memory) {
+			as_record_remove_key(r);
+		}
+
+		as_index_clear_flags(r, AS_INDEX_FLAG_KEY_STORED);
 	}
 }
 
