@@ -146,6 +146,10 @@ int write_local_pickled(
 	uint32_t
 	);
 
+extern bool msg_has_key(as_msg* m);
+
+extern bool check_msg_key(as_msg* m, as_storage_rd* rd);
+
 extern int rw_udf_replicate(udf_record *urecord);
 
 extern int
