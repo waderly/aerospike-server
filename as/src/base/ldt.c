@@ -1005,13 +1005,14 @@ as_ldt_version_match(uint64_t subrec_version, as_index_tree *tree, cf_digest *ke
 		return false;
 	}
 
-	// TODO: this sucks for defrag it will blow up number of I/O that
+	// TODO: this is inefficient for defrag. It will blow up number of I/O that
 	// is performed ...
 	// TODO: Need to make sure version info is in the index for storage
 	// on disk case
 	rv              = as_storage_record_open(ns, r, &rd, keyd);
 	if (0 != rv) {
-		cf_warning(AS_UDF, "LDT_SUB_GC Could not open record %"PRIx64"!! @ version rv=%d", *(uint64_t *)keyd, rv);
+		cf_warning_digest(AS_UDF, keyd,
+				"LDT_SUB_GC Could not open record @ version rv=%d: Digest:", rv);
 		as_record_done(&r_ref, ns);
 		return false;
 	}
@@ -1020,7 +1021,7 @@ as_ldt_version_match(uint64_t subrec_version, as_index_tree *tree, cf_digest *ke
 	rd.bins = as_bin_get_all(r, &rd, stack_bins);
 
 	uint64_t parent_version = 0;
-	rv              = as_ldt_parent_storage_get_version(&rd, &parent_version);
+	rv = as_ldt_parent_storage_get_version(&rd, &parent_version);
 	if (0 != rv) {
 		cf_detail(AS_LDT, "LDT_SUB_GC Something wrong could not get LDT parent version rv = %d", rv);
 		goto Cleanup;
@@ -1109,7 +1110,7 @@ as_ldt_sub_gc_fn(as_index_ref *r_ref, void *udata)
 	// a) PARENT DIGEST
 	// b) ESR DIGEST
 	// c) VERSION
-	// d) For inmemory case memory usage
+	// d) For in-memory case memory usage
 	//
 	//
 	// TODO: Needs Improvement.

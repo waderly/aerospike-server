@@ -93,23 +93,28 @@ static int udf_aerospike_rec_remove(const as_aerospike *, const as_rec *);
 static int
 udf_aerospike_delbin(udf_record * urecord, const char * bname)
 {
-	if (bname == NULL || bname[0] == 0 ) {
-		cf_warning(AS_UDF, "no bin name supplied");
+	// Check that bname is not completely invalid
+	if ( !bname || !bname[0] ) {
+		cf_warning(AS_UDF, "delete bin: no bin name supplied");
 		return -1;
 	}
 
 	size_t          blen    = strlen(bname);
 	as_storage_rd  *rd      = urecord->rd;
 	as_transaction *tr      = urecord->tr;
-	as_bin * b = as_bin_get(rd, (byte *)bname, blen);
 
-	if ( !b ) {
-		//Can't get bin
-		cf_debug(AS_UDF, "Bin Not found %s", bname);
+	// Check quality of bname -- first check that it is proper length, then
+	// check that we're not over quota for bins, then finally make sure that
+	// the bin exists.
+	if (blen > (AS_ID_BIN_SZ - 1 ) || !as_bin_name_within_quota(rd->ns, (byte *)bname, blen)) {
+		// Can't read bin if name too large or over quota
+		cf_warning(AS_UDF, "bin name(%s) too big. Bin not added", bname);
 		return -1;
-	} else if (blen > (AS_ID_BIN_SZ - 1 ) || !as_bin_name_within_quota(rd->ns, (byte *)bname, blen)) {
-		// Can't read bin
-		cf_warning(AS_UDF, "bin name %s too big. Bin not added", bname);
+	}
+
+	as_bin * b = as_bin_get(rd, (byte *)bname, blen);
+	if ( !b ) {
+		cf_warning(AS_UDF, "as_bin_get failed: bin name(%s) not found", bname);
 		return -1;
 	}
 

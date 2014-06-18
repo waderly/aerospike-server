@@ -79,7 +79,7 @@ udf_record_ldt_enabled(const as_rec * rec)
 int
 udf_storage_record_open(udf_record *urecord)
 {
-	cf_detail_digest(AS_UDF, &urecord->tr->keyd, "udf_storage_record_open: Opening record key:");
+	cf_debug_digest(AS_UDF, &urecord->tr->keyd, "[ENTER] Opening record key:");
 	as_storage_rd  *rd    = urecord->rd;
 	as_index       *r	  = urecord->r_ref->r;
 	as_transaction *tr    = urecord->tr;
@@ -198,8 +198,7 @@ udf_storage_record_close(udf_record *urecord)
 int
 udf_record_open(udf_record * urecord)
 {
-	cf_detail_digest(AS_UDF, &urecord->tr->keyd, "udf_record_open: Opening record key:");
-
+	cf_debug_digest(AS_UDF, &urecord->tr->keyd, "[ENTER] Opening record key:");
 	if (urecord->flag & UDF_RECORD_FLAG_STORAGE_OPEN) {
 		cf_detail(AS_UDF, "Record already open");
 		return 0;
@@ -236,7 +235,7 @@ udf_record_open(udf_record * urecord)
 		cf_detail(AS_UDF, "udf_record_open: rec_get returned with %d", rec_rv);
 	}
 	return rec_rv;
-}
+} // end udf_re
 
 /*
  * Function: Close storage record for udf record. Release
@@ -260,6 +259,7 @@ void
 udf_record_close(udf_record *urecord, bool release_rsv)
 {
 	as_transaction *tr    = urecord->tr;
+	cf_debug_digest(AS_UDF, &tr->keyd, "[ENTER] Closing record key:");
 
 	if (urecord->flag & UDF_RECORD_FLAG_OPEN) {
 		as_index_ref   *r_ref = urecord->r_ref;

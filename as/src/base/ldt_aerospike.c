@@ -474,7 +474,7 @@ ldt_chunk_setup(ldt_chunk *lchunk, as_rec *h_urec, cf_digest *keyd)
 int
 ldt_crec_open(ldt_record *lrecord, cf_digest *keyd, int *slotp)
 {
-	cf_detail_digest(AS_LDT, keyd, "ldt_crec_open(%"PRIx64") ");
+	cf_debug_digest(AS_LDT, keyd, "[ENTER] ldt_crec_open(): Digest: ");
 
 	// 1. Search in opened record
 	int slot = ldt_crec_find_digest(lrecord, keyd);
@@ -486,7 +486,8 @@ ldt_crec_open(ldt_record *lrecord, cf_digest *keyd, int *slotp)
 	// 2. Find free slot and setup chunk
 	slot     = ldt_crec_find_freeslot(lrecord);
 	if (slot == -1) {
-		cf_warning(AS_LDT, "Cannot open more than (%d) records in a single UDF", s_max_open_subrecs);
+		cf_warning(AS_LDT, "Cannot open more than (%d) records in a single UDF",
+				s_max_open_subrecs);
 		return -2;
 	}
 	cf_detail(AS_LDT, "ldt_crec_open popped slot %d", slot);
