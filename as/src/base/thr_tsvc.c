@@ -308,6 +308,13 @@ security_check(uint64_t check_privs, as_transaction *tr)
 }
 
 
+static inline bool
+is_udf(cl_msg *msgp)
+{
+	return as_msg_field_get(&msgp->msg, AS_MSG_FIELD_TYPE_UDF_FILENAME) != NULL;
+}
+
+
 // Handle the transaction, including proxy to another node if necessary.
 void
 process_transaction(as_transaction *tr)
@@ -386,6 +393,10 @@ process_transaction(as_transaction *tr)
 						AS_MSG_FIELD_TYPE_INDEX_RANGE) != NULL) {
 					cf_detail(AS_TSVC, "Received Query Request(%"PRIx64")", tr->trid);
 					cf_atomic64_incr(&g_config.query_reqs);
+					if (! security_check(is_udf(msgp) ?
+							PRIV_UDF_QUERY : PRIV_QUERY, tr)) {
+						goto Cleanup;
+					}
 					// Responsibility of query layer to free the msgp.
 					free_msgp = false;
 					rr = as_query(tr);   // <><><> Q U E R Y <><><>
@@ -400,6 +411,10 @@ process_transaction(as_transaction *tr)
 					// We got a scan, it might be for udfs, no need to know now,
 					// for now, do not free msgp for all the cases. Should take
 					// care of it inside as_tscan.
+					if (! security_check(is_udf(msgp) ?
+							PRIV_UDF_SCAN : PRIV_SCAN, tr)) {
+						goto Cleanup;
+					}
 					free_msgp = false;
 					rr = as_tscan(tr);   // <><><> S C A N <><><>
 					// Process the scan return codes:
@@ -423,6 +438,9 @@ process_transaction(as_transaction *tr)
 				}
 			} else if (rv == -3) {
 				// Has digest array, is batch - msgp gets freed through cleanup.
+				if (! security_check(PRIV_READ, tr)) {
+					goto Cleanup;
+				}
 				if (0 != as_batch(tr)) {
 					cf_info(AS_TSVC, "error from batch function");
 					as_msg_send_error(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_PARAMETER);
@@ -533,6 +551,11 @@ process_transaction(as_transaction *tr)
 			if (tr->udata.req_udata) {
 				free_msgp = false;
 			}
+			else if (tr->proto_fd_h && ! security_check(is_udf(msgp) ?
+					PRIV_UDF_APPLY : PRIV_WRITE, tr)) {
+				goto Cleanup;
+			}
+
 
 			// If the transaction is "shipped proxy op" to the winner node then
 			// just do the migrate reservation.
@@ -560,6 +583,10 @@ process_transaction(as_transaction *tr)
 			}
 		}
 		else {  // <><><> READ Transaction <><><>
+
+			if (tr->proto_fd_h && ! security_check(PRIV_READ, tr)) {
+				goto Cleanup;
+			}
 
 			// If the transaction is "shipped proxy op" to the winner node then
 			// just do the migrate reservation.
