@@ -39,6 +39,7 @@
 
 // Maximum number of bins that can be updated in a single UDF.
 #define UDF_RECORD_BIN_ULIMIT 100
+#define UDF_BIN_NONAME " "
 
 typedef struct ldt_record_s ldt_record;
 
@@ -91,6 +92,7 @@ typedef struct udf_record_s {
 #define UDF_RECORD_FLAG_STORAGE_OPEN	0x0010
 #define UDF_RECORD_FLAG_HAS_UPDATES		0x0020
 #define UDF_RECORD_FLAG_PREEXISTS		0x0040
+#define UDF_RECORD_FLAG_ISVALID		    0x0080
 
 extern const as_rec_hooks udf_record_hooks;
 
@@ -102,12 +104,16 @@ extern int      udf_record_open         (udf_record *);
 extern int      udf_storage_record_open (udf_record *);
 extern void     udf_record_close        (udf_record *, bool);
 extern int      udf_storage_record_close(udf_record *);
-extern int      udf_storage_record_destroy(udf_record *);
 extern void     udf_record_init         (udf_record *);
 extern void     udf_record_cleanup      (udf_record *, bool);
 extern as_val * udf_record_storage_get  (const udf_record *, const char *);
 extern bool     udf_record_bin_ishidden (const udf_record *urecord, const char *name);
 extern bool     udf_record_ldt_enabled  (const as_rec * rec);
+
+#define UDF_ERR_INTERNAL_PARAMETER   2
+#define UDF_ERR_RECORD_NOT_VALID     3
+#define UDF_ERR_PARAMETER            4
+extern int      udf_record_param_check(const as_rec *rec, const char *bname, char *fname, int lineno);
 
 //------------------------------------------------
 // Note that the main interface routines do NOT get declared here.
