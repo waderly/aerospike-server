@@ -136,6 +136,7 @@ cfg_set_defaults()
 	c->run_as_daemon = true; // set false only to run in debugger & see console output
 	c->scan_priority = 200; // # of rows between a quick context switch?
 	c->scan_sleep = 1; // amount of time scan thread will sleep between two context switch
+	c->security_refresh = 60 * 5; // refresh socket privileges every 5 minutes
 	c->storage_benchmarks = false;
 	c->ticker_interval = 10;
 	c->transaction_max_ms = 1000;
@@ -289,6 +290,7 @@ typedef enum {
 	CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION,
 	CASE_SERVICE_RUN_AS_DAEMON,
 	CASE_SERVICE_SCAN_PRIORITY,
+	CASE_SERVICE_SECURITY_REFRESH,
 	CASE_SERVICE_SNUB_NODES,
 	CASE_SERVICE_STORAGE_BENCHMARKS,
 	CASE_SERVICE_TICKER_INTERVAL,
@@ -605,6 +607,7 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "respond-client-on-master-completion", CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION },
 		{ "run-as-daemon",					CASE_SERVICE_RUN_AS_DAEMON },
 		{ "scan-priority",					CASE_SERVICE_SCAN_PRIORITY },
+		{ "security-refresh",				CASE_SERVICE_SECURITY_REFRESH },
 		{ "snub-nodes",						CASE_SERVICE_SNUB_NODES },
 		{ "storage-benchmarks",				CASE_SERVICE_STORAGE_BENCHMARKS },
 		{ "ticker-interval",				CASE_SERVICE_TICKER_INTERVAL },
@@ -1749,6 +1752,9 @@ as_config_init(const char *config_file)
 				break;
 			case CASE_SERVICE_SCAN_PRIORITY:
 				c->scan_priority = cfg_u32_no_checks(&line);
+				break;
+			case CASE_SERVICE_SECURITY_REFRESH:
+				c->security_refresh = cfg_u32(&line, 10, 60 * 60 * 24);
 				break;
 			case CASE_SERVICE_SNUB_NODES:
 				c->snub_nodes = cfg_bool(&line);

@@ -1982,6 +1982,9 @@ info_service_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";query-threshold=");
 	cf_dyn_buf_append_uint64(db, g_config.query_threshold);
 
+	cf_dyn_buf_append_string(db, ";security-refresh=");
+	cf_dyn_buf_append_uint32(db, g_config.security_refresh);
+
 	return(0);
 }
 
@@ -2404,6 +2407,14 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			cf_info(AS_INFO, "Changing value of scan-sleep from %d to %d ", g_config.scan_sleep, val);
 			g_config.scan_sleep = val;
+		}
+		else if (0 == as_info_parameter_get(params, "security-refresh", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val) || val < 10 || val > 60 * 60 * 24) {
+				cf_warning(AS_INFO, "security-refresh must be an unsigned integer between 10 and 86400");
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of security-refresh from %u to %d", g_config.security_refresh, val);
+			g_config.security_refresh = (uint32_t)val;
 		}
 		else if (0 == as_info_parameter_get(params, "batch-max-requests", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
