@@ -2004,6 +2004,12 @@ static int as_smd_metadata_change(as_smd_t *smd, as_smd_msg_op_t op, as_smd_item
 			// Invoke the module's registered accept policy callback function.
 			(module_obj->accept_cb)(module_obj->module, item_list, module_obj->accept_udata, 0);
 		}
+
+		// Persist the accepted metadata for this module.
+		if (as_smd_module_persist(module_obj)) {
+			cf_warning(AS_SMD, "failed to persist accepted metadata for module \"%s\"", module_obj->module);
+		}
+
 		cf_rc_release(module_obj);
 		cf_free(item_list);
 	}
