@@ -71,7 +71,7 @@ struct as_file_handle_s;
 
 // Security result codes. Must be <= 255, to fit in one byte. Defined here to
 // ensure no overlap with other result codes.
-#define AS_SEC_RESULT_OK_MORE			50	// OK, but not the last message
+#define AS_SEC_RESULT_OK_LAST			50	// the last message
 	// Security message errors.
 #define AS_SEC_ERR_NOT_SUPPORTED		51	// security features not supported
 #define AS_SEC_ERR_SCHEME				52	// security scheme not supported
