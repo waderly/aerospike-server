@@ -307,7 +307,7 @@ int                  as_qtr__reserve(as_query_transaction *qtr, char *fname, int
 int                  as_query__agg_call_init   (query_agg_call *,
 							as_transaction *, as_query_transaction *);
 void                 as_query__agg_call_destroy(query_agg_call *);
-int                  as_query__agg(query_agg_call *, cf_ll *recl, void *udata);
+int                  as_query__agg(query_agg_call *, cf_ll *recl, void *udata,as_result* res);
 
 #define AS_QUERY_INCREMENT_ERR_COUNT(qtr)   \
 	if(qtr->job_type == AS_QUERY_AGG) {    \
@@ -1015,7 +1015,8 @@ as_query__process_aggreq(as_query_request *qagg)
 
 	uint64_t ldiff      = 0;
 	uint64_t start_time = cf_getus();
-	ret                 = as_query__agg(&qtr->agg_call, qagg->recl, NULL);
+	as_result   *res    = as_result_new();
+	ret                 = as_query__agg(&qtr->agg_call, qagg->recl, NULL, res);
 	ldiff               = cf_getus() - start_time;
 	qtr->agg_time      += ldiff;
 
@@ -1029,10 +1030,21 @@ Cleanup:
 	}
 
 	if (ret != 0) {
-		char *rs = as_module_err_string(ret);
-		as_query__add_result(rs, qtr, false);
-		cf_free(rs);
+        char *rs = as_module_err_string(ret);
+        if(res->value != NULL) {
+            as_string * lua_s   = as_string_fromval(res->value);
+            char *      lua_err  = (char *) as_string_tostring(lua_s); 
+            if(lua_err != NULL) {
+                int l_rs_len = strlen(rs);
+                rs = cf_realloc(rs,l_rs_len + strlen(lua_err) + 2);
+                sprintf(&rs[l_rs_len],":%s",lua_err);
+            }
+        }
+        cf_info(AS_QUERY, "mod lua error - %s", rs); 
+        as_query__add_result(rs, qtr, false);
+        cf_free(rs);
 	}
+    as_result_destroy(res);
 
 	return ret;
 }
@@ -2612,7 +2624,7 @@ END:
 extern const as_list_hooks udf_arglist_hooks;
 void as_query_fakestream(as_stream *istream, as_list *arglist, as_stream *ostream);
 int
-as_query__agg(query_agg_call *call, cf_ll *recl, void *udata)
+as_query__agg(query_agg_call *call, cf_ll *recl, void *udata, as_result *res)
 {
 	// input stream
 	int ret           = AS_QUERY_OK;
@@ -2691,7 +2703,7 @@ as_query__agg(query_agg_call *call, cf_ll *recl, void *udata)
 		.timer      = NULL,
 		.memtracker = NULL
 	};
-	ret = as_module_apply_stream(&mod_lua, &ctx, call->filename, call->function, &istream, &arglist, &ostream);
+	ret = as_module_apply_stream(&mod_lua, &ctx, call->filename, call->function, &istream, &arglist, &ostream, res);
 
 	cf_debug(AS_QUERY, " Apply Stream with %s %s %p %p %p ret=%d", call->filename, call->function, &istream, &arglist, &ostream, ret);
 	udf_memtracker_cleanup();
