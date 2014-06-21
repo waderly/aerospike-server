@@ -10,6 +10,8 @@ OPT_AS = $(BUILD_ROOT)/opt/aerospike
 
 REV = $(shell $(DEPTH)/build/version)
 OS = $(shell $(DEPTH)/build/os_version)
+SIZE = $(shell du -k $(BIN_DIR)/asd | cut -f1)
+
 
 DEB = $(PKG)/packages/aerospike-server-$(EDITION)-$(REV).$(OS).x86_64.deb
 
@@ -65,6 +67,7 @@ endif
 
 	sed 's/@VERSION@/'$(REV)'/g' < $(PKG)/deb/server-64 > $(BUILD_ROOT)/DEBIAN/control
 	sed -i 's/@EDITION@/'$(EDITION)'/g' $(BUILD_ROOT)/DEBIAN/control
+	sed -i 's/@SIZE@/'$(SIZE)'/g' $(BUILD_ROOT)/DEBIAN/control
 
 package:
 	fakeroot dpkg-deb --build $(BUILD_ROOT) $(DEB)
