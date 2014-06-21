@@ -893,6 +893,7 @@ struct as_namespace_s {
 	// To track fraction of reads from cache:
 	cf_atomic32 n_reads_from_cache;
 	cf_atomic32 n_reads_from_device;
+	float cache_read_pct;
 
 	int demo_read_multiplier;
 	int demo_write_multiplier;
