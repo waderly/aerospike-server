@@ -1031,16 +1031,15 @@ Cleanup:
 
 	if (ret != 0) {
         char *rs = as_module_err_string(ret);
-        if(res->value != NULL) {
+        if (res->value != NULL) {
             as_string * lua_s   = as_string_fromval(res->value);
             char *      lua_err  = (char *) as_string_tostring(lua_s); 
-            if(lua_err != NULL) {
+            if (lua_err != NULL) {
                 int l_rs_len = strlen(rs);
-                rs = cf_realloc(rs,l_rs_len + strlen(lua_err) + 2);
-                sprintf(&rs[l_rs_len],":%s",lua_err);
+                rs = cf_realloc(rs,l_rs_len + strlen(lua_err) + 4);
+                sprintf(&rs[l_rs_len]," : %s",lua_err);
             }
         }
-        cf_info(AS_QUERY, "mod lua error - %s", rs); 
         as_query__add_result(rs, qtr, false);
         cf_free(rs);
 	}
