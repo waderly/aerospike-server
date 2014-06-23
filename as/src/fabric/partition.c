@@ -2235,7 +2235,7 @@ as_partition_migrate_rx(as_migrate_state s, as_namespace *ns, as_partition_id pi
 						}
 						if (p->origin != p->replica[0]) {
 							// this has been debugged as normally not a state corruption error - duplicate migrate START?
-							cf_info(AS_PARTITION, "{%s:%d} migrate rx aborted. SYNC replica node receiving migrate request has origin set to non-master", ns->name, pid);
+							cf_debug(AS_PARTITION, "{%s:%d} migrate rx aborted. SYNC replica node receiving migrate request has origin set to non-master", ns->name, pid);
 							rv = AS_MIGRATE_CB_FAIL;
 							break; // out of switch
 						}
