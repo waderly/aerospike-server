@@ -536,8 +536,13 @@ udf_cask_smd_merge_fn (char *module, as_smd_item_list_t **item_list_out, as_smd_
 // make the local store the same as that.
 
 int
-udf_cask_smd_accept_fn(char *module, as_smd_item_list_t *items, void *udata, uint32_t info)
+udf_cask_smd_accept_fn(char *module, as_smd_item_list_t *items, void *udata, uint32_t accept_opt)
 {
+	if (accept_opt & AS_SMD_ACCEPT_OPT_CREATE) {
+		cf_debug(AS_UDF, "(doing nothing in UDF accept cb for module creation)");
+		return 0;
+	}
+
 	cf_debug(AS_UDF, "UDF CASK accept fn : n items %d", items->num_items);
 
 	// For each item in the list, see if the current version
