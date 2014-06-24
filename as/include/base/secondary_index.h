@@ -564,7 +564,7 @@ extern int as_sindex__op_by_skey(as_sindex   *si, as_sindex_key *skey,
 
 // SMD Integration related functions
 extern int as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, 
-								   void *udata, uint32_t bitmap);
+								   void *udata, uint32_t accept_opt);
 extern int as_sindex_smd_merge_cb(char *module, as_smd_item_list_t **item_list_out,
 								  as_smd_item_list_t **item_lists_in, size_t num_lists,
 								  void *udata);
