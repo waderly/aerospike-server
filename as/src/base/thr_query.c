@@ -1011,7 +1011,7 @@ as_query__process_aggreq(as_query_request *qagg)
 	as_query_transaction *qtr = qagg->qtr;
 	if (!qtr)           goto Cleanup;
 	as_query__check_timeout(qtr);
-	if (QTR_FAILED(qtr))	goto Cleanup;
+	if (QTR_FAILED(qtr))    goto Cleanup;
 
 	uint64_t ldiff      = 0;
 	uint64_t start_time = cf_getus();
@@ -1019,15 +1019,6 @@ as_query__process_aggreq(as_query_request *qagg)
 	ret                 = as_query__agg(&qtr->agg_call, qagg->recl, NULL, res);
 	ldiff               = cf_getus() - start_time;
 	qtr->agg_time      += ldiff;
-
-
-Cleanup:
-	as_query__recl_cleanup(qagg->recl);
-	if (qagg->recl) {
-		cf_ll_reduce(qagg->recl, true /*forward*/, ll_recl_reduce_fn, NULL);
-		if (qagg->recl ) cf_free(qagg->recl);
-		qagg->recl = NULL;
-	}
 
 	if (ret != 0) {
         char *rs = as_module_err_string(ret);
@@ -1044,6 +1035,14 @@ Cleanup:
         cf_free(rs);
 	}
     as_result_destroy(res);
+
+Cleanup:
+	as_query__recl_cleanup(qagg->recl);
+	if (qagg->recl) {
+		cf_ll_reduce(qagg->recl, true /*forward*/, ll_recl_reduce_fn, NULL);
+		if (qagg->recl ) cf_free(qagg->recl);
+		qagg->recl = NULL;
+	}
 
 	return ret;
 }
