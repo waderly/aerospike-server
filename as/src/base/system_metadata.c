@@ -226,8 +226,7 @@ typedef enum as_smd_cmd_opt_e {
 	AS_SMD_CMD_OPT_NONE           = 0x00,
 	AS_SMD_CMD_OPT_DUMP_SMD       = 0x01,
 	AS_SMD_CMD_OPT_VERBOSE        = 0x02,
-	AS_SMD_CMD_OPT_CREATE_ITEM    = 0x04,
-	AS_SMD_CMD_OPT_PAXOS_CHANGED  = 0x08
+	AS_SMD_CMD_OPT_PAXOS_CHANGED  = 0x04
 } as_smd_cmd_opt_t;
 
 /*
@@ -322,7 +321,7 @@ typedef struct as_smd_msg_s {
 	char *module_name;          // Name of the module.
 	uint32_t num_items;         // Number of metadata items
 	as_smd_item_list_t *items;  // List of metadata items associated with this message (only relevant fields are set)
-	uint32_t smd_info;          // bitmap to pass extra info
+	uint32_t options;           // Message options (originator)
 } as_smd_msg_t;
 
 /*
@@ -370,7 +369,7 @@ typedef struct as_smd_external_item_key_s {
  *     9). Generation[] - Array of (uint32_t <==> UINT32)
  *     10). Timestamp[] - Array of (uint64_t <==> UINT64)
  *     11). Module Name - (char * <==> STR)
- *     12). SMD_INFO - (uint32_t <==> UINT32)
+ *     12). Options - (uint32_t <==> UINT32)
  */
 static const msg_template as_smd_msg_template[] = {
 #define AS_SMD_MSG_TRID 0
@@ -398,8 +397,8 @@ static const msg_template as_smd_msg_template[] = {
 	{ AS_SMD_MSG_TIMESTAMP, M_FT_ARRAY_UINT64 },   // Metadata timestamp array
 #define AS_SMD_MSG_MODULE_NAME 11
 	{ AS_SMD_MSG_MODULE_NAME, M_FT_STR },          // Name of module the message is from or else NULL if from all.
-#define AS_SMD_MSG_INFO	12
-	{ AS_SMD_MSG_INFO, M_FT_UINT32 }               // Bitmap to pass extra information about the operation (i.e., MERGE/USR_OP)
+#define AS_SMD_MSG_OPTIONS 12
+	{ AS_SMD_MSG_OPTIONS, M_FT_UINT32 }            // Option flags specifying the originator of the message (i.e., MERGE/API)
 };
 
 /*
@@ -612,13 +611,10 @@ static as_smd_event_t *as_smd_create_cmd_event(as_smd_cmd_type_t type, ...)
 	evt->type = AS_SMD_CMD;
 	as_smd_cmd_t *cmd = &(evt->u.cmd);
 	cmd->type = type;
+	cmd->options = options;
 
-	// (Note:  Turn off the item creation request, since that's handled by this function.)
-	cmd->options = (options & ~AS_SMD_CMD_OPT_CREATE_ITEM);
-
-	// Unless requested via options, only events with the module specified will create a cmd containing metadata item.
-	if (module || (options & AS_SMD_CMD_OPT_CREATE_ITEM)) {
-
+	// Only events with the module specified will create a cmd containing a metadata item.
+	if (module) {
 		// Create the metadata item.
 		// [NB: Reference-counted for insertion in metadata "rchash" table.]
 		if (!(item = (as_smd_item_t *) cf_rc_alloc(sizeof(as_smd_item_t)))) {
@@ -1107,11 +1103,11 @@ static int as_smd_msgq_push(cf_node node_id, msg *msg, void *udata)
 			smd_msg->items->module_name = NULL;
 		}
 
-		if ((e = msg_get_uint32(msg, AS_SMD_MSG_INFO, &(smd_msg->smd_info)))) {
+		if ((e = msg_get_uint32(msg, AS_SMD_MSG_OPTIONS, &(smd_msg->options)))) {
 			cf_warning(AS_SMD, "could not get info flags from the fabric msg");
-			smd_msg->smd_info = 0;
+			smd_msg->options = 0;
 		} else {
-			cf_debug(AS_SMD, "SMD info flag set to %x from the fabric msg", smd_msg->smd_info);
+			cf_debug(AS_SMD, "SMD msg options flag set to 0x%08x from the fabric msg", smd_msg->options);
 		}
 	}
 
@@ -1476,6 +1472,8 @@ static int as_smd_write(char *module, json_t *module_smd)
 /*
  *  Load persisted System Metadata for the given module:
  *    Read the module's JSON file (if it exists) and add each metadata found therein.
+ *    Return:   The number of metadata items restored (which may be 0) if reading
+ *               the metadata file was successful, -1 otherwise.
  */
 static int as_smd_module_restore(as_smd_module_t *module_obj)
 {
@@ -1549,6 +1547,9 @@ static int as_smd_module_restore(as_smd_module_t *module_obj)
 
 		// Send the item metadata add command.
 		as_smd_set_metadata_gen_ts(module, key, value, generation, timestamp);
+
+		// Another metadata item was successfully restored.
+		retval++;
 	}
 
 	// Release the module's JSON if necessary.
@@ -1684,8 +1685,13 @@ static int as_smd_module_create(as_smd_t *smd, as_smd_cmd_t *cmd)
 	module_obj->can_accept_cb = cmd->e;
 	module_obj->can_accept_udata = cmd->f;
 
-	if (as_smd_module_restore(module_obj)) {
+	int num_items = as_smd_module_restore(module_obj);
+	if (0 > num_items) {
 		cf_warning(AS_SMD, "failed to restore persisted System Metadata for module \"%s\"", item->module_name);
+	}
+	if (0 >= num_items) {
+		// If no items were restored, set an empty item to guarantee an accept callback.
+		retval = as_smd_set_metadata(module_obj->module, NULL, NULL);
 	}
 
 	return retval;
@@ -1774,11 +1780,11 @@ static int as_smd_module_destroy(as_smd_t *smd, as_smd_cmd_t *cmd)
 /*
  *  Get or create a new System Metadata fabric msg to perform the given operation on the given metadata items.
  */
-static msg *as_smd_msg_get(as_smd_msg_op_t op, as_smd_item_t **item, size_t num_items, char *module_name, uint32_t smd_info)
+static msg *as_smd_msg_get(as_smd_msg_op_t op, as_smd_item_t **item, size_t num_items, char *module_name, uint32_t accept_opt)
 {
 	msg *msg = NULL;
 
-	cf_debug(AS_SMD, "Getting a msg for module %s with num_items %d for (merge/usr_op) %x", module_name, num_items, smd_info);
+	cf_debug(AS_SMD, "Getting a msg for module %s with num_items %d for accept option 0x%08x", module_name, num_items, accept_opt);
 
 	// Get an existing (or create a new) System Metadata fabric msg.
 	if (!(msg = as_fabric_msg_get(M_TYPE_SMD))) {
@@ -1795,7 +1801,7 @@ static msg *as_smd_msg_get(as_smd_msg_op_t op, as_smd_item_t **item, size_t num_
 
 	if (module_name != NULL) {
 		e += msg_set_str(msg, AS_SMD_MSG_MODULE_NAME, module_name, MSG_SET_COPY);
-		e += msg_set_uint32(msg, AS_SMD_MSG_INFO, smd_info);
+		e += msg_set_uint32(msg, AS_SMD_MSG_OPTIONS, accept_opt);
 	}
 
 	if (num_items) {
@@ -1908,9 +1914,7 @@ static int as_smd_proxy_to_principal(as_smd_t *smd, as_smd_msg_op_t op, as_smd_i
 
 	// Get an existing (or create a new) System Metadata fabric msg for the appropriate operation and metadata item.
 	size_t num_items = 1;
-	uint32_t info = 0;
-	info |= AS_SMD_INFO_USR_OP;
-	if (!(msg = as_smd_msg_get(op, &item, num_items, item->module_name, info))) {
+	if (!(msg = as_smd_msg_get(op, &item, num_items, item->module_name, AS_SMD_ACCEPT_OPT_API))) {
 		cf_warning(AS_SMD, "failed to get a System Metadata fabric msg for operation %s transact start", AS_SMD_MSG_OP_NAME(op));
 		return -1;
 	}
@@ -1943,7 +1947,7 @@ static int as_smd_metadata_change_local(as_smd_t *smd, as_smd_msg_op_t op, as_sm
 		if (RCHASH_OK != (retval = rchash_delete(module_obj->my_metadata, item->key, strlen(item->key) + 1))) {
 			cf_warning(AS_SMD, "failed to delete key \"%s\" from System Metadata module \"%s\" (retval %d)", item->key, item->module_name, retval);
 		}
-	} else {
+	} else if (item->key) {
 		// Handle the Set case:
 
 		// Add reference to item for storage in the hash table.
@@ -1959,10 +1963,22 @@ static int as_smd_metadata_change_local(as_smd_t *smd, as_smd_msg_op_t op, as_sm
 		// If the item is local, simply use the key string within the item.
 		void *key = item->key;
 
+		// Default to generation 1.
+		if (!item->generation) {
+			item->generation = 1;
+		}
+
+		// Default timestamp to now.
+		if (!item->timestamp) {
+			item->timestamp = cf_getms();
+		}
+
 		// Add new, or replace existing, metadata in the module's metadata hash table.
 		if (RCHASH_OK != (retval = rchash_put(metadata_hash, key, key_len, item))) {
 			cf_warning(AS_SMD, "failed to set metadata for key \"%s\" for System Metadata module \"%s\" (retval %d)", item->key, item->module_name, retval);
 		}
+	} else {
+		cf_debug(AS_SMD, "(not setting empty metadata item for module \"%s\")", module_obj->module);
 	}
 
 #ifdef DEBUG
@@ -1990,19 +2006,28 @@ static int as_smd_metadata_change(as_smd_t *smd, as_smd_msg_op_t op, as_smd_item
 
 		cf_debug(AS_SMD, "handling metadata change type %s locally: module \"%s\" ; key \"%s\"", AS_SMD_MSG_OP_NAME(op), item->module_name, item->key);
 
-		if ((retval = as_smd_metadata_change_local(smd, op, item))) {
+		if (item && (retval = as_smd_metadata_change_local(smd, op, item))) {
 			cf_warning(AS_SMD, "failed to %s a metadata item locally: module \"%s\" ; key \"%s\" ; value \"%s\"", AS_SMD_MSG_OP_NAME(op), item->module_name, item->key, item->value);
 		}
 
-		// While restoring pass this info to the module as well. This is needed
-		// at the boot to make sure metadata init is done before the data init
-		// is done
-		as_smd_item_list_t *item_list = as_smd_item_list_alloc(1);
-		item_list->item[0]            = item;
+		uint32_t accept_opt = AS_SMD_ACCEPT_OPT_API;
+		as_smd_item_list_t *item_list = NULL;
+
+		if (!item->key) {
+			// Empty key (and value) indicates creation of an initially-empty module.
+			accept_opt = AS_SMD_ACCEPT_OPT_CREATE;
+		} else {
+			// While restoring pass this info to the module as well.  This is needed
+			// at the boot to make sure metadata init is done before the data init is done.
+			item_list = as_smd_item_list_alloc(1);
+			item_list->item[0] = item;
+		}
+
 		as_smd_module_t *module_obj   = as_smd_module_get(smd, item, NULL, NULL);
+
 		if (module_obj->accept_cb) {
 			// Invoke the module's registered accept policy callback function.
-			(module_obj->accept_cb)(module_obj->module, item_list, module_obj->accept_udata, 0);
+			(module_obj->accept_cb)(module_obj->module, item_list, module_obj->accept_udata, accept_opt);
 		}
 
 		// Persist the accepted metadata for this module.
@@ -2011,7 +2036,10 @@ static int as_smd_metadata_change(as_smd_t *smd, as_smd_msg_op_t op, as_smd_item
 		}
 
 		cf_rc_release(module_obj);
-		cf_free(item_list);
+
+		if (item_list) {
+			cf_free(item_list);
+		}
 	}
 
 	return retval;
@@ -2432,9 +2460,7 @@ static int as_smd_apply_metadata_change(as_smd_t *smd, as_smd_module_t *module_o
 					continue;
 				}
 				as_smd_msg_op_t accept_op = AS_SMD_MSG_OP_ACCEPT_THIS_METADATA;
-				uint32_t info = 0;
-				info |= AS_SMD_INFO_USR_OP;
-				if (!(msg = as_smd_msg_get(accept_op, smd_msg->items->item, smd_msg->num_items, module_obj->module, info))) {
+				if (!(msg = as_smd_msg_get(accept_op, smd_msg->items->item, smd_msg->num_items, module_obj->module, AS_SMD_ACCEPT_OPT_API))) {
 					cf_warning(AS_SMD, "failed to get a System Metadata fabric msg for operation %s transact start ~~ Skipping node %016lX!",
 							   AS_SMD_MSG_OP_NAME(accept_op), node_id);
 					continue;
@@ -2716,9 +2742,7 @@ static int as_smd_invoke_merge_reduce_fn(void *key, uint32_t keylen, void *objec
 		if (!node_id) {
 			continue;
 		}
-		uint32_t info = 0;
-		info |= AS_SMD_INFO_MERGE;
-		if (!(msg = as_smd_msg_get(merge_op, item_list_out->item, item_list_out->num_items, module, info))) {
+		if (!(msg = as_smd_msg_get(merge_op, item_list_out->item, item_list_out->num_items, module, AS_SMD_ACCEPT_OPT_MERGE))) {
 			cf_crash(AS_SMD, "failed to get a System Metadata fabric msg for operation %s", AS_SMD_MSG_OP_NAME(merge_op));
 		}
 		as_fabric_transact_start(node_id, msg, AS_SMD_TRANSACT_TIMEOUT_MS, transact_complete_fn, smd);
@@ -2834,9 +2858,8 @@ static int as_smd_accept_metadata(as_smd_t *smd, as_smd_module_t *module_obj, as
 		cf_debug(AS_SMD, "System Metadata thread - accepting metadata %s change: %d items: item 0: module \"%s\" ; key \"%s\" ; value \"%s\"",
 				 AS_SMD_MSG_OP_NAME(smd_msg->op), smd_msg->items->num_items, module_obj->module, item->key, item->value);
 	} else {
-		// zero item list is legal only in case of merge.
-		// proceed further if its merge, else return.
-		if (smd_msg->smd_info & AS_SMD_INFO_MERGE) {
+		// Allow empty item list for merge and module create.
+		if (smd_msg->options & (AS_SMD_ACCEPT_OPT_MERGE | AS_SMD_ACCEPT_OPT_CREATE)) {
 			cf_debug(AS_SMD, "System Metadata thread - accepting metadata %s change: Zero items coming from merge", AS_SMD_MSG_OP_NAME(smd_msg->op));
 		} else {
 			cf_debug(AS_SMD, "System Metadata thread - accepting metadata %s change: Zero items ~~ Returning!", AS_SMD_MSG_OP_NAME(smd_msg->op));
@@ -2855,7 +2878,7 @@ static int as_smd_accept_metadata(as_smd_t *smd, as_smd_module_t *module_obj, as
 
 	// In case of merge (after cluster state change) drop the existing local metadata definitions
 	// This is done to clean up some metadata, which could have been dropped during the merge
-	if (smd_msg->smd_info & AS_SMD_INFO_MERGE) {
+	if (smd_msg->options & AS_SMD_ACCEPT_OPT_MERGE) {
 		rchash_reduce_delete(module_obj->my_metadata, metadata_local_deleteall_fn, NULL);
 	}
 
@@ -2871,7 +2894,7 @@ static int as_smd_accept_metadata(as_smd_t *smd, as_smd_module_t *module_obj, as
 	if (module_obj->accept_cb) {
 		// Invoke the module's registered accept policy callback function.
 		cf_debug(AS_SMD, "Calling accept callback with merge flag set to true for module %s with nitems %d", smd_msg->items->module_name, smd_msg->items->num_items);
-		(module_obj->accept_cb)(module_obj->module, smd_msg->items, module_obj->accept_udata, smd_msg->smd_info);
+		(module_obj->accept_cb)(module_obj->module, smd_msg->items, module_obj->accept_udata, smd_msg->options);
 	}
 
 	// Persist the accepted metadata for this module.
