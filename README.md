@@ -57,8 +57,10 @@ command:
 
 	$ git submodule update --init
 
-As this project uses submodules, downloading via Github's "download zip"
-button does not work.
+*Note:*  As this project uses submodules, the source archive downloadable
+via GitHub's `Download ZIP` button will not build unless the correct
+revision of each submodule is first manually installed in the appropriate
+`modules` subdirectory.
 
 ## Building Aerospike
 
