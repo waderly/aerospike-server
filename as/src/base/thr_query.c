@@ -2633,7 +2633,8 @@ as_query__agg(query_agg_call *call, cf_ll *recl, void *udata)
 		.particle_data      = NULL,
 		.cur_particle_data  = NULL,
 		.end_particle_data  = NULL,
-		.flag               = 0,
+		.flag               = UDF_RECORD_FLAG_ISVALID ,//UDF_RECORD_FLAG_ISVALID
+		//.flag               = 0,//UDF_RECORD_FLAG_ISVALID
 		.starting_memory_bytes = 0,
 	};
 	urecord.flag |= UDF_RECORD_FLAG_ALLOW_DESTROY;

@@ -58,7 +58,7 @@ udf_timer_timedout(const as_timer *as_tt)
 	}
 	bool timedout = (cf_getms() > tt->end_time(tt));
 	if (timedout) {
-		cf_info(AS_UDF, "UDF Timed Out [%ld:%ld]", cf_getms(), tt->end_time(tt));
+		cf_debug(AS_UDF, "UDF Timed Out [%ld:%ld]", cf_getms(), tt->end_time(tt));
 		return true;
 	}
 	return false;
@@ -71,8 +71,8 @@ udf_timer_timeslice(const as_timer *as_tt)
 	if (!tt || !tt->end_time || !tt->udata) {
 		return true;
 	}
-	uint64_t timeslice = cf_getms() - tt->end_time(tt);
-	return (timeslice > 0) ? timeslice : 0;
+	uint64_t timeslice = tt->end_time(tt) - cf_getms();
+	return (timeslice > 0) ? timeslice : 1;
 }
 
 const as_timer_hooks udf_timer_hooks = {

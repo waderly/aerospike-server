@@ -470,10 +470,6 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 	} else if (*urecord_op == UDF_OPTYPE_WRITE) {
 		cf_detail(AS_UDF, "Committing Changes %"PRIx64" n_bins %d", rd->keyd, as_bin_get_n_bins(r_ref->r, rd));
 
-		// TODO - This probably gets done again just before the eventual call of
-		// as_storage_record_close(). We may want to optimize by doing it once,
-		// soon after as_storage_record_open(), instead.
-		as_storage_record_get_key(rd);
 		size_t  rec_props_data_size = as_storage_record_rec_props_size(rd);
 		uint8_t rec_props_data[rec_props_data_size];
 		if (rec_props_data_size > 0) {
@@ -485,7 +481,16 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 			&urecord->pickled_sz, &urecord->pickled_void_time,
 			&urecord->pickled_rec_props, false /*increment_generation*/,
 			NULL, r_ref->r, rd, urecord->starting_memory_bytes);
-	}
+
+		// Now ok to accommodate a new stored key.
+		if (! as_index_is_flag_set(r_ref->r, AS_INDEX_FLAG_KEY_STORED) && rd->key) {
+			if (rd->ns->storage_data_in_memory) {
+				as_record_allocate_key(r_ref->r, rd->key, rd->key_size);
+			}
+
+			as_index_set_flags(r_ref->r, AS_INDEX_FLAG_KEY_STORED);
+		}
+}
 
 	// get set-id and generation before record-close
 	as_generation generation = 0;
@@ -860,6 +865,31 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 		urecord.flag   |= UDF_RECORD_FLAG_PREEXISTS;
 		cf_detail(AS_UDF, "Open %p %x %"PRIx64"", &urecord, urecord.flag, *(uint64_t *)&tr->keyd);
 		udf_storage_record_open(&urecord);
+
+		as_msg *m = &tr->msgp->msg;
+
+		// If both the record and the message have keys, check them.
+		if (rd.key) {
+			if (msg_has_key(m) && ! check_msg_key(m, &rd)) {
+				udf_record_close(&urecord, false);
+				call->transaction->result_code = AS_PROTO_RESULT_FAIL_KEY_MISMATCH;
+				// Necessary to complete transaction, but error string would be
+				// ignored by client, so don't bother sending one.
+				send_response(call, "FAILURE", 7, AS_PARTICLE_TYPE_NULL, NULL, 0);
+				as_rec_destroy(&lrec);
+				return 0;
+			}
+		}
+		else {
+			// If the message has a key, apply it to the record.
+			as_msg_field* f = as_msg_field_get(m, AS_MSG_FIELD_TYPE_KEY);
+			if (f) {
+				rd.key_size = as_msg_field_get_value_sz(f);
+				rd.key = f->data;
+			}
+		}
+
+
 		// While opening parent record read the record from the disk. Property
 		// map is created from LUA world. The version can only be get in case
 		// the property map bin is there. If not there the record is normal

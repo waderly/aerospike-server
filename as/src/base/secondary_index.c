@@ -2974,8 +2974,13 @@ as_sindex_cfg_var_hash_reduce_fn(void *key, void *data, void *udata)
  * 		SMD is today single threaded no sync needed there
  */
 int
-as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, uint32_t bitmap)
+as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, uint32_t accept_opt)
 {
+	if (accept_opt & AS_SMD_ACCEPT_OPT_CREATE) {
+		cf_debug(AS_SINDEX, "(doing nothing in SIndex accept cb for module creation)");
+		return 0;
+	}
+
 	as_sindex_metadata imd;
 	memset((void *)&imd, 0, sizeof(imd));
 	char         * params = NULL;
@@ -3036,12 +3041,10 @@ as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, ui
 		}
 	}
 
-
-
 	// Check if the incoming operation is merge. If it's merge
 	// After merge resolution of cluster, drop the local sindex definitions which are not part
 	// of the paxos principal's sindex definition.
-	if( bitmap & AS_SMD_INFO_MERGE ) {
+	if (accept_opt & AS_SMD_ACCEPT_OPT_MERGE) {
 		for (int k = 0; k < g_config.namespaces; k++) { // for each namespace
 			as_namespace *local_ns = g_config.namespace[k];
 

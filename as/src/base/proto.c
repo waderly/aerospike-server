@@ -317,6 +317,7 @@ as_msg_make_response_msg( uint32_t result_code, uint32_t generation, uint32_t vo
 
 			uint32_t psz = msg_sz - (buf - b); // size remaining in buffer, for safety
 			if (as_bin_is_hidden(bins[i])) {
+				op->particle_type = AS_PARTICLE_TYPE_NULL;
 				psz = 0; // packet of size NULL
 			} else {
 				bool tojson = (as_bin_get_particle_type(bins[i]) ==
@@ -637,6 +638,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 
 				uint32_t psz = msg_sz - (buf - b); // size remaining in buffer, for safety
 				if (as_bin_is_hidden(p_bin)) {
+                	op->particle_type = AS_PARTICLE_TYPE_NULL;
 					psz = 0;
 				} else {
 					if (0 != as_particle_tobuf(p_bin, buf, &psz)) {
@@ -676,6 +678,7 @@ int as_msg_make_response_bufbuilder(as_record *r, as_storage_rd *rd,
 
 				uint32_t psz = msg_sz - (buf - b); // size remaining in buffer, for safety
 				if (as_bin_is_hidden(&rd->bins[i])) {
+                	op->particle_type = AS_PARTICLE_TYPE_NULL;
 					psz = 0;
 				} else {
 					if (0 != as_particle_tobuf(&rd->bins[i], buf, &psz)) {

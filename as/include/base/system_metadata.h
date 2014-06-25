@@ -79,11 +79,14 @@ typedef struct as_smd_item_list_s {
 typedef struct as_smd_s as_smd_t;
 
 /*
- *  Mutually-disjoint flag values passed by SMD to the module via the
- *  accept callback "bitmap" argument to specify the origin of the operation.
+ *  Type for mutually-disjoint flag values passed by SMD to the module's accept callback
+ *   via the "accept_opt" argument specifying the originator of the operation.
  */
-#define AS_SMD_INFO_MERGE   (0x0001)  // Post-cluster state change merge
-#define AS_SMD_INFO_USR_OP  (0x0002)  // User-initiated set/delete metadata via SMD API
+typedef enum as_smd_accept_option_e {
+	AS_SMD_ACCEPT_OPT_CREATE  = (1 << 0),  // Module creation-time accept event
+	AS_SMD_ACCEPT_OPT_MERGE   = (1 << 1),  // Post-cluster state change merge
+	AS_SMD_ACCEPT_OPT_API     = (1 << 2)   // User-initiated set/delete metadata via SMD API
+} as_smd_accept_option_t;
 
 /*
  *  Size of the key to be used during a majority consensus merge operation.
@@ -112,10 +115,14 @@ typedef int (*as_smd_merge_cb)(char *module, as_smd_item_list_t **item_list_out,
 /*
  *  Callback function type for metadata acceptance policy functions.
  *    Commit action executed on all cluster nodes to receive and
- *    accept the truth from the Paxos principal.
+ *    accept the truth from the Paxos principal.  Also executed at
+ *    start-up time prior to cluster formation to indicate creation
+ *    of an empty module or to accept locally the initial metadata
+ *    either restored from file or set via the API.
+ *    The accept option specifies the originator of the accept action.
  *    Configurable via registering a per-module callback function.
  */
-typedef int (*as_smd_accept_cb)(char *module, as_smd_item_list_t *items, void *udata, uint32_t bitmap);
+typedef int (*as_smd_accept_cb)(char *module, as_smd_item_list_t *items, void *udata, uint32_t accept_opt);
 
 /*
  *  Callback function type for metadata acceptance pre-check policy function.
