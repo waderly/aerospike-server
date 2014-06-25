@@ -57,6 +57,11 @@ command:
 
 	$ git submodule update --init
 
+*Note:*  As this project uses submodules, the source archive downloadable
+via GitHub's `Download ZIP` button will not build unless the correct
+revision of each submodule is first manually installed in the appropriate
+`modules` subdirectory.
+
 ## Building Aerospike
 
 ### Default Build
@@ -136,7 +141,7 @@ or, equivalently:
 	$ mkdir -p run/{log,work/{smd,{sys,usr}/udf/lua}}
 	$ cp -pr modules/lua-core/src/* run/work/sys/udf/lua
 
-To launch the server:
+To launch the server with `as/etc/aerospike_dev.conf` as the config:
 
 	$ make start
 

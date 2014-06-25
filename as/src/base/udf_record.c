@@ -808,7 +808,7 @@ void as_index_set_flags(as_index* index, as_index_flag flags) {
 static int
 udf_record_remove(const as_rec * rec, const char * name)
 {
-	int ret = udf_record_param_check(rec, NULL, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
 	if (ret) {
 		return ret;
 	}
@@ -827,7 +827,7 @@ udf_record_remove(const as_rec * rec, const char * name)
 static uint32_t
 udf_record_ttl(const as_rec * rec)
 {
-	int ret = udf_record_param_check(rec, NULL, __FILE__, __LINE__);
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
 	if (ret) {
 		return 0;
 	}

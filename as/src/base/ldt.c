@@ -1184,9 +1184,9 @@ as_ldt_sub_gc_fn(as_index_ref *r_ref, void *udata)
 		}
 		cf_detail(AS_LDT, "LDT_SUB_GC Expiry of the SubRecord type=%d version=%ld partition state is %d:%d",
 				type, subrec_version, p->rxstate, p->txstate);
-		cf_info_digest(AS_LDT, &subrec_digest, "Sub-Rec Digest: ");
-		cf_info_digest(AS_LDT, &esr_digest, "ESR Digest: ");
-		cf_info_digest(AS_LDT, &parent_digest, "Parent Digest: ");
+		cf_detail_digest(AS_LDT, &subrec_digest, "Sub-Rec Digest: ");
+		cf_detail_digest(AS_LDT, &esr_digest, "ESR Digest: ");
+		cf_detail_digest(AS_LDT, &parent_digest, "Parent Digest: ");
 		as_index_delete(p->sub_vp, &subrec_digest);
 		linfo->num_gc++;
 	}
