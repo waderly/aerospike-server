@@ -1108,12 +1108,7 @@ as_query_record_matches(as_query_transaction *qtr, as_storage_rd *rd)
 			char buf[psz + 1];
 			as_particle_tobuf(b, (uint8_t *) buf, &psz);
 			buf[psz]     = '\0';
-			/*if (psz != start->valsz) {
-				cf_detail(AS_QUERY, "as_query_record_validation: "
-						"String size mismatch %d != %d", psz, start->valsz);
-				return false;
-			}*/
-            cf_digest bin_digest;
+			cf_digest bin_digest;
             cf_digest_compute( buf, psz, &bin_digest);
 			if (memcmp(&bin_digest, &start->digest, AS_DIGEST_KEY_SZ)) {
 				cf_detail(AS_QUERY, "as_query_record_validation: "

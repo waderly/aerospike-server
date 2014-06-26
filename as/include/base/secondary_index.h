@@ -137,15 +137,12 @@ typedef enum {
 typedef struct as_sindex_bin_s {
 	uint32_t          id;
 	as_particle_type  type; // this type is citrusleaf type
-	//uint32_t          valsz;
 	union {
-		//char    *str; // sz is strlen
 		char    *blob;
 		int64_t  i64;
 	} u;
 	cf_digest         digest;
 	byte              flag;
-	//char              stackstr[SINDEX_STRONSTACK_VALSZ];
 } as_sindex_bin;
 
 /* 

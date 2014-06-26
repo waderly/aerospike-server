@@ -621,8 +621,6 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	uint16_t old_n_bins =  (ns->storage_data_in_memory || ns->single_bin) ?
 			rd->n_bins : as_bin_inuse_count(rd);
 
-	SINDEX_BINS_SETUP(oldbin, old_n_bins);
-	SINDEX_BINS_SETUP(newbin, newbins);
 	int32_t  delta_bins   = (int32_t)newbins - (int32_t)old_n_bins;
 	int      sindex_ret   = AS_SINDEX_OK;
 	int      oldbin_cnt   = 0;
