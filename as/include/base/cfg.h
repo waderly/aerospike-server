@@ -266,11 +266,11 @@ typedef struct as_config_s {
 	uint32_t fb_health_msg_timeout; // milliseconds after which to give up on health probe message
 	uint32_t fb_health_good_pct; // percent of successful messages in a burst at/above which node is deemed ok
 	uint32_t fb_health_bad_pct; // percent of successful messages in a burst at/below which node is deemed bad
-	bool auto_dun; // enables fb health and paxos to dun nodes
-	bool auto_undun; // enables fb health to undun nodes that have been dunned
+	bool     auto_dun; // enables fb health and paxos to dun nodes
+	bool     auto_undun; // enables fb health to undun nodes that have been dunned
 
 	// Temporary dangling prole garbage collection.
-	uint32_t prole_extra_ttl;	// seconds beyond expiry time after which we garbage collect, 0 for no garbage collection
+	uint32_t        prole_extra_ttl;	// seconds beyond expiry time after which we garbage collect, 0 for no garbage collection
 
 	xdr_config		xdr_cfg;							// XDR related config parameters
 	xdr_lastship_s	xdr_lastship[AS_CLUSTER_SZ];		// last XDR shipping info of other nodes
@@ -286,31 +286,31 @@ typedef struct as_config_s {
 	uint32_t		sindex_populator_scan_priority;
 	cf_atomic_int   sindex_gc_timedout;
 
-	cf_atomic64	query_reqs;
-	cf_atomic64	query_fail;
-	cf_atomic64	query_short_queue_full;
-	cf_atomic64	query_long_queue_full;
-	cf_atomic64	query_short_running;
-	cf_atomic64	query_long_running;
-	cf_atomic64	query_tracked;
-	cf_atomic64	query_false_positives;
-	bool        query_enable_histogram;
+	cf_atomic64     query_reqs;
+	cf_atomic64     query_fail;
+	cf_atomic64     query_short_queue_full;
+	cf_atomic64    	query_long_queue_full;
+	cf_atomic64	    query_short_running;
+	cf_atomic64     query_long_running;
+	cf_atomic64     query_tracked;
+	cf_atomic64     query_false_positives;
+	bool            query_enable_histogram;
 
 	// Aggregation stat
-	cf_atomic64	n_aggregation;
-	cf_atomic64	n_agg_success;
-	cf_atomic64	n_agg_abort;
-	cf_atomic64	n_agg_errs;
-	cf_atomic64	agg_response_size;
-	cf_atomic64	agg_num_records;
+	cf_atomic64     n_aggregation;
+	cf_atomic64     n_agg_success;
+	cf_atomic64     n_agg_abort;
+	cf_atomic64     n_agg_errs;
+	cf_atomic64     agg_response_size;
+	cf_atomic64	    agg_num_records;
 
 	// Lookup stat
-	cf_atomic64	n_lookup;
-	cf_atomic64	n_lookup_success;
-	cf_atomic64	n_lookup_abort;
-	cf_atomic64	n_lookup_errs;
-	cf_atomic64	lookup_response_size;
-	cf_atomic64	lookup_num_records;
+	cf_atomic64     n_lookup;
+	cf_atomic64     n_lookup_success;
+	cf_atomic64     n_lookup_abort;
+	cf_atomic64     n_lookup_errs;
+	cf_atomic64     lookup_response_size;
+	cf_atomic64     lookup_num_records;
 
 	uint64_t		udf_runtime_max_memory; // Maximum runtime memory allowed for per UDF
 	uint64_t		udf_runtime_max_gmemory; // maximum runtime memory alloed for all UDF

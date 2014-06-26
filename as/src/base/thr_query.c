@@ -269,11 +269,11 @@ histogram * query_batch_io_q_wait_hist;
 histogram * query_batch_io_hist;
 histogram * query_net_io_hist;
 
-#define QUERY_HIST_INSERT_DATA_POINT(type, start_time)           \
+#define QUERY_HIST_INSERT_DATA_POINT(type, start_time)              \
 do {                                                                \
 	if (g_config.query_enable_histogram) {                          \
 		if (type) {                                                 \
-			histogram_insert_data_point(type, start_time);       \
+			histogram_insert_data_point(type, start_time);          \
 		}                                                           \
 	}                                                               \
 } while(0);
