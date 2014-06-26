@@ -2877,6 +2877,18 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			cf_info(AS_INFO, "Changing value of query-longq-max-size from %d to %d ", g_config.query_long_q_max_size, val);
 			g_config.query_long_q_max_size = val;
 		}
+		else if (0 == as_info_parameter_get(params, "query-microbenchmark", context, &context_len)) {
+			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) { 
+				cf_info(AS_INFO, "Changing value of query-enable-histogram to %s", context);
+				g_config.query_enable_histogram = true;
+			}    
+			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) { 
+				cf_info(AS_INFO, "Changing value of query-enable-histogram to %s", context);
+				g_config.query_enable_histogram = false;
+			}    
+			else 
+				goto Error;
+		}
 		else
 			goto Error;
 	}
@@ -4326,6 +4338,8 @@ info_debug_ticker_fn(void *gcc_is_ass)
 				cf_hist_track_dump(g_config.q_hist);
 			if (g_config.q_rcnt_hist)
 				cf_hist_track_dump(g_config.q_rcnt_hist);
+
+			as_query_histogram_dumpall();
 
 			if (g_config.microbenchmarks) {
 				if (g_config.rt_cleanup_hist)

@@ -294,6 +294,7 @@ typedef struct as_config_s {
 	cf_atomic64	query_long_running;
 	cf_atomic64	query_tracked;
 	cf_atomic64	query_false_positives;
+	bool        query_enable_histogram;
 
 	// Aggregation stat
 	cf_atomic64	n_aggregation;

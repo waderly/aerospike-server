@@ -205,13 +205,13 @@ struct as_query_transaction_s {
 												// is 1, irrelevant of number of record
 												// being touched.
 	uint32_t          n_digests;                // Digests picked by SIK
-	uint64_t          sik_time;                 // secondary index lookup time
-	uint64_t          rec_time;                 // record lookup time
-	uint64_t          agg_time;                 // time taken to perform aggregation
 												// including record read
 	uint64_t          net_io_bytes;
 	uint64_t          read_success;
-
+	uint64_t          waiting_time_us;          // Time spent waiting by query in query_queue
+	uint64_t          querying_ai_time_us;      // Time spent by query to run lookup secondary index trees.
+	uint64_t          queued_time_us;
+	
 	// PRIORITY PARAMETERS
 	uint32_t          yield_count;              // Number of loops
 	cf_atomic32       qreq_in_flight;
@@ -259,8 +259,36 @@ pthread_mutex_t         g_query_arr_mutex;
 
 // Query management
 static rchash *g_query_job_hash = NULL;
-// forward declarations
 
+// Histograms
+
+histogram * query_txn_q_wait_hist;
+histogram * query_prepare_batch_q_wait_hist;
+histogram * query_prepare_batch_hist;
+histogram * query_batch_io_q_wait_hist;
+histogram * query_batch_io_hist;
+histogram * query_net_io_hist;
+
+#define QUERY_HIST_INSERT_DATA_POINT(type, start_time)           \
+do {                                                                \
+	if (g_config.query_enable_histogram) {                          \
+		if (type) {                                                 \
+			histogram_insert_data_point(type, start_time);       \
+		}                                                           \
+	}                                                               \
+} while(0);
+
+#define QUERY_HIST_INSERT_DELTA(type, delta)                        \
+do {                                                                \
+	if (g_config.query_enable_histogram) {                          \
+		if (type) {                                                 \
+			histogram_insert_delta(type, delta);                    \
+		}                                                           \
+	}                                                               \
+} while(0);
+
+
+// forward declarations
 
 // Buf Builder Pool
 static cf_queue  * g_query_response_bb_pool  = 0;
@@ -307,7 +335,7 @@ int                  as_qtr__reserve(as_query_transaction *qtr, char *fname, int
 int                  as_query__agg_call_init   (query_agg_call *,
 							as_transaction *, as_query_transaction *);
 void                 as_query__agg_call_destroy(query_agg_call *);
-int                  as_query__agg(query_agg_call *, cf_ll *recl, void *udata,as_result* res);
+int                  as_query__agg(query_agg_call *, cf_ll *recl, void *udata, as_result* res);
 
 #define AS_QUERY_INCREMENT_ERR_COUNT(qtr)   \
 	if(qtr->job_type == AS_QUERY_AGG) {    \
@@ -363,11 +391,12 @@ as_query__update_stats(as_query_transaction *qtr)
 	cf_hist_track_insert_delta(g_config.q_rcnt_hist, rows);
 	cf_hist_track_insert_data_point(g_config.q_hist, qtr->start_time / 1000);
 	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_hist, qtr->start_time / 1000);
-	SINDEX_HIST_INSERT_DELTA(qtr->si, query_cl_hist, qtr->rec_time);
-	SINDEX_HIST_INSERT_DELTA(qtr->si, query_ai_hist, qtr->sik_time);
 	SINDEX_HIST_INSERT_DELTA(qtr->si, query_rcnt_hist, qtr->n_digests);
 	SINDEX_HIST_INSERT_DELTA(qtr->si, query_diff_hist, qtr->n_digests - qtr->num_records);
 
+	QUERY_HIST_INSERT_DELTA(query_prepare_batch_hist, qtr->querying_ai_time_us);
+	QUERY_HIST_INSERT_DELTA(query_prepare_batch_q_wait_hist, qtr->waiting_time_us);
+	
 	uint64_t query_stop_time = cf_getus();
 	cf_detail(AS_QUERY,
 			"Total time elapsed %"PRIu64" us, %d of %d read operations avg latency %"PRIu64" us",
@@ -416,6 +445,34 @@ ll_recl_destroy_fn(cf_ll_element *ele)
 		if (node->dig_arr)
 			cf_free(node->dig_arr);
 		cf_free(node);
+	}
+}
+
+void
+as_query_histogram_dumpall()
+{
+	if (g_config.query_enable_histogram == false) 
+	{
+		return;
+	}
+
+	if (query_txn_q_wait_hist) {
+		histogram_dump(query_txn_q_wait_hist);
+	}
+	if (query_prepare_batch_q_wait_hist) {
+		histogram_dump(query_prepare_batch_q_wait_hist);
+	}
+	if (query_prepare_batch_hist) {
+		histogram_dump(query_prepare_batch_hist);
+	}
+	if (query_batch_io_q_wait_hist) {
+		histogram_dump(query_batch_io_q_wait_hist);
+	}
+	if (query_batch_io_hist) {
+		histogram_dump(query_batch_io_hist);
+	}
+	if (query_net_io_hist) {
+		histogram_dump(query_net_io_hist);
 	}
 }
 
@@ -647,6 +704,9 @@ as_query__push_qreq(as_query_request *qreq)
 	// Choose queue carefully here from multiple queues in qtr
 	cf_detail(AS_QUERY, "Pushed I/O request [%p,%p]", qreq, qreq->qtr);
 	cf_atomic32_incr(&qreq->qtr->qreq_in_flight);
+	if (g_config.query_enable_histogram) {
+		qreq->qtr->queued_time_us = cf_getus();
+	}
 	return cf_queue_push(g_query_request_queue, &qreq);
 }
 
@@ -687,12 +747,22 @@ as_query__transaction_done(as_query_transaction *qtr)
 	// Send out the final data back
 	if (qtr->fd_h) {
 		as_query__add_fin(qtr);
+		uint64_t time_us        = 0;
+		
+		if (g_config.query_enable_histogram) {
+			time_us = cf_getus();
+		}
+
 		int brv = as_query__send_response(qtr);
+		
+		if (time_us) {
+			QUERY_HIST_INSERT_DELTA(query_net_io_hist, time_us);
+		}
+
 		if (brv != AS_QUERY_OK) {
 			cf_detail( AS_QUERY,
 					"query request: Not sending the fin packet as the connection is closed");
 		}
-		cf_detail(AS_QUERY, "Total Time %ld", cf_getus() - qtr->start_time);
 	} else {
 		cf_debug( AS_QUERY,
 				"query request: Not sending the fin packet as the connection is closed");
@@ -719,7 +789,6 @@ as_query__transaction_done(as_query_transaction *qtr)
 	if (qtr->msgp)        cf_free(qtr->msgp);
 	pthread_mutex_destroy(&qtr->buf_mutex);
 	if (do_free) cf_rc_free(qtr);
-	// cf_detail(AS_QUERY, "Cleanup finished @ %ld", cf_getus() - qtr->start_time);
 }
 
 
@@ -795,10 +864,20 @@ as_query__add_val_response(void *void_qtr, const as_val *val, bool success)
 		return AS_QUERY_ERR;
 	}
 	if (msg_sz > (bb_r->alloc_sz - bb_r->used_sz)) {
-		int ret = as_query__send_response(qtr);
+		uint64_t time_us        = 0;
+
+		if (g_config.query_enable_histogram) {
+			time_us = cf_getus();
+		}
+
+		int ret     = as_query__send_response(qtr);
 		if (ret != AS_QUERY_OK) {
 			pthread_mutex_unlock(&qtr->buf_mutex);
 			return ret;
+		}
+
+		if (time_us) {
+			QUERY_HIST_INSERT_DELTA(query_net_io_hist, cf_getus() - time_us);
 		}
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
@@ -854,10 +933,20 @@ as_query__add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 		return AS_QUERY_ERR;
 	}
 	if (msg_sz > (bb_r->alloc_sz - bb_r->used_sz)) {
-		int ret = as_query__send_response(qtr);
+		uint64_t time_us        = 0;
+
+		if (g_config.query_enable_histogram) {
+			time_us = cf_getus();
+		}
+
+		int ret     = as_query__send_response(qtr);
 		if (ret != AS_QUERY_OK) {
 			pthread_mutex_unlock(&qtr->buf_mutex);
 			return ret;
+		}
+
+		if (time_us) {
+			QUERY_HIST_INSERT_DELTA(query_net_io_hist, cf_getus() - time_us);
 		}
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
@@ -1012,13 +1101,8 @@ as_query__process_aggreq(as_query_request *qagg)
 	if (!qtr)           goto Cleanup;
 	as_query__check_timeout(qtr);
 	if (QTR_FAILED(qtr))    goto Cleanup;
-
-	uint64_t ldiff      = 0;
-	uint64_t start_time = cf_getus();
 	as_result   *res    = as_result_new();
 	ret                 = as_query__agg(&qtr->agg_call, qagg->recl, NULL, res);
-	ldiff               = cf_getus() - start_time;
-	qtr->agg_time      += ldiff;
 
 	if (ret != 0) {
         char *rs = as_module_err_string(ret);
@@ -1290,8 +1374,6 @@ as_query__process_udfreq(as_query_request *qudf)
 	int ret               = AS_QUERY_OK;
 	cf_ll_element  * ele  = NULL;
 	cf_ll_iterator * iter = NULL;
-	uint64_t ldiff        = 0;
-	uint64_t start_time   = cf_getus();
 	as_query_transaction *qtr = qudf->qtr;
 	if (!qtr)           return AS_QUERY_ERR;
 	as_query__check_timeout(qtr);
@@ -1340,8 +1422,6 @@ Cleanup:
 		cf_ll_releaseIterator(iter);
 		iter = NULL;
 	}
-	ldiff            = cf_getus() - start_time;
-	qtr->rec_time   += ldiff;
 
 	as_query__recl_cleanup(qudf->recl);
 
@@ -1356,15 +1436,21 @@ Cleanup:
 int
 as_query__process_ioreq(as_query_request *qio)
 {
-	int ret               = AS_QUERY_ERR;
-	cf_ll_element * ele   = NULL;
-	cf_ll_iterator * iter = NULL;
-	uint64_t ldiff        = 0;
-	as_query_transaction *qtr = qio->qtr;
+	as_query_transaction *qtr = qio->qtr;	
 	if (!qtr)           return AS_QUERY_ERR;
 
+	int ret               = AS_QUERY_ERR;
+	if (qtr->queued_time_us != 0) {
+		QUERY_HIST_INSERT_DELTA(query_batch_io_q_wait_hist, cf_getus() - qtr->queued_time_us);
+	}
+	cf_ll_element * ele   = NULL;
+	cf_ll_iterator * iter = NULL;
+	
 	cf_detail(AS_QUERY, "Performing IO");
-
+	uint64_t time_us      = 0;
+	if (g_config.query_enable_histogram || qtr->si->enable_histogram) {
+		time_us = cf_getus();
+	}	
 	iter                  = cf_ll_getIterator(qio->recl, true /*forward*/);
 	if (!iter) {
 		qtr->err          = true;
@@ -1379,14 +1465,12 @@ as_query__process_ioreq(as_query_request *qio)
 		if (!dt) continue;
 		node->dig_arr     = NULL;
 		for (int i = 0; i < dt->num; i++) {
-			cf_digest *dig       = &dt->digs[i];
-			uint64_t start_time  = cf_getus();
-			ret                  = as_query__io(qtr, dig);
+			cf_digest *dig  = &dt->digs[i];
+			ret             = as_query__io(qtr, dig);
 			if (ret != AS_QUERY_OK) {
 				releaseDigArrToQueue((void *)dt);
 				goto Cleanup;
 			}
-			ldiff               += cf_getus() - start_time;
 
 			if (++qtr->yield_count % qtr->priority == 0)
 			{
@@ -1401,7 +1485,6 @@ as_query__process_ioreq(as_query_request *qio)
 		releaseDigArrToQueue((void *)dt);
 	}
 Cleanup:
-	qtr->rec_time   += ldiff;
 
 	if(iter) {
 		cf_ll_releaseIterator(iter);
@@ -1415,6 +1498,13 @@ Cleanup:
 		if (qio->recl)  cf_free(qio->recl);
 		qio->recl = NULL;
 	}
+
+	if (time_us) {
+		uint64_t end_time_us = cf_getus();
+		QUERY_HIST_INSERT_DELTA(query_batch_io_hist, end_time_us - time_us);
+		SINDEX_HIST_INSERT_DELTA(qtr->si, query_batch_io, end_time_us - time_us);
+	}
+
 	return 0;
 }
 
@@ -1500,6 +1590,11 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 	int              ret     = AS_QUERY_OK;
 	as_sindex       *si      = qtr->si;
 	as_sindex_qctx  *qctx    = &qtr->qctx;
+	uint64_t         time_us = 0;
+	if (g_config.query_enable_histogram) {
+		time_us = cf_getus();
+	}
+
 	if (qctx->pimd_idx == -1) {
 		if (!qtr->srange->isrange) {
 			qctx->pimd_idx   = ai_btree_key_hash(si->imd, &qtr->srange->start);
@@ -1528,9 +1623,7 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 	}
 
 	// Query Aerospike Index
-	cf_clock start_time      = cf_getus();
 	int      qret            = as_sindex_query(qtr->si, srange, &qtr->qctx);
-	qtr->sik_time           += cf_getus() - start_time;
 	cf_detail(AS_QUERY, "start %ld end %ld @ %d pimd found %d", srange->start.u.i64, srange->end.u.i64, qctx->pimd_idx, qctx->n_bdigs);
 
 	qctx->first              = 0;
@@ -1547,6 +1640,9 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 		goto batchout;
 	}
 
+	if (time_us) {
+		qtr->querying_ai_time_us += cf_getus() - time_us;
+	}
 	if (qctx->n_bdigs < qctx->bsize) {
 		qctx->first          = 1;
 		qctx->last           = false;
@@ -1554,7 +1650,7 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 		cf_detail(AS_QUERY, "All the Data finished moving to next tree %d", qctx->pimd_idx);
 		if (!srange->isrange || (qctx->pimd_idx == si->imd->nprts)) {
 			qtr->result_code = AS_PROTO_RESULT_OK;
-			ret = AS_QUERY_DONE;
+			ret              = AS_QUERY_DONE;
 			goto batchout;
 		}
 		ret = AS_QUERY_CONTINUE;
@@ -1569,6 +1665,7 @@ as_query__setup_qreq(as_query_request *qreqp, as_query_transaction *qtr)
 {
 	qreqp->qtr               = qtr;
 	qreqp->recl              = qtr->qctx.recl;
+	qtr->queued_time_us      = 0;
 	qtr->qctx.recl           = NULL;
 	qtr->n_digests          += qtr->qctx.n_bdigs;
 	qtr->qctx.n_bdigs        = 0;
@@ -1682,7 +1779,18 @@ as_query__generator(as_query_transaction *qtr)
 
 		// Step 3: Get Next Batch
 		qtr->loop++;
-		int qret      = as_query__generator_get_nextbatch(qtr);
+		uint64_t time_us              = 0;
+
+		if (qtr->si->enable_histogram) {
+			time_us = cf_getus();
+		}
+		
+		int qret    = as_query__generator_get_nextbatch(qtr);
+
+		if (time_us) {
+			SINDEX_HIST_INSERT_DELTA(qtr->si, query_batch_lookup, cf_getus() - time_us);	
+		}
+
 		cf_detail(AS_QUERY, "Loop=%d, Selected=%d, ret=%d", qtr->loop, qtr->qctx.n_bdigs, qret);
 		switch(qret) {
 			case  AS_QUERY_OK:
@@ -1780,6 +1888,9 @@ as_query__th(void* q_to_wait_on)
 			cf_atomic64_incr(&g_config.query_long_running);
 			cf_atomic64_decr(&g_config.query_short_running);
 		}
+		if (qtr->queued_time_us != 0) {
+			qtr->waiting_time_us += (cf_getus() - qtr->queued_time_us);
+		}
 		as_query__generator(qtr);
 	}
 	return 0;
@@ -1849,6 +1960,38 @@ as_query_init()
 			cf_crash(AS_QUERY, "Failed to create query transaction threads");
 		}
 	}
+	char hist_name[64];
+	sprintf(hist_name, "query_txn_q_wait_us");
+	if (NULL == (query_txn_q_wait_hist = histogram_create(hist_name))) {
+		cf_warning(AS_SINDEX, "couldn't create histogram for the time spent in transaction queue by queries.");
+	}
+
+	sprintf(hist_name, "query_prepare_batch_q_wait_us");
+	if (NULL == (query_prepare_batch_q_wait_hist = histogram_create(hist_name))) {
+		cf_warning(AS_SINDEX, "couldn't create histogram for time spent waiting for batch creation phase");
+	}
+
+	sprintf(hist_name, "query_prepare_batch_us");
+	if (NULL == (query_prepare_batch_hist = histogram_create(hist_name))) {
+		cf_warning(AS_SINDEX, "couldn't create histogram for query batch creation phase");
+	}
+
+	sprintf(hist_name, "query_batch_io_q_wait_us");
+	if (NULL == (query_batch_io_q_wait_hist = histogram_create(hist_name))) {
+		cf_warning(AS_SINDEX, "couldn't create histogram for i/o response time for query batches");
+	}
+
+	sprintf(hist_name, "query_batch_io_us");
+	if (NULL == (query_batch_io_hist = histogram_create(hist_name))) {
+		cf_warning(AS_SINDEX, "couldn't create histogram for i/o of query batches");
+	}
+
+	sprintf(hist_name, "query_net_io_us");
+	if (NULL == (query_net_io_hist = histogram_create(hist_name))) {
+		cf_warning(AS_SINDEX, "couldn't create histogram for query net-i/o");
+	}
+
+	g_config.query_enable_histogram	= false;
 }
 
 /*
@@ -1991,6 +2134,9 @@ as_query__queue(as_query_transaction *qtr)
 	} else {
 		cf_detail(AS_QUERY, "Logged query ");
 	}
+	if (g_config.query_enable_histogram) {
+		qtr->queued_time_us = cf_getus();
+	}
 	return 0;
 }
 
@@ -2014,6 +2160,9 @@ as_query__queue(as_query_transaction *qtr)
 int
 as_query(as_transaction *tr)
 {
+	if (tr) {
+		QUERY_HIST_INSERT_DELTA(query_txn_q_wait_hist, cf_getus() - (tr->start_time * 1000));
+	}
 	uint64_t start_time     = cf_getus();
 	as_sindex *si           = NULL;
 	cf_vector *binlist      = 0;
@@ -2107,7 +2256,6 @@ as_query(as_transaction *tr)
 		rv = AS_QUERY_OK;
 		goto Cleanup;
 	}
-	cf_detail(AS_QUERY, "Setup time %ld", cf_getus() - start_time);
 	cf_detail(AS_QUERY, "Query on index %s ",
 			((as_sindex_metadata *)si->imd)->iname);
 
@@ -2117,24 +2265,27 @@ as_query(as_transaction *tr)
 		goto Cleanup;
 	}
 	memset(qtr, 0, sizeof(as_query_transaction));
-	qtr->is_malloc      = true;
-	qtr->inited         = false;
-	qtr->trid           = tr->trid;
-	qtr->fd_h           = tr->proto_fd_h;
-	qtr->fd_h->fh_info |= FH_INFO_DONOT_REAP;
-	qtr->ns             = ns;
-	qtr->setname        = setname;
-	qtr->si             = si;
-	qtr->srange         = srange;
-	qtr->job_type       = AS_QUERY_LOOKUP;
-	qtr->binlist        = binlist;
-	qtr->start_time     = start_time;
-	qtr->end_time       = tr->end_time;
-	qtr->msgp           = tr->msgp;
-	qtr->short_running  = true;
-	qtr->err            = false;
-	qtr->abort          = false;
-	qtr->track          = false;
+	qtr->is_malloc           = true;
+	qtr->inited              = false;
+	qtr->trid                = tr->trid;
+	qtr->fd_h                = tr->proto_fd_h;
+	qtr->fd_h->fh_info      |= FH_INFO_DONOT_REAP;
+	qtr->ns                  = ns;
+	qtr->setname             = setname;
+	qtr->si                  = si;
+	qtr->srange              = srange;
+	qtr->job_type            = AS_QUERY_LOOKUP;
+	qtr->binlist             = binlist;
+	qtr->start_time          = start_time;
+	qtr->end_time            = tr->end_time;
+	qtr->msgp                = tr->msgp;
+	qtr->short_running       = true;
+	qtr->err                 = false;
+	qtr->abort               = false;
+	qtr->track               = false;
+	qtr->queued_time_us      = 0;   
+	qtr->querying_ai_time_us = 0;
+	qtr->waiting_time_us     = 0;
 
 	if (as_query__agg_call_init(&qtr->agg_call, tr, qtr) == AS_QUERY_OK) {
 		// There is no io call back, record is worked on from inside stream
@@ -2346,10 +2497,6 @@ as_query_list_job_reduce_fn (void *key, uint32_t keylen, void *object, void *uda
 	cf_dyn_buf_append_uint64(db, cf_atomic_int_get(qtr->num_records));
 	cf_dyn_buf_append_string(db, ":run_time=");
 	cf_dyn_buf_append_uint64(db, cf_getus() - qtr->start_time);
-	cf_dyn_buf_append_string(db, ":sik_time=");
-	cf_dyn_buf_append_uint64(db, qtr->sik_time);
-	cf_dyn_buf_append_string(db, ":rec_time=");
-	cf_dyn_buf_append_uint64(db, qtr->rec_time);
 	cf_dyn_buf_append_string(db, ":state=");
 	if(qtr->abort) {
 		cf_dyn_buf_append_string(db, "ABORTED");

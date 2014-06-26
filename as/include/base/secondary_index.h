@@ -236,9 +236,9 @@ typedef struct as_sindex_stat_s {
 	cf_atomic64        defrag_time;
 	
 	// Query Stats
-	histogram *       _query_hist;    // histogram that tracks batch performance
-	histogram *       _query_ai_hist; // histgram for getting list of FK
-	histogram *       _query_cl_hist; // histogram for looking up records using FK
+	histogram *       _query_hist;            // histogram that tracks query latency
+	histogram *       _query_batch_lookup;    // histgram for tracking latency of batch request from sindex tree.
+	histogram *       _query_batch_io;
 	//	--aggregation stats
 	cf_atomic64        n_aggregation;
 	cf_atomic64        agg_response_size;
@@ -572,3 +572,4 @@ extern int as_sindex_smd_merge_cb(char *module, as_smd_item_list_t **item_list_o
 extern int as_sindex_smd_can_accept_cb(char* module, as_smd_item_t *item, 
 									   void *udata);
 extern uint64_t as_sindex_get_ns_memory_used(as_namespace *ns);
+extern void as_query_histogram_dumpall();
