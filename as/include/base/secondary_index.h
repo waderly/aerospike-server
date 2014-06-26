@@ -123,8 +123,8 @@ typedef enum {
  * 320 bytes
  */
 #define SINDEX_BINS_SETUP(skey_bin, size)                   \
-	as_sindex_bin skey_bin[(size)];                          \
-	memset (&(skey_bin), 0, sizeof(as_sindex_bin) * (size)); \
+	as_sindex_bin skey_bin[(size)];                         \
+	memset (&(skey_bin), 0, sizeof(as_sindex_bin) * (size));\
 	for (int id = 0; id < (size); id++) skey_bin[id].id = -1; 
 
 /*

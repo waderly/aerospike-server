@@ -497,6 +497,9 @@ as_sindex__skey_from_rd(as_sindex_metadata *imd, as_sindex_key *skey,
 		if (b && (as_bin_get_particle_type(b) ==
 					as_sindex_pktype_from_sktype(imd->btype[i]))) {
 			// optimize do not copy
+            // Populate digest value in skey so Aerospike Index B-tree hashing for
+			// string works
+
 			ret = as_sindex_sbin_from_bin(imd->si->ns, imd->set,
 											b, &skey->b[i]);
 			if (ret != AS_SINDEX_OK) {
@@ -504,12 +507,6 @@ as_sindex__skey_from_rd(as_sindex_metadata *imd, as_sindex_key *skey,
 				cf_warning(AS_SINDEX, "Warning: Did not find matching index for %s", imd->bnames[i]);
 				ret = AS_SINDEX_ERR_NOTFOUND; goto Cleanup;
 			}
-			// Populate digest value in skey so Aerospike Index B-tree hashing for
-			// string works
-            // Digest is computed from as_sindex_sbin_from_bin.
-			//if (skey->b[i].type == AS_PARTICLE_TYPE_STRING) {
-			//	cf_digest_compute(skey->b[i].u.str, skey->b[i].valsz, &skey->b[i].digest);
-			//}
 		} else if (!b) {
 			SITRACE(imd->si, DML, debug, "No bin for %s", imd->bnames[i]);
 			ret = AS_SINDEX_ERR_BIN_NOTFOUND;
@@ -2156,7 +2153,7 @@ as_sindex_range_from_msg(as_namespace *ns, as_msg *msgp, as_sindex_range *srange
                            start_binval, end_binval);
 				goto Cleanup;
 			}
-            cf_digest_compute(start_binval, startl, &(start->digest));
+			cf_digest_compute(start_binval, startl, &(start->digest));
 			GTRACE(QUERY, debug, "Range is equal %s ,%s",
                                start_binval, end_binval);
 		} else {
@@ -2270,7 +2267,7 @@ as_sindex_sbin_from_bin(as_namespace *ns, const char *set, as_bin *b, as_sindex_
 		sbin->id    = b->id;
 		sbin->type  = as_bin_get_particle_type(b);
 		sbin->flag &= ~SINDEX_FLAG_BIN_ISVALID;
-        uint32_t valsz;
+		uint32_t valsz;
 		as_particle_tobuf(b, 0, &valsz);
 
 		// when copying from record the new copy is made. because
@@ -2286,8 +2283,8 @@ as_sindex_sbin_from_bin(as_namespace *ns, const char *set, as_bin *b, as_sindex_
 			}
 			case AS_PARTICLE_TYPE_STRING: {
 				sbin->flag |= SINDEX_FLAG_BIN_ISVALID;
-                byte* bin_val;
-                as_particle_p_get( b, &bin_val, &valsz);
+				byte* bin_val;
+				as_particle_p_get( b, &bin_val, &valsz);
 				cf_digest_compute(bin_val, valsz, &sbin->digest);
 				return AS_SINDEX_OK;
 			}

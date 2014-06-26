@@ -441,7 +441,7 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
         // The delete can happen after an aerospike:update
         // or aerospike:create in a single lua function invocation.
         // In that case, it's effectively a NO_OP in the master
-        if (!(urecord->flag & UDF_RECORD_FLAG_OPEN)){
+        if (!(urecord->flag & UDF_RECORD_FLAG_OPEN)) {
             *urecord_op  = UDF_OPTYPE_NONE;
         } else {
             *urecord_op  = UDF_OPTYPE_WRITE;
