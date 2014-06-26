@@ -537,16 +537,14 @@ typedef enum {
 	CASE_SECURITY_SYSLOG_BEGIN,
 
 	// Security (Aerospike) log options:
-	CASE_SECURITY_LOG_REPORT_AUTH_FAILURE,
-	CASE_SECURITY_LOG_REPORT_AUTH_SUCCESS,
+	CASE_SECURITY_LOG_REPORT_AUTHENTICATION,
 	CASE_SECURITY_LOG_REPORT_SYS_ADMIN,
 	CASE_SECURITY_LOG_REPORT_USER_ADMIN,
 	CASE_SECURITY_LOG_REPORT_VIOLATION,
 
 	// Security syslog options:
 	CASE_SECURITY_SYSLOG_LOCAL,
-	CASE_SECURITY_SYSLOG_REPORT_AUTH_FAILURE,
-	CASE_SECURITY_SYSLOG_REPORT_AUTH_SUCCESS,
+	CASE_SECURITY_SYSLOG_REPORT_AUTHENTICATION,
 	CASE_SECURITY_SYSLOG_REPORT_SYS_ADMIN,
 	CASE_SECURITY_SYSLOG_REPORT_USER_ADMIN,
 	CASE_SECURITY_SYSLOG_REPORT_VIOLATION
@@ -894,8 +892,7 @@ const cfg_opt SECURITY_OPTS[] = {
 };
 
 const cfg_opt SECURITY_LOG_OPTS[] = {
-		{ "report-auth-failure",			CASE_SECURITY_LOG_REPORT_AUTH_FAILURE },
-		{ "report-auth-success",			CASE_SECURITY_LOG_REPORT_AUTH_SUCCESS },
+		{ "report-authentication",			CASE_SECURITY_LOG_REPORT_AUTHENTICATION },
 		{ "report-sys-admin",				CASE_SECURITY_LOG_REPORT_SYS_ADMIN },
 		{ "report-user-admin",				CASE_SECURITY_LOG_REPORT_USER_ADMIN },
 		{ "report-violation",				CASE_SECURITY_LOG_REPORT_VIOLATION },
@@ -904,8 +901,7 @@ const cfg_opt SECURITY_LOG_OPTS[] = {
 
 const cfg_opt SECURITY_SYSLOG_OPTS[] = {
 		{ "local",							CASE_SECURITY_SYSLOG_LOCAL },
-		{ "report-auth-failure",			CASE_SECURITY_SYSLOG_REPORT_AUTH_FAILURE },
-		{ "report-auth-success",			CASE_SECURITY_SYSLOG_REPORT_AUTH_SUCCESS },
+		{ "report-authentication",			CASE_SECURITY_SYSLOG_REPORT_AUTHENTICATION },
 		{ "report-sys-admin",				CASE_SECURITY_SYSLOG_REPORT_SYS_ADMIN },
 		{ "report-user-admin",				CASE_SECURITY_SYSLOG_REPORT_USER_ADMIN },
 		{ "report-violation",				CASE_SECURITY_SYSLOG_REPORT_VIOLATION },
@@ -2728,11 +2724,8 @@ as_config_init(const char *config_file)
 		//
 		case SECURITY_LOG:
 			switch(cfg_find_tok(line.name_tok, SECURITY_LOG_OPTS, NUM_SECURITY_LOG_OPTS)) {
-			case CASE_SECURITY_LOG_REPORT_AUTH_FAILURE:
-				c->sec_cfg.report.auth_failure |= cfg_bool(&line) ? AS_SEC_SINK_LOG : 0;
-				break;
-			case CASE_SECURITY_LOG_REPORT_AUTH_SUCCESS:
-				c->sec_cfg.report.auth_success |= cfg_bool(&line) ? AS_SEC_SINK_LOG : 0;
+			case CASE_SECURITY_LOG_REPORT_AUTHENTICATION:
+				c->sec_cfg.report.authentication |= cfg_bool(&line) ? AS_SEC_SINK_LOG : 0;
 				break;
 			case CASE_SECURITY_LOG_REPORT_SYS_ADMIN:
 				c->sec_cfg.report.sys_admin |= cfg_bool(&line) ? AS_SEC_SINK_LOG : 0;
@@ -2761,11 +2754,8 @@ as_config_init(const char *config_file)
 			case CASE_SECURITY_SYSLOG_LOCAL:
 				c->sec_cfg.syslog_local = (as_sec_syslog_local)cfg_int(&line, AS_SYSLOG_MIN, AS_SYSLOG_MAX);
 				break;
-			case CASE_SECURITY_SYSLOG_REPORT_AUTH_FAILURE:
-				c->sec_cfg.report.auth_failure |= cfg_bool(&line) ? AS_SEC_SINK_SYSLOG : 0;
-				break;
-			case CASE_SECURITY_SYSLOG_REPORT_AUTH_SUCCESS:
-				c->sec_cfg.report.auth_success |= cfg_bool(&line) ? AS_SEC_SINK_SYSLOG : 0;
+			case CASE_SECURITY_SYSLOG_REPORT_AUTHENTICATION:
+				c->sec_cfg.report.authentication |= cfg_bool(&line) ? AS_SEC_SINK_SYSLOG : 0;
 				break;
 			case CASE_SECURITY_SYSLOG_REPORT_SYS_ADMIN:
 				c->sec_cfg.report.sys_admin |= cfg_bool(&line) ? AS_SEC_SINK_SYSLOG : 0;

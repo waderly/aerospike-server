@@ -47,8 +47,7 @@ typedef enum {
 
 // Security-related reporting sinks as bit-fields.
 typedef struct as_sec_report_s {
-	uint32_t	auth_failure;
-	uint32_t	auth_success;
+	uint32_t	authentication;
 	uint32_t	sys_admin;
 	uint32_t	user_admin;
 	uint32_t	violation;
