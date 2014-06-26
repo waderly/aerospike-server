@@ -497,7 +497,7 @@ as_sindex__skey_from_rd(as_sindex_metadata *imd, as_sindex_key *skey,
 		if (b && (as_bin_get_particle_type(b) ==
 					as_sindex_pktype_from_sktype(imd->btype[i]))) {
 			// optimize do not copy
-            // Populate digest value in skey so Aerospike Index B-tree hashing for
+			// Populate digest value in skey so Aerospike Index B-tree hashing for
 			// string works
 
 			ret = as_sindex_sbin_from_bin(imd->si->ns, imd->set,

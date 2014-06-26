@@ -528,7 +528,7 @@ as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t s
 		SINDEX_GRLOCK();
 	}
    
-    int sindex_bins =  (newbins < rd->ns->sindex_cnt) ? newbins : rd->ns->sindex_cnt; 
+	int sindex_bins =  (newbins < rd->ns->sindex_cnt) ? newbins : rd->ns->sindex_cnt; 
 	SINDEX_BINS_SETUP(newbin, sindex_bins);
 
 	for (uint16_t i = 0; i < newbins; i++) {

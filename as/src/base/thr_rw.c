@@ -2686,7 +2686,7 @@ write_delete_local(as_transaction *tr, bool journal, cf_node masternode)
 				const char* set_name = as_index_get_set_name(r, ns);
 
 				SINDEX_GRLOCK();
-                int sindex_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
+				int sindex_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
 				SINDEX_BINS_SETUP(oldbin, sindex_bins); 
 				for (int i = 0; i < rd.n_bins; i++) {
 					sindex_ret = as_sindex_sbin_from_bin(ns, set_name,
@@ -3761,8 +3761,8 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	if (has_sindex) {
 		SINDEX_GRLOCK();
 	}
-    int sindex_old_bins = ( ns->sindex_cnt < max_oldbins ) ? ns->sindex_cnt : max_oldbins;
-    int sindex_new_bins = ( ns->sindex_cnt < m->n_ops ) ? ns->sindex_cnt : m->n_ops;
+	int sindex_old_bins = ( ns->sindex_cnt < max_oldbins ) ? ns->sindex_cnt : max_oldbins;
+	int sindex_new_bins = ( ns->sindex_cnt < m->n_ops ) ? ns->sindex_cnt : m->n_ops;
 	SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
 	SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 	// If existing bins are loaded in rd.bins, it's easiest for record-level

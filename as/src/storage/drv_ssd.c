@@ -2854,8 +2854,8 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		if (has_sindex) {
 			SINDEX_GRLOCK();
 		}
-        int sindex_old_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
-        int sindex_new_bins = (ns->sindex_cnt < block->n_bins) ? ns->sindex_cnt : block->n_bins;
+		int sindex_old_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
+		int sindex_new_bins = (ns->sindex_cnt < block->n_bins) ? ns->sindex_cnt : block->n_bins;
 		SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
 		SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 
