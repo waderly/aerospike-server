@@ -10,7 +10,7 @@ endif
 
 BASE_HEADERS += as.h asm.h cfg.h cluster_config.h datamodel.h feature.h index.h
 BASE_HEADERS += ldt.h ldt_aerospike.h ldt_record.h monitor.h packet_compression.h
-BASE_HEADERS += proto.h rec_props.h secondary_index.h security.h system_metadata.h
+BASE_HEADERS += proto.h rec_props.h secondary_index.h security.h security_config.h system_metadata.h
 BASE_HEADERS += thr_info.h thr_proxy.h thr_scan.h thr_tsvc.h thr_write.h
 BASE_HEADERS += udf_aerospike.h udf_arglist.h udf_cask.h udf_logger.h
 BASE_HEADERS += udf_memtracker.h udf_record.h udf_rw.h udf_timer.h

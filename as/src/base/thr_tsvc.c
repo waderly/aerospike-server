@@ -291,11 +291,14 @@ transaction_check_msg(as_transaction *tr)
 
 
 static inline bool
-security_check(uint64_t check_privs, as_transaction *tr)
+security_check(as_transaction *tr, as_sec_priv priv)
 {
-	uint8_t result = as_security_check(check_privs, tr->proto_fd_h);
+	uint8_t result = as_security_check(tr->proto_fd_h, priv);
 
 	if (result != AS_PROTO_RESULT_OK) {
+		// For now we don't log successful data operations.
+		as_security_log(tr->proto_fd_h, result, priv, NULL, NULL);
+
 		as_msg_send_error(tr->proto_fd_h, (uint32_t)result);
 		tr->proto_fd_h = 0;
 		MICROBENCHMARK_HIST_INSERT_P(error_hist);
@@ -368,7 +371,7 @@ process_transaction(as_transaction *tr)
 	}
 
 	// First, check that the socket is authenticated.
-	if (tr->proto_fd_h && ! security_check(PRIV_NONE, tr)) {
+	if (tr->proto_fd_h && ! security_check(tr, PRIV_NONE)) {
 		goto Cleanup;
 	}
 
@@ -393,8 +396,8 @@ process_transaction(as_transaction *tr)
 						AS_MSG_FIELD_TYPE_INDEX_RANGE) != NULL) {
 					cf_detail(AS_TSVC, "Received Query Request(%"PRIx64")", tr->trid);
 					cf_atomic64_incr(&g_config.query_reqs);
-					if (! security_check(is_udf(msgp) ?
-							PRIV_UDF_QUERY : PRIV_QUERY, tr)) {
+					if (! security_check(tr,
+							is_udf(msgp) ? PRIV_UDF_QUERY : PRIV_QUERY)) {
 						goto Cleanup;
 					}
 					// Responsibility of query layer to free the msgp.
@@ -411,8 +414,8 @@ process_transaction(as_transaction *tr)
 					// We got a scan, it might be for udfs, no need to know now,
 					// for now, do not free msgp for all the cases. Should take
 					// care of it inside as_tscan.
-					if (! security_check(is_udf(msgp) ?
-							PRIV_UDF_SCAN : PRIV_SCAN, tr)) {
+					if (! security_check(tr,
+							is_udf(msgp) ? PRIV_UDF_SCAN : PRIV_SCAN)) {
 						goto Cleanup;
 					}
 					free_msgp = false;
@@ -438,7 +441,7 @@ process_transaction(as_transaction *tr)
 				}
 			} else if (rv == -3) {
 				// Has digest array, is batch - msgp gets freed through cleanup.
-				if (! security_check(PRIV_READ, tr)) {
+				if (! security_check(tr, PRIV_READ)) {
 					goto Cleanup;
 				}
 				if (0 != as_batch(tr)) {
@@ -551,8 +554,8 @@ process_transaction(as_transaction *tr)
 			if (tr->udata.req_udata) {
 				free_msgp = false;
 			}
-			else if (tr->proto_fd_h && ! security_check(is_udf(msgp) ?
-					PRIV_UDF_APPLY : PRIV_WRITE, tr)) {
+			else if (tr->proto_fd_h && ! security_check(tr,
+					is_udf(msgp) ? PRIV_UDF_APPLY : PRIV_WRITE)) {
 				goto Cleanup;
 			}
 
@@ -584,7 +587,7 @@ process_transaction(as_transaction *tr)
 		}
 		else {  // <><><> READ Transaction <><><>
 
-			if (tr->proto_fd_h && ! security_check(PRIV_READ, tr)) {
+			if (tr->proto_fd_h && ! security_check(tr, PRIV_READ)) {
 				goto Cleanup;
 			}
 

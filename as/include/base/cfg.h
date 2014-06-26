@@ -46,6 +46,7 @@
 
 #include "base/cluster_config.h"
 #include "base/datamodel.h"
+#include "base/security_config.h"
 #include "base/system_metadata.h"
 #include "fabric/paxos.h"
 
@@ -621,6 +622,9 @@ typedef struct as_config_s {
 
 	// Cluster Config Info
 	cluster_config_t	cluster;
+
+	// Security configuration info.
+	as_sec_config sec_cfg;
 
 } as_config;
 

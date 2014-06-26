@@ -79,8 +79,10 @@ typedef struct as_sec_msg_s {
 //
 
 void as_security_init();
-uint8_t as_security_check(uint64_t check_privs, const as_file_handle* fd_h);
+uint8_t as_security_check(const as_file_handle* fd_h, as_sec_priv priv);
 void* as_security_filter_create();
 void as_security_filter_destroy(void* pv_filter);
+void as_security_log(const as_file_handle* fd_h, uint8_t result,
+		as_sec_priv priv, const char* action, const char* detail);
 void as_security_refresh(as_file_handle* fd_h);
 void as_security_transact(as_transaction *tr);

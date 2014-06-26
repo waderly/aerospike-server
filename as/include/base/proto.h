@@ -74,10 +74,11 @@ struct as_file_handle_s;
 #define AS_SEC_RESULT_OK_LAST			50	// the last message
 	// Security message errors.
 #define AS_SEC_ERR_NOT_SUPPORTED		51	// security features not supported
-#define AS_SEC_ERR_SCHEME				52	// security scheme not supported
-#define AS_SEC_ERR_COMMAND				53	// unrecognized command
-#define AS_SEC_ERR_FIELD				54	// can't parse field
-#define AS_SEC_ERR_STATE				55	// e.g. unexpected command
+#define AS_SEC_ERR_NOT_ENABLED			52	// security features not enabled
+#define AS_SEC_ERR_SCHEME				53	// security scheme not supported
+#define AS_SEC_ERR_COMMAND				54	// unrecognized command
+#define AS_SEC_ERR_FIELD				55	// can't parse field
+#define AS_SEC_ERR_STATE				56	// e.g. unexpected command
 	// Security procedure errors.
 #define AS_SEC_ERR_USER					60	// no user or unknown user
 #define AS_SEC_ERR_USER_EXISTS			61	// user already exists
@@ -88,7 +89,7 @@ struct as_file_handle_s;
 #define AS_SEC_ERR_PRIVILEGE			71	// no privileges or unknown privileges
 	// Permission errors.
 #define AS_SEC_ERR_NOT_AUTHENTICATED	80	// socket not authenticated
-#define AS_SEC_ERR_VIOLATION			81	// role/privilege violation
+#define AS_SEC_ERR_ROLE_VIOLATION		81	// role (privilege) violation
 
 #define AS_PROTO_RESULT_FAIL_UDF_EXECUTION     100
 

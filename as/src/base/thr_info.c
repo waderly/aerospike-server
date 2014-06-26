@@ -114,7 +114,7 @@ int as_info_set_dynamic(char *name, as_info_get_value_fn gv_fn, bool def);
 int as_info_set_tree(char *name, as_info_get_tree_fn gv_fn);
 
 // For commands - you will be called with the parameters.
-int as_info_set_command(char *name, as_info_command_fn command_fn, uint64_t required_privs);
+int as_info_set_command(char *name, as_info_command_fn command_fn, as_sec_priv required_priv);
 
 // Acceptable timediffs in XDR lastship times.
 // (Print warning only if time went back by at least 5 minutes.)
@@ -191,7 +191,7 @@ typedef struct info_command_s {
 	struct info_command_s *next;
 	char *name;
 	as_info_command_fn 		command_fn;
-	uint64_t				required_privs; // required security privilege(s)
+	as_sec_priv				required_priv; // required security privilege
 } info_command;
 
 typedef struct info_tree_s {
@@ -3689,7 +3689,7 @@ sec_err_str(uint8_t result) {
 	switch (result) {
 	case AS_SEC_ERR_NOT_AUTHENTICATED:
 		return "security error - not authenticated";
-	case AS_SEC_ERR_VIOLATION:
+	case AS_SEC_ERR_ROLE_VIOLATION:
 		return "security error - role violation";
 	default:
 		return "unexpected security error";
@@ -3710,9 +3710,10 @@ info_command	*command_head = 0;
 int
 info_all(const as_file_handle* fd_h, cf_dyn_buf *db)
 {
-	uint8_t auth_result = as_security_check(PRIV_NONE, fd_h);
+	uint8_t auth_result = as_security_check(fd_h, PRIV_NONE);
 
 	if (auth_result != AS_PROTO_RESULT_OK) {
+		as_security_log(fd_h, auth_result, PRIV_NONE, "info-all request", NULL);
 		cf_dyn_buf_append_string(db, sec_err_str(auth_result));
 		cf_dyn_buf_append_char(db, EOL);
 		return 0;
@@ -3751,9 +3752,11 @@ info_all(const as_file_handle* fd_h, cf_dyn_buf *db)
 int
 info_some(char *buf, char *buf_lim, const as_file_handle* fd_h, cf_dyn_buf *db)
 {
-	uint8_t auth_result = as_security_check(PRIV_NONE, fd_h);
+	uint8_t auth_result = as_security_check(fd_h, PRIV_NONE);
 
 	if (auth_result != AS_PROTO_RESULT_OK) {
+		// TODO - log null-terminated buf as detail?
+		as_security_log(fd_h, auth_result, PRIV_NONE, "info request", NULL);
 		cf_dyn_buf_append_string(db, sec_err_str(auth_result));
 		cf_dyn_buf_append_char(db, EOL);
 		return 0;
@@ -3852,7 +3855,9 @@ info_some(char *buf, char *buf_lim, const as_file_handle* fd_h, cf_dyn_buf *db)
 					cf_dyn_buf_append_string( db, param);
 					cf_dyn_buf_append_char( db, SEP );
 
-					uint8_t result = as_security_check(cmd->required_privs, fd_h);
+					uint8_t result = as_security_check(fd_h, cmd->required_priv);
+
+					as_security_log(fd_h, result, cmd->required_priv, name, param);
 
 					if (result == AS_PROTO_RESULT_OK) {
 						cmd->command_fn(cmd->name, param, db);
@@ -4118,7 +4123,7 @@ Cleanup:
 // This function only does the registration!
 
 int
-as_info_set_command(char *name, as_info_command_fn command_fn, uint64_t required_privs)
+as_info_set_command(char *name, as_info_command_fn command_fn, as_sec_priv required_priv)
 {
 	int rv = -1;
 	pthread_mutex_lock(&g_info_lock);
@@ -4142,7 +4147,7 @@ as_info_set_command(char *name, as_info_command_fn command_fn, uint64_t required
 			goto Cleanup;
 		}
 		e->command_fn = command_fn;
-		e->required_privs = required_privs;
+		e->required_priv = required_priv;
 		e->next = command_head;
 		command_head = e;
 	}
