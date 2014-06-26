@@ -62,7 +62,8 @@ start() {
 	set_shmmax
 	create_piddir
 	echo -n $"Starting and checking aerospike: "
-	daemon "$CMD && sleep 3 && $0 status"
+	daemon "$CMD"
+    ps cax | grep asd > /dev/null
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && touch $LOCKFILE
