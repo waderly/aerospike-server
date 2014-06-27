@@ -78,7 +78,8 @@ coldstart() {
 	set_shmmax
 	create_piddir
 	echo -n $"Cold-starting aerospike: "
-	daemon "$CMD --cold-start && sleep 3 && $0 status"
+	daemon "$CMD --cold-start"
+	ps cax | grep asd > /dev/null
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && touch $LOCKFILE
