@@ -23,6 +23,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
+
 
 // Syslog "local" facilities.
 typedef enum {
