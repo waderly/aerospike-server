@@ -62,8 +62,7 @@ start() {
 	set_shmmax
 	create_piddir
 	echo -n $"Starting and checking aerospike: "
-	daemon "$CMD"
-	ps cax | grep asd > /dev/null
+	daemon "$CMD && ps cax | grep asd > /dev/null"
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && touch $LOCKFILE
@@ -78,8 +77,7 @@ coldstart() {
 	set_shmmax
 	create_piddir
 	echo -n $"Cold-starting aerospike: "
-	daemon "$CMD --cold-start"
-	ps cax | grep asd > /dev/null
+	daemon "$CMD --cold-start && ps cax | grep asd > /dev/null"
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && touch $LOCKFILE
