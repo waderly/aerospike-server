@@ -277,7 +277,7 @@ void *
 as_sindex__defrag_fn(void *udata)
 {
 	GTRACE(CALLSTACK, debug, "Secondary index defrag thread started !!");
-	g_config.sindex_gc_enable_histogram = true;
+	g_config.sindex_gc_enable_histogram = false;
 
 	char hist_name[64];
 	sprintf(hist_name, "sindex_gc_validate_obj");
