@@ -370,8 +370,7 @@ ldt_chunk_init(ldt_chunk *lchunk, ldt_record *lrecord)
 	udf_record *c_urecord   = &lchunk->c_urecord;
 	udf_record_init(c_urecord);
 	// note: crec cannot be destroyed from inside lua
-	c_urecord->flag         = UDF_RECORD_FLAG_IS_SUBRECORD;
-	c_urecord->flag        |= UDF_RECORD_FLAG_ALLOW_UPDATES;
+	c_urecord->flag        |= UDF_RECORD_FLAG_IS_SUBRECORD;
 	c_urecord->lrecord      = (void *)lrecord;
 	c_urecord->tr           = &lchunk->tr; // set up tr properly
 	c_urecord->rd           = &lchunk->rd;
@@ -475,7 +474,7 @@ ldt_chunk_setup(ldt_chunk *lchunk, as_rec *h_urec, cf_digest *keyd)
 int
 ldt_crec_open(ldt_record *lrecord, cf_digest *keyd, int *slotp)
 {
-	cf_detail_digest(AS_LDT, keyd, "ldt_crec_open(%"PRIx64") ");
+	cf_debug_digest(AS_LDT, keyd, "[ENTER] ldt_crec_open(): Digest: ");
 
 	// 1. Search in opened record
 	int slot = ldt_crec_find_digest(lrecord, keyd);
@@ -487,7 +486,8 @@ ldt_crec_open(ldt_record *lrecord, cf_digest *keyd, int *slotp)
 	// 2. Find free slot and setup chunk
 	slot     = ldt_crec_find_freeslot(lrecord);
 	if (slot == -1) {
-		cf_warning(AS_LDT, "Cannot open more than (%d) records in a single UDF", s_max_open_subrecs);
+		cf_warning(AS_LDT, "Cannot open more than (%d) records in a single UDF",
+				s_max_open_subrecs);
 		return -2;
 	}
 	cf_detail(AS_LDT, "ldt_crec_open popped slot %d", slot);
@@ -708,6 +708,7 @@ ldt_aerospike_crec_close(const as_aerospike * as, const as_rec *crec)
 	udf_record_close(c_urecord, false);
 	udf_record_cache_free(c_urecord);
 	lrecord->chunk[slot].slot = -1;
+	c_urecord->flag &= ~UDF_RECORD_FLAG_ISVALID;
 	return 0;
 }
 
@@ -766,9 +767,9 @@ ldt_aerospike_rec_update(const as_aerospike * as, const as_rec * rec)
 		cf_debug(AS_LDT, "<%s> ZERO return(%d) from as_aero_rec_update()", meth, ret );
 	} else if (ret == -1) {
 		// execution error return as it is
-		cf_warning(AS_LDT, "<%s> Exec Error(%d) from as_aero_rec_update()", meth, ret );
+		cf_debug(AS_LDT, "<%s> Exec Error(%d) from as_aero_rec_update()", meth, ret );
 	} else if (ret == -2) {
-		cf_warning(AS_LDT, "<%s> WEIRD return(%d) from as_aero_rec_update()", meth, ret );
+		cf_warning(AS_LDT, "<%s> Unexpected return(%d) from as_aero_rec_update()", meth, ret );
 		// Record is not open. Unexpected.  Should not reach here.
 	}
 	return ret;

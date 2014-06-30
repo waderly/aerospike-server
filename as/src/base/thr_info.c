@@ -4326,6 +4326,7 @@ info_debug_ticker_fn(void *gcc_is_ass)
 					uint32_t n_total_reads = cf_atomic32_get(ns->n_reads_from_device) + n_reads_from_cache;
 					cf_atomic32_set(&ns->n_reads_from_device, 0);
 					cf_atomic32_set(&ns->n_reads_from_cache, 0);
+					ns->cache_read_pct = (float)(100 * n_reads_from_cache) / (float)(n_total_reads == 0 ? 1 : n_total_reads);
 
 					cf_info(AS_INFO, "namespace %s: disk inuse: %"PRIu64" memory inuse: %"PRIu64" (bytes) "
 							"sindex memory inuse: %"PRIu64" (bytes) "
@@ -4333,7 +4334,7 @@ info_debug_ticker_fn(void *gcc_is_ass)
 							ns->name, inuse_disk_bytes, ns_memory_inuse,
 							ns->sindex_data_memory_used,
 							available_pct,
-							(float)(100 * n_reads_from_cache) / (float)(n_total_reads == 0 ? 1 : n_total_reads));
+							ns->cache_read_pct);
 				}
 
 				total_ns_memory_inuse += ns_memory_inuse;
@@ -5228,8 +5229,12 @@ info_get_namespace_info(as_namespace *ns, cf_dyn_buf *db)
 		free_pct = (ns->ssd_size && (ns->ssd_size > inuse_disk_bytes)) ? (((ns->ssd_size - inuse_disk_bytes) * 100L) / ns->ssd_size) : 0;
 		info_append_uint64("", "free-pct-disk",  free_pct, db);
 		info_append_uint64("", "available_pct",  available_pct, db); // the underscore is an unfortunate legacy
-	} // SSD
 
+		if (! ns->storage_data_in_memory) {
+			cf_dyn_buf_append_string(db, ";cache-read-pct=");
+			cf_dyn_buf_append_int(db, (int)(ns->cache_read_pct + 0.5));
+		}
+	} // SSD
 }
 
 //

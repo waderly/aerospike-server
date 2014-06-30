@@ -45,6 +45,7 @@
 
 #include "base/datamodel.h"
 #include "base/index.h"
+#include "base/ldt.h"
 #include "base/secondary_index.h"
 #include "base/thr_rw_internal.h"
 #include "base/transaction.h"
@@ -92,23 +93,28 @@ static int udf_aerospike_rec_remove(const as_aerospike *, const as_rec *);
 static int
 udf_aerospike_delbin(udf_record * urecord, const char * bname)
 {
-	if (bname == NULL || bname[0] == 0 ) {
-		cf_warning(AS_UDF, "no bin name supplied");
+	// Check that bname is not completely invalid
+	if ( !bname || !bname[0] ) {
+		cf_warning(AS_UDF, "delete bin: no bin name supplied");
 		return -1;
 	}
 
 	size_t          blen    = strlen(bname);
 	as_storage_rd  *rd      = urecord->rd;
 	as_transaction *tr      = urecord->tr;
-	as_bin * b = as_bin_get(rd, (byte *)bname, blen);
 
-	if ( !b ) {
-		//Can't get bin
-		cf_warning(AS_UDF, "as_bin_get failed");
+	// Check quality of bname -- first check that it is proper length, then
+	// check that we're not over quota for bins, then finally make sure that
+	// the bin exists.
+	if (blen > (AS_ID_BIN_SZ - 1 ) || !as_bin_name_within_quota(rd->ns, (byte *)bname, blen)) {
+		// Can't read bin if name too large or over quota
+		cf_warning(AS_UDF, "bin name(%s) too big. Bin not added", bname);
 		return -1;
-	} else if (blen > (AS_ID_BIN_SZ - 1 ) || !as_bin_name_within_quota(rd->ns, (byte *)bname, blen)) {
-		// Can't read bin
-		cf_warning(AS_UDF, "bin name %s too big. Bin not added", bname);
+	}
+
+	as_bin * b = as_bin_get(rd, (byte *)bname, blen);
+	if ( !b ) {
+		cf_warning(AS_UDF, "as_bin_get failed: bin name(%s) not found", bname);
 		return -1;
 	}
 
@@ -130,7 +136,6 @@ udf_aerospike_delbin(udf_record * urecord, const char * bname)
 			}
 		}
 		as_bin_destroy(rd, i);
-		rd->write_to_device = true;
 	} else {
 		cf_warning(AS_UDF, "deleting non-existing bin %s ignored", bname);
 	}
@@ -432,8 +437,6 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 		return ret;
 	}
 
-	rd->write_to_device = true;
-
 	// Update sindex if required
 	if (has_sindex) {
 		if (as_sindex_sbin_from_bin(rd->ns,
@@ -469,76 +472,26 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 	return ret;
 } // end udf_aerospike_setbin()
 
-
 /*
- * Internal function: udf_aerospike_storage_commit
+ * Check and validate parameter before performing operation
  *
- * Parameters:
- * 		rec -- udf_record to be committed
- *
- * Return value:
- * 		None
- *
- * Description:
- * 		This function first flushes all the commits to the storage
- * 		by call as_storage_record_close and then reopens it for the next
- * 		sets of updates. The generation and ttl and memory accounting is
- * 		done in the later part of the code.
- *
- * 		Special Notes:
- * 		This code incurs 2 I/O cost, so UDF doing frequent updates will be slow
- * 		and the developers should be recommended against it
- *
- * 		Synchronization : object lock acquired by the transaction thread executing UDF.
- * 		Partition reservation takes place just before the transaction starts executing
- * 		( look for as_partition_reserve_udf in thr_tsvc.c )
- *
- * 		Callers:
- * 		udf_aerospike__execute_updates
- * 		In this function, if applying the set of udf updates atomically was successful,
- * 		udf_aerospike__storage_commit is called.
+ * return:
+ *      UDF_ERR * in case of failure
+ *      0 in case of success
  */
-void
-udf_aerospike__storage_commit(udf_record *urecord)
+static int
+udf_aerospike_param_check(const as_aerospike *as, const as_rec *rec, char *fname, int lineno)
 {
-	as_transaction 	* tr 	= urecord->tr;
-	as_index_ref   	* r_ref	= urecord->r_ref;
-	as_storage_rd  	* rd	= urecord->rd;
-
-	cf_detail(AS_UDF, "Record successfully updated: starting memory bytes = %d",
-			  urecord->starting_memory_bytes);
-	write_local_post_processing(tr, rd->ns, NULL /*as_partition_reservation*/,
-								NULL /*pickled_buf*/,
-								NULL /*pickled_sz*/,
-								NULL /*pickled_void_time*/,
-								NULL /*p_pickled_rec_props*/,
-								true,
-								NULL /*write_local_generation*/,
-								r_ref->r, rd, urecord->starting_memory_bytes);
-
-	if (as_bin_inuse_has(urecord->rd)) {
-		// Close it so it gets flushed to the storage. Make sure enough
-		// checks are done upfront so if this call succeed, write to
-		// the disk should succeed.
-		udf_storage_record_close(urecord);
-	} else {
-		// if there are no bins then delete record from storage and
-		// open a new one
-		udf_storage_record_destroy(urecord);
-		// open up new storage
-		as_storage_record_create(urecord->tr->rsv.ns, urecord->r_ref->r,
-			urecord->rd, &urecord->tr->keyd);
+	if (!as) {
+		cf_debug(AS_UDF, "Invalid Paramters: aerospike=%p", as);
+		return UDF_ERR_INTERNAL_PARAMETER;
 	}
-	udf_storage_record_open(urecord);
 
-	// Set updated flag to true
-	urecord->flag |= UDF_RECORD_FLAG_HAS_UPDATES;
-	if (urecord->flag & UDF_RECORD_FLAG_IS_SUBRECORD) {
-		cf_detail(AS_UDF, "Subrecord has updates %d", urecord->flag);
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, fname, lineno);
+	if (ret) {
+		return ret;
 	}
-	cf_detail(AS_UDF, "Record successfully updated: ending memory bytes = %d",
-		urecord->starting_memory_bytes);
-	return;
+	return 0;
 }
 
 /*
@@ -638,11 +591,9 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 					cf_detail(AS_UDF, "execute update: position %d deletes bin %s", i, k);
 					urecord->updates[i].oldvalue = udf_record_storage_get(urecord, k);
 					urecord->updates[i].washidden = udf_record_bin_ishidden(urecord, k);
-					rc = udf_aerospike_delbin(urecord, k);
-					if (rc) {
-						failindex = i;
-						goto Rollback;
-					}
+					// Only case delete fails if bin is not found that is 
+					// as good as delete. Ignore return code !!
+					udf_aerospike_delbin(urecord, k);
 				}
 				else {
 					// otherwise, it is a set
@@ -670,6 +621,22 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 			cf_debug(AS_UDF, "REGULAR as_val_destroy()");
 		}
 	}
+	// Commit successful do miscellaneous task
+	// Set updated flag to true
+	urecord->flag |= UDF_RECORD_FLAG_HAS_UPDATES;
+
+	// Set up record to be flushed to storage
+	urecord->rd->write_to_device = true;
+
+	// Before committing to storage set the rec_type_bits ..
+	cf_detail(AS_RW, "TO INDEX              Digest=%"PRIx64" bits %d %p",
+		*(uint64_t *)&urecord->tr->keyd.digest[8], urecord->ldt_rectype_bits, urecord);
+	as_index_set_flags(rd->r, urecord->ldt_rectype_bits);
+
+	// Clean up cache and start from 0 update again. All the changes
+	// made here will if flush from write buffer to storage goes
+	// then will never be backed out.
+	udf_record_cache_free(urecord);
 	return rc;
 
 Rollback:
@@ -704,6 +671,8 @@ Rollback:
 	if (has_sindex) {
 		SINDEX_GUNLOCK();
 	}
+
+	// Do not clean up the cache in case of failure
 	return -1;
 }
 
@@ -743,7 +712,6 @@ udf_aerospike__execute_updates(udf_record * urecord)
 	// fail updates in case update is not allowed. Queries and scans do not
 	// not allow updates. Updates will never be true .. just being paranoid
 	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
-		// TODO: set the error message
 		cf_warning(AS_UDF, "Udf: execute updates: allow updates false; FAIL");
 		return -1;
 	}
@@ -758,24 +726,6 @@ udf_aerospike__execute_updates(udf_record * urecord)
 			as_bin_allocate_bin_space(r_ref->r, rd, delta_bins);
 		}
 	}
-
-
-	// Commit to storage if apply was successful if not nothing would
-	// have made it
-	if (!rc) {
-		// Before committing to storage set the rec_type_bits ..
-		cf_detail(AS_RW, "TO INDEX              Digest=%"PRIx64" bits %d %p",
-				*(uint64_t *)&urecord->tr->keyd.digest[8], urecord->ldt_rectype_bits, urecord);
-		as_index_set_flags(r_ref->r, urecord->ldt_rectype_bits);
-
-		// commit to the storage
-		udf_aerospike__storage_commit(urecord);
-	}
-
-	// Clean up cache and start from 0 update again. All the changes
-	// made here will if flush from write buffer to storage goes
-	// then will never be backed out.
-	udf_record_cache_free(urecord);
 	return rc;
 }
 
@@ -834,15 +784,12 @@ udf_aerospike_get_current_time(const as_aerospike * as)
 static int
 udf_aerospike_rec_create(const as_aerospike * as, const as_rec * rec)
 {
-	if (!as || !rec) {
-		cf_warning(AS_UDF, " Invalid Paramters: as=%p, record=%p", as, rec);
-		return 2;
+	int ret = udf_aerospike_param_check(as, rec, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
 	}
 
 	udf_record * urecord  = (udf_record *) as_rec_source(rec);
-	if (!urecord) {
-		return 2;
-	}
 
 	// make sure record isn't already successfully read
 	if (urecord->flag & UDF_RECORD_FLAG_OPEN) {
@@ -909,6 +856,13 @@ udf_aerospike_rec_create(const as_aerospike * as, const as_rec * rec)
 	rd->bins       = as_bin_get_all(r, rd, urecord->stack_bins);
 	urecord->flag |= UDF_RECORD_FLAG_STORAGE_OPEN;
 
+	// If the message has a key, apply it to the record.
+	as_msg_field* f = as_msg_field_get(&tr->msgp->msg, AS_MSG_FIELD_TYPE_KEY);
+	if (f) {
+		rd->key_size = as_msg_field_get_value_sz(f);
+		rd->key = f->data;
+	}
+
 	cf_detail(AS_UDF, "Storage Open %p %x %"PRIx64"", urecord, urecord->flag, *(uint64_t *)&tr->keyd);
 	cf_detail(AS_UDF, "udf_aerospike_rec_create: Record created %d", urecord->flag);
 
@@ -952,9 +906,9 @@ udf_aerospike_rec_create(const as_aerospike * as, const as_rec * rec)
 static int
 udf_aerospike_rec_update(const as_aerospike * as, const as_rec * rec)
 {
-	if (!as || !rec) {
-		cf_warning(AS_UDF, "Invalid Paramters: as=%p, record=%p", as, rec);
-		return 2;
+	int ret = udf_aerospike_param_check(as, rec, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
 	}
 
 	udf_record * urecord = (udf_record *) as_rec_source(rec);
@@ -984,9 +938,9 @@ udf_aerospike_rec_update(const as_aerospike * as, const as_rec * rec)
 static int
 udf_aerospike_rec_exists(const as_aerospike * as, const as_rec * rec)
 {
-	if (!as || !rec) {
-		cf_warning(AS_UDF, "Invalid Paramters: as=%p, record=%p", as, rec);
-		return 2;
+	int ret = udf_aerospike_param_check(as, rec, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
 	}
 
 	udf_record * urecord = (udf_record *) as_rec_source(rec);
@@ -1010,9 +964,9 @@ udf_aerospike_rec_exists(const as_aerospike * as, const as_rec * rec)
 static int
 udf_aerospike_rec_remove(const as_aerospike * as, const as_rec * rec)
 {
-	if (!as || !rec) {
-		cf_warning(AS_UDF, "Invalid Paramters: as=%p, record=%p", as, rec);
-		return 2;
+	int ret = udf_aerospike_param_check(as, rec, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
 	}
 	udf_record * urecord = (udf_record *) as_rec_source(rec);
 

@@ -2584,13 +2584,13 @@ void thr_write_verify_fail(char *msg, as_transaction *tr) {
 #endif
 }
 
-static inline bool
+bool
 msg_has_key(as_msg* m)
 {
 	return as_msg_field_get(m, AS_MSG_FIELD_TYPE_KEY) != NULL;
 }
 
-static bool
+bool
 check_msg_key(as_msg* m, as_storage_rd* rd)
 {
 	as_msg_field* f = as_msg_field_get(m, AS_MSG_FIELD_TYPE_KEY);

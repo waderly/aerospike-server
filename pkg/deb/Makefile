@@ -10,6 +10,8 @@ OPT_AS = $(BUILD_ROOT)/opt/aerospike
 
 REV = $(shell $(DEPTH)/build/version)
 OS = $(shell $(DEPTH)/build/os_version)
+SIZE = $(shell du -k $(BIN_DIR)/asd | cut -f1)
+
 
 DEB = $(PKG)/packages/aerospike-server-$(EDITION)-$(REV).$(OS).x86_64.deb
 
@@ -35,7 +37,12 @@ dist:
 	install -pm 755 $(BIN_DIR)/asd $(BUILD_ROOT)/usr/bin/asd
 	install -pm 755 $(DEPTH)/tools/citrus2aero/upgrade2to3 $(BUILD_ROOT)/usr/bin/asmigrate2to3
 	install -pm 755 $(DEPTH)/tools/fixownership/fixownership.py $(BUILD_ROOT)/usr/bin/asfixownership
+
+	install -pm 644 $(DEPTH)/as/etc/aerospike.conf $(BUILD_ROOT)/etc/aerospike
 	install -pm 644 $(DEPTH)/as/etc/aerospike_ssd.conf $(BUILD_ROOT)/etc/aerospike
+
+	install -pm 755 $(DEPTH)/as/etc/init-script.deb $(BUILD_ROOT)/etc/init.d/aerospike
+	install -pm 644 $(DEPTH)/as/etc/logrotate_asd $(BUILD_ROOT)/etc/logrotate.d/aerospike
 
 ifeq ($(USE_ASM),1)
 	install -pm 644 $(DEPTH)/as/etc/initfns $(BUILD_ROOT)/etc/aerospike
@@ -60,10 +67,7 @@ endif
 
 	sed 's/@VERSION@/'$(REV)'/g' < $(PKG)/deb/server-64 > $(BUILD_ROOT)/DEBIAN/control
 	sed -i 's/@EDITION@/'$(EDITION)'/g' $(BUILD_ROOT)/DEBIAN/control
-
-	install -pm 644 $(DEPTH)/as/etc/aerospike.conf $(BUILD_ROOT)/etc/aerospike/aerospike.conf
-	install -pm 755 $(DEPTH)/as/etc/init-script.deb $(BUILD_ROOT)/etc/init.d/aerospike
-	install -pm 644 $(DEPTH)/as/etc/logrotate_asd $(BUILD_ROOT)/etc/logrotate.d/aerospike
+	sed -i 's/@SIZE@/'$(SIZE)'/g' $(BUILD_ROOT)/DEBIAN/control
 
 package:
 	fakeroot dpkg-deb --build $(BUILD_ROOT) $(DEB)

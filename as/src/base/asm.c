@@ -31,8 +31,6 @@
 
 #ifdef USE_ASM
 
-#include "base/asm.h"
-
 #include <dlfcn.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -40,10 +38,9 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "asmalloc.h"
+#include "base/asm.h"
 
 #include "citrusleaf/alloc.h"
-
 
 /*
  *  Is periodic invocation of the ASMalloc hook and logging of messages enabled?
