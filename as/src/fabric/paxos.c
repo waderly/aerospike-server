@@ -2890,33 +2890,35 @@ as_paxos_init()
 			/* Initialize every partition's iid and vtp values */
 			as_namespace *ns = g_config.namespace[i];
 
-			for (int j = 0; j < AS_PARTITIONS; j++) {
-				as_partition_vinfo vinfo;
-				size_t vinfo_len = sizeof(vinfo);
+			if (ns->storage_type != AS_STORAGE_ENGINE_MEMORY) { // skip loop if no persistent storage
+				for (int j = 0; j < AS_PARTITIONS; j++) {
+					as_partition_vinfo vinfo;
+					size_t vinfo_len = sizeof(vinfo);
 
-				// Find if the value has been set in storage
-				if (0 == as_storage_info_get(ns, j, (uint8_t *)&vinfo, &vinfo_len)) {
-					successful_storage_reads++;
-					if (vinfo_len == sizeof(as_partition_vinfo)) {
-						cf_debug(AS_PAXOS, "{%s:%d} Partition version read from storage: iid %"PRIx64"", ns->name, j, vinfo.iid);
-						memcpy(&ns->partitions[j].version_info, &vinfo, sizeof(as_partition_vinfo));
-						if (is_partition_null(&vinfo))
-							n_null_storage++;
-						else {
-							cf_debug(AS_PAXOS, "{%s:%d} Partition sucessful revive from storage", ns->name, j);
-							ns->partitions[j].state = AS_PARTITION_STATE_SYNC;
-							n_found_storage++;
+					// Find if the value has been set in storage
+					if (0 == as_storage_info_get(ns, j, (uint8_t *)&vinfo, &vinfo_len)) {
+						successful_storage_reads++;
+						if (vinfo_len == sizeof(as_partition_vinfo)) {
+							cf_debug(AS_PAXOS, "{%s:%d} Partition version read from storage: iid %"PRIx64"", ns->name, j, vinfo.iid);
+							memcpy(&ns->partitions[j].version_info, &vinfo, sizeof(as_partition_vinfo));
+							if (is_partition_null(&vinfo))
+								n_null_storage++;
+							else {
+								cf_debug(AS_PAXOS, "{%s:%d} Partition sucessful revive from storage", ns->name, j);
+								ns->partitions[j].state = AS_PARTITION_STATE_SYNC;
+								n_found_storage++;
+							}
+						}
+						else { // treat partition as lost - common on startup
+							cf_debug(AS_PAXOS, "{%s:%d} Error getting info from storage, got len %d; partition will be treated as lost", ns->name, j, vinfo_len);
+							n_uninit_storage++;
 						}
 					}
-					else { // treat partition as lost - common on startup
-						cf_debug(AS_PAXOS, "{%s:%d} Error getting info from storage, got len %d; partition will be treated as lost", ns->name, j, vinfo_len);
-						n_uninit_storage++;
+					else {
+						failed_storage_reads++;
 					}
-				}
-				else {
-					failed_storage_reads++;
-				}
-			} // end for
+				} // end for
+			} // end if
 
 			/* Allocate and initialize the global partition state structure */
 			size_t vi_sz = sizeof(as_partition_vinfo) * AS_PARTITIONS;
