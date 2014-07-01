@@ -2886,11 +2886,13 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				cf_info(AS_INFO, "Changing value of query-enable-histogram to %s", context);
 				g_config.query_enable_histogram = false;
 			}    
-			else 
+			else {
 				goto Error;
+			}
 		}
-		else
+		else {
 			goto Error;
+		}
 	}
 	else if (strcmp(context, "network.heartbeat") == 0) {
 		context_len = sizeof(context);

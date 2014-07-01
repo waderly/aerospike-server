@@ -453,9 +453,7 @@ as_sindex__process_ret(as_sindex *si, int ret, as_sindex_op op,
 				cf_atomic64_incr(&si->stats.n_objects);
 			}
 			cf_atomic64_incr(&si->stats.n_writes);
-			if (starttime) {
-				SINDEX_HIST_INSERT_DELTA(si, write_hist, cf_getus() - starttime);
-			}
+			SINDEX_HIST_INSERT_DATA_POINT_US(si, write_hist, starttime);
 			break;
 		case AS_SINDEX_OP_DELETE:
 			if (ret && ret != AS_SINDEX_KEY_NOTFOUND) {
@@ -467,9 +465,7 @@ as_sindex__process_ret(as_sindex *si, int ret, as_sindex_op op,
 				cf_atomic64_decr(&si->stats.n_objects);
 			}
 			cf_atomic64_incr(&si->stats.n_deletes);
-			if (starttime) {
-				SINDEX_HIST_INSERT_DELTA(si, delete_hist, cf_getus() - starttime);
-			}
+			SINDEX_HIST_INSERT_DATA_POINT_US(si, delete_hist, starttime);
 			break;
 		case AS_SINDEX_OP_READ:
 			if (ret < 0) { // AS_SINDEX_CONTINUE(1) also OK

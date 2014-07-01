@@ -222,11 +222,11 @@ typedef struct as_sindex_stat_s {
 
 	cf_atomic64        n_writes;
 	cf_atomic64        write_errs;
-	histogram *        _write_hist;
+	histogram *        _write_hist;         // Histogram to track time spend writing to the sindex
 
 	cf_atomic64        n_deletes;
 	cf_atomic64        delete_errs;
-	histogram *        _delete_hist;
+	histogram *        _delete_hist;        // Histogram to track time spend deleting from sindex
 
 	// Background thread stats
 	cf_atomic64        loadtime;
@@ -236,9 +236,9 @@ typedef struct as_sindex_stat_s {
 	cf_atomic64        defrag_time;
 	
 	// Query Stats
-	histogram *       _query_hist;            // histogram that tracks query latency
-	histogram *       _query_batch_lookup;    // histgram for tracking latency of batch request from sindex tree.
-	histogram *       _query_batch_io;
+	histogram *       _query_hist;            // Histogram to track query latency
+	histogram *       _query_batch_lookup;    // Histogram to track latency of batch request from sindex tree.
+	histogram *       _query_batch_io;        // Histogram to track time spend doing I/O per batch
 	//	--aggregation stats
 	cf_atomic64        n_aggregation;
 	cf_atomic64        agg_response_size;
@@ -250,8 +250,8 @@ typedef struct as_sindex_stat_s {
 	cf_atomic64        lookup_num_records;
 	cf_atomic64        lookup_errs;
 
-	histogram *       _query_rcnt_hist;
-	histogram *       _query_diff_hist;
+	histogram *       _query_rcnt_hist;       // Histogram to track record counts from queries
+	histogram *       _query_diff_hist;       // Histogram to track the false positives found by queries
 } as_sindex_stat;
 
 /*
@@ -520,16 +520,32 @@ do {                                            \
 	if (ret) cf_warning(AS_SINDEX, "UNLOCK_ONLY (%d) %s:%d",ret, __FILE__, __LINE__); \
 } while(0);
 
-#define SINDEX_HIST_INSERT_DATA_POINT(si, type, start_time)        \
-do {                                                               \
-	if (si->enable_histogram)                                      \
-		if (si->stats._ ##type) histogram_insert_data_point(si->stats._ ##type, start_time); \
+#define SINDEX_HIST_INSERT_DATA_POINT(si, type, start_time_ms)                          \
+do {                                                                                    \
+	if (si->enable_histogram && start_time_ms != 0) {                                   \
+		if (si->stats._ ##type) {                                                       \
+			histogram_insert_data_point(si->stats._ ##type, start_time_ms);             \
+		}                                                                               \
+	}                                                                                   \
 } while(0);
 
-#define SINDEX_HIST_INSERT_DELTA(si, type, delta_time)        \
-do {                                                               \
-	if (si->enable_histogram)                                      \
-		if (si->stats._ ##type) histogram_insert_delta(si->stats._ ##type, delta_time); \
+#define SINDEX_HIST_INSERT_DATA_POINT_US(si, type, start_time_us)                       \
+do {                                                                                    \
+	if (si->enable_histogram && start_time_us != 0) {                                   \
+		if (si->stats._ ##type) {                                                       \
+			histogram_insert_delta(si->stats._ ##type, cf_getus() - start_time_us);     \
+		}                                                                               \
+	}                                                                                   \
+} while(0);
+
+
+#define SINDEX_HIST_INSERT_DELTA(si, type, delta)                                       \
+do {                                                                                    \
+	if (si->enable_histogram) {                                                         \
+		if (si->stats._ ##type) {                                                       \
+			histogram_insert_delta(si->stats._ ##type, delta);                          \
+		}                                                                               \
+	}                                                                                   \
 } while(0);
 
 // Opaque type definition.

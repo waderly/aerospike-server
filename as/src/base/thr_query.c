@@ -262,29 +262,38 @@ static rchash *g_query_job_hash = NULL;
 
 // Histograms
 
-histogram * query_txn_q_wait_hist;
-histogram * query_prepare_batch_q_wait_hist;
-histogram * query_prepare_batch_hist;
-histogram * query_batch_io_q_wait_hist;
-histogram * query_batch_io_hist;
-histogram * query_net_io_hist;
+histogram * query_txn_q_wait_hist;               // Histogram to track time spend in trasaction queue
+histogram * query_prepare_batch_q_wait_hist;     // Histogram to track time spend waiting in queue for query thread
+histogram * query_prepare_batch_hist;            // Histogram to track time spend while preparing batches
+histogram * query_batch_io_q_wait_hist;          // Histogram to track time spend waiting in queue for worker thread
+histogram * query_batch_io_hist;                 // Histogram to track time spend doing I/O per batch
+histogram * query_net_io_hist;                   // Histogram to track time spend sending results to client
 
-#define QUERY_HIST_INSERT_DATA_POINT(type, start_time)              \
-do {                                                                \
-	if (g_config.query_enable_histogram) {                          \
-		if (type) {                                                 \
-			histogram_insert_data_point(type, start_time);          \
-		}                                                           \
-	}                                                               \
+#define QUERY_HIST_INSERT_DATA_POINT(type, start_time_ms)              \
+do {                                                                   \
+	if (g_config.query_enable_histogram && start_time_ms != 0) {       \
+		if (type) {                                                    \
+			histogram_insert_data_point(type, start_time_ms);          \
+		}                                                              \
+	}                                                                  \
 } while(0);
 
-#define QUERY_HIST_INSERT_DELTA(type, delta)                        \
-do {                                                                \
-	if (g_config.query_enable_histogram) {                          \
-		if (type) {                                                 \
-			histogram_insert_delta(type, delta);                    \
-		}                                                           \
-	}                                                               \
+#define QUERY_HIST_INSERT_DELTA(type, delta)                           \
+do {                                                                   \
+	if (g_config.query_enable_histogram) {                             \
+		if (type) {                                                    \
+			histogram_insert_delta(type, delta);                       \
+		}                                                              \
+	}                                                                  \
+} while(0);
+
+#define QUERY_HIST_INSERT_DATA_POINT_US(type, start_time_us)           \
+do {                                                                   \
+	if (g_config.query_enable_histogram && start_time_us != 0) {       \
+		if (type) {                                                    \
+			histogram_insert_delta(type, cf_getus() - start_time_us);  \
+		}                                                              \
+	}                                                                  \
 } while(0);
 
 
@@ -394,8 +403,8 @@ as_query__update_stats(as_query_transaction *qtr)
 	SINDEX_HIST_INSERT_DELTA(qtr->si, query_rcnt_hist, qtr->n_digests);
 	SINDEX_HIST_INSERT_DELTA(qtr->si, query_diff_hist, qtr->n_digests - qtr->num_records);
 
-	QUERY_HIST_INSERT_DELTA(query_prepare_batch_hist, qtr->querying_ai_time_us);
-	QUERY_HIST_INSERT_DELTA(query_prepare_batch_q_wait_hist, qtr->waiting_time_us);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_hist, qtr->querying_ai_time_us);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_q_wait_hist, qtr->waiting_time_us);
 	
 	uint64_t query_stop_time = cf_getus();
 	cf_detail(AS_QUERY,
@@ -442,8 +451,9 @@ ll_recl_destroy_fn(cf_ll_element *ele)
 {
 	ll_recl_element * node = (ll_recl_element *) ele;
 	if (node) {
-		if (node->dig_arr)
+		if (node->dig_arr) {
 			cf_free(node->dig_arr);
+		}
 		cf_free(node);
 	}
 }
@@ -755,9 +765,7 @@ as_query__transaction_done(as_query_transaction *qtr)
 
 		int brv = as_query__send_response(qtr);
 		
-		if (time_us) {
-			QUERY_HIST_INSERT_DELTA(query_net_io_hist, time_us);
-		}
+		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_us);
 
 		if (brv != AS_QUERY_OK) {
 			cf_detail( AS_QUERY,
@@ -876,9 +884,8 @@ as_query__add_val_response(void *void_qtr, const as_val *val, bool success)
 			return ret;
 		}
 
-		if (time_us) {
-			QUERY_HIST_INSERT_DELTA(query_net_io_hist, cf_getus() - time_us);
-		}
+		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_us);
+
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
 		bb_r->used_sz = 0;
@@ -945,9 +952,8 @@ as_query__add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 			return ret;
 		}
 
-		if (time_us) {
-			QUERY_HIST_INSERT_DELTA(query_net_io_hist, cf_getus() - time_us);
-		}
+		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_us);
+	
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
 		bb_r->used_sz = 0;
@@ -1437,12 +1443,13 @@ int
 as_query__process_ioreq(as_query_request *qio)
 {
 	as_query_transaction *qtr = qio->qtr;	
-	if (!qtr)           return AS_QUERY_ERR;
+	if (!qtr) {
+		return AS_QUERY_ERR;
+	}
 
 	int ret               = AS_QUERY_ERR;
-	if (qtr->queued_time_us != 0) {
-		QUERY_HIST_INSERT_DELTA(query_batch_io_q_wait_hist, cf_getus() - qtr->queued_time_us);
-	}
+	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_q_wait_hist, qtr->queued_time_us);
+	
 	cf_ll_element * ele   = NULL;
 	cf_ll_iterator * iter = NULL;
 	
@@ -1499,11 +1506,8 @@ Cleanup:
 		qio->recl = NULL;
 	}
 
-	if (time_us) {
-		uint64_t end_time_us = cf_getus();
-		QUERY_HIST_INSERT_DELTA(query_batch_io_hist, end_time_us - time_us);
-		SINDEX_HIST_INSERT_DELTA(qtr->si, query_batch_io, end_time_us - time_us);
-	}
+	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_hist, time_us);
+	SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_io, time_us);
 
 	return 0;
 }
@@ -1732,7 +1736,12 @@ as_query__generator(as_query_transaction *qtr)
 		}
 		qtr->inited               = true;
 	}
-
+	
+	uint64_t time_us              = 0;
+	if (qtr->si->enable_histogram) {
+		time_us                   = cf_getus();
+	}
+	
 	while (true) {
 		// Step 1: Check for timeout
 		as_query__check_timeout(qtr);
@@ -1779,17 +1788,8 @@ as_query__generator(as_query_transaction *qtr)
 
 		// Step 3: Get Next Batch
 		qtr->loop++;
-		uint64_t time_us              = 0;
 
-		if (qtr->si->enable_histogram) {
-			time_us = cf_getus();
-		}
-		
 		int qret    = as_query__generator_get_nextbatch(qtr);
-
-		if (time_us) {
-			SINDEX_HIST_INSERT_DELTA(qtr->si, query_batch_lookup, cf_getus() - time_us);	
-		}
 
 		cf_detail(AS_QUERY, "Loop=%d, Selected=%d, ret=%d", qtr->loop, qtr->qctx.n_bdigs, qret);
 		switch(qret) {
@@ -1805,6 +1805,11 @@ as_query__generator(as_query_transaction *qtr)
 				continue;
 		}
 
+		SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_lookup, time_us);
+		if (qtr->si->enable_histogram) {
+			time_us = cf_getus();
+		}
+	
 		// Step 4: Prepare Query Request either to process inline or for
 		//         queueing up for offline processing
 		if (qtr->short_running || AS_QUERY_PROCESS_INLINE(qtr)) {
@@ -2161,7 +2166,7 @@ int
 as_query(as_transaction *tr)
 {
 	if (tr) {
-		QUERY_HIST_INSERT_DELTA(query_txn_q_wait_hist, cf_getus() - (tr->start_time * 1000));
+		QUERY_HIST_INSERT_DATA_POINT_US(query_txn_q_wait_hist, (tr->start_time * 1000));
 	}
 	uint64_t start_time     = cf_getus();
 	as_sindex *si           = NULL;
