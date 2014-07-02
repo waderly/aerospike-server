@@ -28,6 +28,7 @@
 #include <citrusleaf/cf_ll.h>
 
 #define NUM_DIGS_PER_ARR 51
+
 typedef struct dig_arr_t { //NOTE: this data structure MUST be 1KB exactly
 	cf_digest digs[NUM_DIGS_PER_ARR];
 	uint32_t  num;
@@ -38,27 +39,7 @@ typedef struct ll_recl_element_s {
 	dig_arr_t     * dig_arr;
 } ll_recl_element;
 
-#define SINDEX_GC_QUEUE_HIGHWATER 10
-#define SINDEX_GC_NUM_OBJS_PER_ARR 20
-
-typedef struct ai_obj_digest_t {
-	cf_digest dig;
-	ai_obj acol;
-} ai_obj_digest;
-
-typedef struct objs_to_defrag_arr_t {
-	ai_obj_digest ai_objs[SINDEX_GC_NUM_OBJS_PER_ARR];
-	uint32_t  num;
-} objs_to_defrag_arr;
-
-typedef struct ll_sindex_gc_element_s {
-	cf_ll_element   ele;
-	objs_to_defrag_arr     * objs_to_defrag;
-} ll_sindex_gc_element;
-
-
 void releaseDigArrToQueue(void *v);
-void releaseAiObjArrToQueue(void *v);
 
 int ai_findandset_imatch(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, int idx);
 
@@ -110,6 +91,3 @@ int ai_btree_key_hash(as_sindex_metadata *imd, as_sindex_bin *sbin);
 
 int ai_post_index_creation_setup_pmetadata(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, int simatch, int idx);
 
-void ll_sindex_gc_destroy_fn(cf_ll_element *ele);
-
-int ll_sindex_gc_reduce_fn(cf_ll_element *ele, void *udata);

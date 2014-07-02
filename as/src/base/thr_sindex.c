@@ -49,58 +49,79 @@ do {                                \
 	n_offset = 0;                   \
 } while(0);
 
-histogram       *sgc_validate_obj_hist;
-histogram       *sgc_delete_obj_hist;
-histogram       *sgc_pimd_rlock_hist;
-histogram       *sgc_pimd_wlock_hist;
 
 // All this is global because Aerospike Index is single threaded
 pthread_rwlock_t g_sindex_rwlock = PTHREAD_RWLOCK_INITIALIZER;
-pthread_rwlock_t g_ai_rwlock = PTHREAD_RWLOCK_INITIALIZER;
+pthread_rwlock_t g_ai_rwlock     = PTHREAD_RWLOCK_INITIALIZER;
 pthread_t g_sindex_populate_th;
 pthread_t g_sindex_destroy_th;
 pthread_t g_sindex_defrag_th;
 cf_queue *g_sindex_populate_q;
 cf_queue *g_sindex_destroy_q;
 cf_queue *g_sindex_populateall_done_q;
+cf_queue *g_q_objs_to_defrag;
 bool      g_sindex_boot_done;
+
+int
+ll_sindex_gc_reduce_fn(cf_ll_element *ele, void *udata)
+{
+	return CF_LL_REDUCE_DELETE;
+}
+
+void
+as_sindex_gc_release_defrag_arr_to_queue(void *v)
+{
+	objs_to_defrag_arr *dt = (objs_to_defrag_arr *)v;
+	if (cf_queue_sz(g_q_objs_to_defrag) < SINDEX_GC_QUEUE_HIGHWATER) {
+		cf_queue_push(g_q_objs_to_defrag, &dt);
+	} 
+	else {
+		cf_free(dt);
+	}
+}
+
+void
+ll_sindex_gc_destroy_fn(cf_ll_element *ele)
+{
+	ll_sindex_gc_element * node = (ll_sindex_gc_element *) ele;
+	if (node) {
+		as_sindex_gc_release_defrag_arr_to_queue((void *)(node->objs_to_defrag));	
+		cf_free(node);
+	}
+}
+
+objs_to_defrag_arr *
+as_sindex_gc_get_defrag_arr(void)
+{
+	objs_to_defrag_arr *dt;
+	if (cf_queue_pop(g_q_objs_to_defrag, &dt, CF_QUEUE_NOWAIT) == CF_QUEUE_EMPTY) {
+		dt = cf_malloc(sizeof(objs_to_defrag_arr));
+	}
+	dt->num = 0;
+	return dt;
+}
 
 void
 as_sindex_gc_histogram_dumpall()
 {
-	if (sgc_validate_obj_hist) {
-		histogram_dump(sgc_validate_obj_hist);
-	}
-	if (sgc_delete_obj_hist) {
-		histogram_dump(sgc_delete_obj_hist);
-	}
-	if (sgc_pimd_rlock_hist) {
-		histogram_dump(sgc_pimd_rlock_hist);
-	}
-	if (sgc_pimd_wlock_hist) {
-		histogram_dump(sgc_pimd_wlock_hist);
-	}
-	
-	return;
-}
-
-void sindex_gc_hist_insert_data_point(sindex_gc_hist hist, uint64_t start_time)
-{
 	if (g_config.sindex_gc_enable_histogram == false) {
 		return;
 	}
-	if (hist == AS_SINDEX_GC_VALIDATE_OBJ) {
-		histogram_insert_data_point(sgc_validate_obj_hist, start_time);
-	} 
-	else if (hist == AS_SINDEX_GC_DELETE_OBJ){
-		histogram_insert_data_point(sgc_delete_obj_hist, start_time);
+	
+	if (g_config._sindex_gc_validate_obj_hist) {
+		histogram_dump(g_config._sindex_gc_validate_obj_hist);
 	}
-	else if (hist ==  AS_SINDEX_GC_PIMD_RLOCK) {
-		histogram_insert_data_point(sgc_pimd_rlock_hist, start_time);
+	if (g_config._sindex_gc_delete_obj_hist) {
+		histogram_dump(g_config._sindex_gc_delete_obj_hist);
 	}
-	else if (hist == AS_SINDEX_GC_PIMD_WLOCK) {
-		histogram_insert_data_point(sgc_pimd_wlock_hist, start_time);
+	if (g_config._sindex_gc_pimd_rlock_hist) {
+		histogram_dump(g_config._sindex_gc_pimd_rlock_hist);
 	}
+	if (g_config._sindex_gc_pimd_wlock_hist) {
+		histogram_dump(g_config._sindex_gc_pimd_wlock_hist);
+	}
+	
+	return;
 }
 
 // Main thread which looks at the request of the populating index
@@ -281,19 +302,19 @@ as_sindex__defrag_fn(void *udata)
 
 	char hist_name[64];
 	sprintf(hist_name, "sindex_gc_validate_obj");
-	if (NULL == ( sgc_validate_obj_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_validate_obj_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (validate_obj_hist)");
 
 	sprintf(hist_name, "sindex_gc_delete_obj");
-	if (NULL == ( sgc_delete_obj_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_delete_obj_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (validate_obj_hist)");
 
 	sprintf(hist_name, "sindex_gc_pimd_rlock_hist");
-	if (NULL == ( sgc_pimd_rlock_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_pimd_rlock_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (pimd_rlock)");
 
 	sprintf(hist_name, "sindex_gc_pimd_wlock_hist");
-	if (NULL == ( sgc_pimd_wlock_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_pimd_wlock_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (pimd_wlock)");
 
 	while (!g_sindex_boot_done) {
@@ -363,24 +384,24 @@ as_sindex__defrag_fn(void *udata)
 				continue;
 			}
 
-			uint64_t s_time_per_iter, start_time;
+			uint64_t start_time = 0;
+			uint64_t pimd_rlock_time_ms = 0;
 			uint64_t processed = 0;
 			uint64_t found     = 0;
 			// Create Defrag List
 			start_time         = cf_getms();
 			cf_ll defrag_list;
 			cf_ll_init(&defrag_list, &ll_sindex_gc_destroy_fn, false);
-			defrag_list.sz      = 0;
-			defrag_list.uselock = false;
 
 			int ret = 0;
 			int limit_per_iteration = limit > 100 ? 100 : limit;
 			for (int i=0; i<limit; i+=limit_per_iteration) {
-				SINDEX_RLOCK(&pimd->slock)
-				s_time_per_iter     = cf_getms();
+				SINDEX_RLOCK(&pimd->slock);
+				SET_TIME_FOR_SINDEX_GC_HIST(pimd_rlock_time_ms);
 				ret  = ai_btree_build_defrag_list(si->imd, pimd, &i_col, &n_offset, limit_per_iteration, &processed, &found, &defrag_list);	
-				sindex_gc_hist_insert_data_point(AS_SINDEX_GC_PIMD_RLOCK, s_time_per_iter);
+				SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_pimd_rlock_hist, pimd_rlock_time_ms);
 				SINDEX_UNLOCK(&pimd->slock);
+				pimd_rlock_time_ms = 0;
 				if (ret != AS_SINDEX_CONTINUE) {
 					break;
 				}
@@ -389,7 +410,7 @@ as_sindex__defrag_fn(void *udata)
 			g_config.sindex_gc_list_creation_time    += (cf_getms() - start_time);
 			g_config.sindex_gc_objects_validated     += processed;
 			g_config.sindex_gc_garbage_found         += found;
-			int listsize        = defrag_list.sz;
+			int listsize                              = cf_ll_size(&defrag_list);
 
 			// Run Defrag..
 			uint64_t deleted = 0;
@@ -397,16 +418,18 @@ as_sindex__defrag_fn(void *udata)
 			if ( (ret != AS_SINDEX_ERR ) && (listsize > 0) ) {
 				ulong    wl_lim     = 10;
 				uint64_t start_time = cf_getms();
+				uint64_t pimd_wlock_time_ms = 0; 
 				bool     more       = 1;
 				while (more) {
 					SINDEX_WLOCK(&pimd->slock);
-					s_time_per_iter = cf_getms();
+					SET_TIME_FOR_SINDEX_GC_HIST(pimd_wlock_time_ms);
 					more = ai_btree_defrag_list(si->imd, pimd, &defrag_list, wl_lim, &deleted);
-					sindex_gc_hist_insert_data_point(AS_SINDEX_GC_PIMD_WLOCK, s_time_per_iter);
+					SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_pimd_wlock_hist, pimd_wlock_time_ms);
 					SINDEX_UNLOCK(&pimd->slock);
+					pimd_wlock_time_ms = 0;
 				}
 				cf_detail(AS_SINDEX, "Deleted %d units of attempted %d units from index %s", listsize, limit, si->imd->iname);
-				as_sindex_update_defrag_stat(si, deleted, start_time);
+				as_sindex_update_defrag_stat(si, deleted, start_time);	
 			}
 
 			// Release list
@@ -450,7 +473,9 @@ as_sindex_thr_init()
 	// Thread request read lock on this recursively could possibly cause deadlock. Caller
 	// should be careful with that
 	pthread_rwlockattr_t rwattr;
-
+	if (!g_q_objs_to_defrag) {
+		g_q_objs_to_defrag = cf_queue_create(sizeof(void *), true);
+	}
 	if (0 != pthread_rwlockattr_init(&rwattr))
 		cf_crash(AS_SINDEX, "pthread_rwlockattr_init: %s", cf_strerror(errno));
 	if (0 != pthread_rwlockattr_setkind_np(&rwattr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP))
