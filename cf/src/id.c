@@ -128,6 +128,18 @@ cf_ipaddr_get(int socket, char *nic_id, char **node_ip )
  * And combine with the unique port number, which is why it needs to be passed in
  * Needs to be a little more subtle:
  * Should stash the mac address or something, in case you have to replace a card.
+ *
+ * parameters- 
+ * Input params:
+ * port - used in setting Node ID
+ * hb_mode - Controls whether hb_addrp is filled out with the IP address. 
+ * config_interface_names - Pointer to an array of interface names if specified in the config file, 
+ *			    NULL if absent. 
+ * 
+ * Output params:
+ * id - Node ID (address and port)
+ * node_ipp - Pointer wherein the IP adddress is stored 
+ * hb_addrp - Pointer to a string wherein the heartbeat address is stored, as specified by hb_mode 
  */
 
 // names to check, in order
