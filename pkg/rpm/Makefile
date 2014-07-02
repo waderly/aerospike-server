@@ -54,7 +54,7 @@ endif
 	install -pm 644 $(DEPTH)/modules/lua-core/src/ldt/* $(OPT_AS)/sys/udf/lua/ldt
 
 	install -d $(OPT_AS)/doc
-	install -pm 644 $(PKG)/license.txt $(OPT_AS)/doc
+	install -pm 644 $(DEPTH)/LICENSE $(OPT_AS)/doc
 
 package:
 	install -d $(SOURCE_ROOT)/RPMS/x86_64
