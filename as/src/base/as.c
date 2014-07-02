@@ -73,19 +73,66 @@ extern const char aerospike_build_id[];
 // Command line options for the Aerospike server.
 const struct option cmd_opts[] = {
 		{ "help", no_argument, 0, 'h' },
+		{ "version", no_argument, 0, 'v' },
 		{ "config-file", required_argument, 0, 'f' },
-		{ "daemon", no_argument, 0, 'd' },
+		{ "foreground", no_argument, 0, 'd' },
 		{ "cold-start", no_argument, 0, 'c' },
 		{ "instance", required_argument, 0, 'n' },
 		{ 0, 0, 0, 0 }
 };
 
+const char HELP[] =
+		"\n"
+		"Aerospike server installation installs the script /etc/init.d/aerospike which\n"
+		"is normally used to start and stop the server. The script is also found as\n"
+		"as/etc/init-script in the source tree.\n"
+		"\n"
+		"asd informative command-line options:\n"
+		"\n"
+		"--help"
+		"\n"
+		"Print this message and exit.\n"
+		"\n"
+		"--version"
+		"\n"
+		"Print edition and build version information and exit.\n"
+		"\n"
+		"asd runtime command-line options:\n"
+		"\n"
+		"--config-file <file>"
+		"\n"
+		"Specify the location of the Aerospike server config file. If this option is not\n"
+		"specified, the default location /etc/aerospike/aerospike.conf is used.\n"
+		"\n"
+		"--foreground"
+		"\n"
+		"Specify that Aerospike not be daemonized. This is useful for running Aerospike\n"
+		"in gdb. Alternatively, add 'run-as-daemon false' in the service context of the\n"
+		"Aerospike config file.\n"
+		"\n"
+		"--cold-start"
+		"\n"
+		"(Enterprise edition only.) At startup, force the Aerospike server to read all\n"
+		"records from storage devices to rebuild the index.\n"
+		"\n"
+		"--instance <0-15>"
+		"\n"
+		"(Enterprise edition only.) If running multiple instances of Aerospike on one\n"
+		"machine (not recommended), each instance must be uniquely designated via this\n"
+		"option.\n"
+		;
+
 const char USAGE[] =
-		"[--help] "
-		"[--config-file file] "
-		"[--daemon] "
+		"\n"
+		"asd informative command-line options:\n"
+		"[--help]\n"
+		"[--version]\n"
+		"\n"
+		"asd runtime command-line options:\n"
+		"[--config-file <file>] "
+		"[--foreground] "
 		"[--cold-start] "
-		"[--instance 0-15] "
+		"[--instance <0-15>]\n"
 		;
 
 const char DEFAULT_CONFIG_FILE[] = "/etc/aerospike/aerospike.conf";
@@ -212,19 +259,28 @@ main(int argc, char **argv)
 	int i;
 	int cmd_optidx;
 	const char *config_file = DEFAULT_CONFIG_FILE;
-	bool daemon = false;
+	bool run_in_foreground = false;
 	bool cold_start_cmd = false;
 	uint32_t instance = 0;
 
 	// Parse command line options.
 	while (-1 != (i = getopt_long(argc, argv, "", cmd_opts, &cmd_optidx))) {
 		switch (i) {
+		case 'h':
+			// fprintf() since we don't want cf_fault's prefix.
+			fprintf(stderr, "%s\n", HELP);
+			return 1;
+		case 'v':
+			// fprintf() since we don't want cf_fault's prefix.
+			fprintf(stderr, "%s build %s\n", aerospike_build_type,
+					aerospike_build_id);
+			return 1;
 		case 'f':
 			config_file = cf_strdup(optarg);
 			cf_assert(config_file, AS_AS, CF_CRITICAL, "config filename cf_strdup failed");
 			break;
 		case 'd':
-			daemon = true;
+			run_in_foreground = true;
 			break;
 		case 'c':
 			cold_start_cmd = true;
@@ -232,10 +288,9 @@ main(int argc, char **argv)
 		case 'n':
 			instance = (uint32_t)strtol(optarg, NULL, 0);
 			break;
-		case 'h':
 		default:
-			// Usage - raw fprintf() since we don't want cf_fault's prefix.
-			fprintf(stderr, "%s %s\n", argv[0], USAGE);
+			// fprintf() since we don't want cf_fault's prefix.
+			fprintf(stderr, "%s\n", USAGE);
 			return 1;
 		}
 	}
@@ -287,7 +342,7 @@ main(int argc, char **argv)
 	// Daemonize asd if specified. After daemonization, output to stderr will no
 	// longer appear in terminal. Instead, check /tmp/aerospike-console.<pid>
 	// for console output.
-	if (daemon || c->run_as_daemon) {
+	if (! run_in_foreground && c->run_as_daemon) {
 		// Don't close any open files when daemonizing. At this point only log
 		// sink files are open - instruct cf_process_daemonize() to ignore them.
 		int open_fds[CF_FAULT_SINKS_MAX];
