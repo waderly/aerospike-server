@@ -674,8 +674,7 @@ btree_addsinglerec(as_sindex_metadata *imd, cf_digest *dig, cf_ll *recl, uint64_
 	if (!as_sindex_partition_isactive(imd->si->ns, dig)) {
 		return 0;
 	}
-	uint32_t size = cf_ll_size(recl);
-	bool create   = size == 0 ? true : false;
+	bool create   = (cf_ll_size(recl) == 0) ? true : false;
 	dig_arr_t *dt;
 	if (!create) {
 		cf_ll_element * ele = cf_ll_get_tail(recl);
@@ -988,9 +987,8 @@ build_defrag_list_from_nbtr(as_namespace *ns, ai_obj *acol, bt *nbtr, long nofst
 			*limit = 0;
 			break;
 		} else if (ret == AS_SINDEX_GC_OK){
-		
-			uint32_t size = cf_ll_size(gc_list);
-			bool create   = size==0 ? true : false;
+
+			bool create   = (cf_ll_size(gc_list) == 0) ? true : false;
 			objs_to_defrag_arr *dt;
 
 			if (!create) {
@@ -1041,8 +1039,7 @@ build_defrag_list_from_arr(as_namespace *ns, ai_obj *acol, ai_arr *arr, long nof
 			*limit = 0;
 			break;
 		} else if (ret == AS_SINDEX_GC_OK) {
-			uint32_t size = cf_ll_size(gc_list);
-			bool create   = size==0 ? true : false;
+			bool create   = (cf_ll_size(gc_list) == 0) ? true : false;
 			objs_to_defrag_arr *dt;
 
 			if (!create) {
@@ -1202,7 +1199,7 @@ ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *
 			SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
 			validation_time_ms = 0;
 			if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
-				break;
+				goto END;
 			} else if (ret == AS_SINDEX_GC_OK) {
 				ai_obj           apk;
 				init_ai_objFromDigest(&apk, &(dt->acol_digs[i].dig));

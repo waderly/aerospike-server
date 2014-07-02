@@ -34,13 +34,6 @@
 #include "hist.h"
 #include "citrusleaf/cf_digest.h"
 
-typedef enum {
-	AS_SINDEX_GC_VALIDATE_OBJ = 1,
-	AS_SINDEX_GC_DELETE_OBJ   = 2,
-	AS_SINDEX_GC_PIMD_RLOCK   = 3,
-	AS_SINDEX_GC_PIMD_WLOCK   = 4 
-} sindex_gc_hist;
-
 #define SET_TIME_FOR_SINDEX_GC_HIST(start_time)                                           \
 do {                                                                                      \
 	if (g_config.sindex_gc_enable_histogram) {                                            \
@@ -50,14 +43,14 @@ do {                                                                            
 
 #define SINDEX_GC_HIST_INSERT_DATA_POINT(type, start_time_ms)                             \
 do {                                                                                      \
-	if (g_config.sindex_gc_enable_histogram && g_config._ ##type && start_time_ms != 0) { \
+	if (start_time_ms != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
 		histogram_insert_data_point(g_config._ ##type, start_time_ms);                    \
 	}                                                                                     \
 } while(0);
 
 #define SINDEX_GC_HIST_INSERT_DATA_POINT_US(type, start_time_us)                          \
 do {                                                                                      \
-	if (g_config.sindex_gc_enable_histogram && g_config._ ##type && start_time_us != 0) { \
+	if (start_time_us != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
 		histogram_insert_delta(g_config._ ##type, cf_getus() - start_time_us);            \
 	}                                                                                     \
 } while(0);
