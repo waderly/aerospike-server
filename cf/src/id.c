@@ -34,6 +34,7 @@
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <ifaddrs.h>
 
 #include <citrusleaf/cf_digest.h>
 #include <citrusleaf/cf_types.h>
@@ -183,10 +184,63 @@ cf_nodeid_get( unsigned short port, cf_node *id, char **node_ipp, hb_mode_enum h
 	}
 
 	if (done == false) {
-		if (default_config)
-			cf_warning(CF_MISC, "can't get physical address, tried eth, bond, wlan. fatal: %d %s", errno, cf_strerror(errno));
+		if (default_config) {
+			//cf_warning(CF_MISC, "can't get physical address, tried eth, bond, wlan. fatal: %d %s", errno, cf_strerror(errno));
+
+			// get interface addresses
+			struct ifaddrs* interface_addrs = NULL;
+			if(getifaddrs(&interface_addrs) == -1) {
+				cf_warning(CF_MISC, "getifaddrs failed %d %s", errno, cf_strerror(errno));
+				return -1;
+			}
+			if(!interface_addrs) {
+				cf_warning(CF_MISC, "getifaddrs returned NULL");
+				return -1;
+			}
+
+			struct ifaddrs *ifa;
+			for(ifa = interface_addrs; ifa != NULL && done == false; ifa = ifa->ifa_next)
+			{
+				if(ifa->ifa_data != 0)
+				{
+					struct ifreq req;
+					strcpy(req.ifr_name, ifa->ifa_name);
+					/* Get MAC address */
+					if(ioctl(fdesc, SIOCGIFHWADDR, &req) == 0)
+					{
+						uint8_t* mac = (uint8_t*)req.ifr_ifru.ifru_hwaddr.sa_data;
+						/* MAC address sanity check */
+						if((mac[0] == 0 && mac[1] == 0 && mac[2] == 0 
+						&& mac[3] == 0 && mac[4] == 0 && mac[5] == 0)
+						|| (mac[0] == 0xff && mac[1] == 0xff && mac[2] == 0xff
+						&& mac[3] == 0xff && mac[4] == 0xff && mac[5] == 0xff ))
+						{		
+							continue;
+						}
+						/* Get IP address */
+						if (cf_ipaddr_get(fdesc, req.ifr_name, node_ipp) == 0) 
+						{
+							done = true;
+							continue;
+						}
+					}
+					else 
+					{
+						/* Continue to the next interface if cannot get MAC address */
+						continue;
+					}
+				}
+			}
+
+		}
 		else
 			cf_warning(CF_MISC, "can't get physical address of interface name specfied in config file, tried %s. fatal: %d %s", interface_names[0], errno, cf_strerror(errno));
+		close(fdesc);
+		return(-1);
+	}
+	if(done == false)
+	{
+		cf_warning(CF_MISC, "Tried eth,bond,wlan and list of all available interfaces on device.Failed to retrieve physical address with errno %d %s\n", errno, cf_strerror(errno));
 		close(fdesc);
 		return(-1);
 	}
