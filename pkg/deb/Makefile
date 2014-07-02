@@ -63,7 +63,7 @@ endif
 	install -pm 644 $(DEPTH)/modules/lua-core/src/ldt/* $(OPT_AS)/sys/udf/lua/ldt
 
 	install -d $(OPT_AS)/doc
-	install -pm 644 $(PKG)/license.txt $(OPT_AS)/doc
+	install -pm 644 $(DEPTH)/LICENSE $(OPT_AS)/doc
 
 	sed 's/@VERSION@/'$(REV)'/g' < $(PKG)/deb/server-64 > $(BUILD_ROOT)/DEBIAN/control
 	sed -i 's/@EDITION@/'$(EDITION)'/g' $(BUILD_ROOT)/DEBIAN/control

@@ -512,7 +512,7 @@ as_storage_info_set(as_namespace *ns, uint idx, uint8_t *buf, size_t len)
 		return as_storage_info_set_table[ns->storage_type](ns, idx, buf, len);
 	}
 
-	return false;
+	return 0;
 }
 
 //--------------------------------------
@@ -531,10 +531,10 @@ int
 as_storage_info_get(as_namespace *ns, uint idx, uint8_t *buf, size_t *len)
 {
 	if (as_storage_info_get_table[ns->storage_type]) {
-		return ( as_storage_info_get_table[ns->storage_type](ns, idx, buf, len) );
+		return as_storage_info_get_table[ns->storage_type](ns, idx, buf, len);
 	}
 
-	return false;
+	return -1; // buf not filled - safer to return error
 }
 
 //--------------------------------------
@@ -556,7 +556,7 @@ as_storage_info_flush(as_namespace *ns)
 		return as_storage_info_flush_table[ns->storage_type](ns);
 	}
 
-	return false;
+	return 0;
 }
 
 //--------------------------------------

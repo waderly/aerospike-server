@@ -6413,8 +6413,11 @@ as_info_init()
 	// create worker threads
 	g_info_work_q = cf_queue_create(sizeof(info_work), true);
 
+	char vstr[64];
+	sprintf(vstr, "%s build %s", aerospike_build_type, aerospike_build_id);
+
 	// Set some basic values
-	as_info_set("version", "Aerospike 3.0", true);       // Returns the Aerospike server major version.
+	as_info_set("version", vstr, true);                  // Returns the edition and build number.
 	as_info_set("build", aerospike_build_id, true);      // Returns the build number for this server.
 	as_info_set("edition", aerospike_build_type, true);  // Return the edition of this build.
 	as_info_set("digests", "RIPEMD160", false);          // Returns the hashing algorithm used by the server for key hashing.
