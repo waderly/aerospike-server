@@ -3695,9 +3695,10 @@ as_partition_balance_new(cf_node *succession, bool *alive, bool migrate, as_paxo
 						p->reject_writes = true;
 					}
 
+					bool is_primary_version = (memcmp(&p->version_info, &p->primary_version_info, sizeof(as_partition_vinfo)) == 0);
 					/* Do not reject write at QNODE */
 					if (p->qnode == g_config.self_node) {
-						if (!cf_contains64(dupl_nodes, n_dupl, self)) {
+						if (!cf_contains64(dupl_nodes, n_dupl, self) && !is_primary_version) {
 							cf_warning(AS_PARTITION, "{%s:%d} Qnode %"PRIx64" not in the duplicate list", ns->name, j, p->qnode);
 						}
 						if (p->qnode != p->replica[0]) {
