@@ -57,12 +57,12 @@ create_piddir() {
 start() {
 	ulimit -n 100000
 	logger -t aerospike  "ulimit -n="`ulimit -n`
-	[ -x /usr/bin/asd ] || exit 0
+	[ -x $ASD ] || exit 0
 	set_shmall
 	set_shmmax
 	create_piddir
 	echo -n $"Starting and checking aerospike: "
-	daemon "$CMD && ps cax | grep asd > /dev/null"
+	daemon "$CMD && ps cax | grep $ASDN  > /dev/null"
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && touch $LOCKFILE
@@ -72,12 +72,12 @@ start() {
 coldstart() {
 	ulimit -n 100000
 	logger -t aerospike  "ulimit -n="`ulimit -n`
-	[ -x /usr/bin/asd ] || exit 0
+	[ -x $ASD ] || exit 0
 	set_shmall
 	set_shmmax
 	create_piddir
 	echo -n $"Cold-starting aerospike: "
-	daemon "$CMD --cold-start && ps cax | grep asd > /dev/null"
+	daemon "$CMD --cold-start && ps cax | grep $ASDN > /dev/null"
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && touch $LOCKFILE
