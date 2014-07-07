@@ -83,7 +83,9 @@ struct as_file_handle_s;
 #define AS_SEC_ERR_USER					60	// no user or unknown user
 #define AS_SEC_ERR_USER_EXISTS			61	// user already exists
 #define AS_SEC_ERR_PASSWORD				62	// no password or bad password
-#define AS_SEC_ERR_CREDENTIAL			63	// no credential or bad credential
+#define AS_SEC_ERR_EXPIRED_PASSWORD		63	// expired password
+#define AS_SEC_ERR_FORBIDDEN_PASSWORD	64	// forbidden password (e.g. recently used)
+#define AS_SEC_ERR_CREDENTIAL			65	// no credential or bad credential
 	// ... room for more ...
 #define AS_SEC_ERR_ROLE					70	// no role(s) or unknown role(s)
 #define AS_SEC_ERR_PRIVILEGE			71	// no privileges or unknown privileges
