@@ -429,7 +429,6 @@ main(int argc, char **argv)
 
 	// Log a service-ready message.
 	cf_info(AS_AS, "service ready: soon there will be cake!");
-	cf_crash(AS_AS, "crash test dummy");
 
 	//--------------------------------------------
 	// Startup is done. This thread will now wait
