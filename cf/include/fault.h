@@ -131,10 +131,6 @@ typedef struct cf_fault_sink {
 
 #define CF_FAULT_SINKS_MAX 8
 
-/* CF_FAULT_BACKTRACE_DEPTH
- * The maximum depth of a backtrace */
-#define CF_FAULT_BACKTRACE_DEPTH 16
-
 /**
  * When we want to dump out some binary data (like a digest, a bit string
  * or a buffer), we want to be able to specify how we'll display the data.
