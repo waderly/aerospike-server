@@ -23,7 +23,6 @@
 #include "fault.h"
 
 #include <errno.h>
-#include <execinfo.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -461,31 +460,7 @@ cf_fault_event(const cf_fault_context context, const cf_fault_severity severity,
 	if (CF_CRITICAL == severity) {
 		fflush(NULL);
 
-		void *bt[CF_FAULT_BACKTRACE_DEPTH];
-		char **btstr;
-		int btn;
-		int wb = 0;
-
-		btn = backtrace(bt, CF_FAULT_BACKTRACE_DEPTH);
-		btstr = backtrace_symbols(bt, btn);
-		if (!btstr) {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				char *no_bkstr = " --- NO BACKTRACE AVAILABLE --- \n";
-				wb += write(cf_fault_sinks[i].fd, no_bkstr, strlen(no_bkstr));
-			}
-		}
-		else {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				for (int j=0; j < btn; j++) {
-					char line[60];
-					sprintf(line, "critical error: backtrace: frame %d ",j);
-					wb += write(cf_fault_sinks[i].fd, line, strlen(line));
-					wb += write(cf_fault_sinks[i].fd, btstr[j], strlen(btstr[j]));
-					wb += write(cf_fault_sinks[i].fd, "\n", 1);
-				}
-			}
-		}
-
+		// Our signal handler will log a stack trace.
 		abort();
 	}
 } // end cf_fault_event()
@@ -684,9 +659,6 @@ cf_fault_event2(const cf_fault_context context, const cf_fault_severity severity
 	char mbuf[2048];
 	time_t now;
 	struct tm nowtm;
-	void *bt[CF_FAULT_BACKTRACE_DEPTH];
-	char **btstr;
-	int btn;
 
 #define BIN_LIMIT 1024
 	char binary_buf[BIN_LIMIT];
@@ -810,28 +782,7 @@ cf_fault_event2(const cf_fault_context context, const cf_fault_severity severity
 	if (CF_CRITICAL == severity) {
 		fflush(NULL);
 
-		int wb = 0;
-
-		btn = backtrace(bt, CF_FAULT_BACKTRACE_DEPTH);
-		btstr = backtrace_symbols(bt, btn);
-		if (!btstr) {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				char *no_bkstr = " --- NO BACKTRACE AVAILABLE --- \n";
-				wb += write(cf_fault_sinks[i].fd, no_bkstr, strlen(no_bkstr));
-			}
-		}
-		else {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				for (int j=0; j < btn; j++) {
-					char line[60];
-					sprintf(line, "critical error: backtrace: frame %d ",j);
-					wb += write(cf_fault_sinks[i].fd, line, strlen(line));
-					wb += write(cf_fault_sinks[i].fd, btstr[j], strlen(btstr[j]));
-					wb += write(cf_fault_sinks[i].fd, "\n", 1);
-				}
-			}
-		}
-
+		// Our signal handler will log a stack trace.
 		abort();
 	}
 }
