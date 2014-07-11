@@ -154,7 +154,8 @@ as_bin_init(as_namespace *ns, as_bin *b, byte *name, size_t namesz, uint version
 	b->particle = 0;
 
 	as_bin_set_id_from_name_buf(ns, b, name, namesz);
-	b->unused = 0;
+	// Don't touch b->unused - like b->id, it's past the end of its enclosing
+	// as_index if single-bin, data-in-memory.
 }
 
 static inline
