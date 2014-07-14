@@ -23,6 +23,7 @@
 #include "util.h" // we don't have our own header file
 
 #include <errno.h>
+#include <ifaddrs.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -127,6 +128,18 @@ cf_ipaddr_get(int socket, char *nic_id, char **node_ip )
  * And combine with the unique port number, which is why it needs to be passed in
  * Needs to be a little more subtle:
  * Should stash the mac address or something, in case you have to replace a card.
+ *
+ * parameters- 
+ * Input params:
+ * port - used in setting Node ID
+ * hb_mode - Controls whether hb_addrp is filled out with the IP address. 
+ * config_interface_names - Pointer to an array of interface names if specified in the config file, 
+ *			    NULL if absent. 
+ * 
+ * Output params:
+ * id - Node ID (address and port)
+ * node_ipp - Pointer wherein the IP adddress is stored 
+ * hb_addrp - Pointer to a string wherein the heartbeat address is stored, as specified by hb_mode 
  */
 
 // names to check, in order
@@ -157,10 +170,10 @@ cf_nodeid_get( unsigned short port, cf_node *id, char **node_ipp, hb_mode_enum h
 	int i = 0;
 	bool done = false;
 
-	while ((interface_names[i]) && (done == false)) {
+	while ((interface_names[i]) && (!done)) {
 
 		int j=0;
-		while ( (done == false) && (j < jlimit) ) {
+		while ((!done) && (j < jlimit)) {
 
 			if (default_config)
 				sprintf(req.ifr_name, interface_names[i],j);
@@ -182,11 +195,58 @@ cf_nodeid_get( unsigned short port, cf_node *id, char **node_ipp, hb_mode_enum h
 		i++;
 	}
 
-	if (done == false) {
-		if (default_config)
-			cf_warning(CF_MISC, "can't get physical address, tried eth, bond, wlan. fatal: %d %s", errno, cf_strerror(errno));
-		else
+	if (!done) {
+		if (default_config) {
+			
+			struct ifaddrs* interface_addrs = NULL;
+			if (getifaddrs(&interface_addrs) == -1) {
+				cf_warning(CF_MISC, "getifaddrs failed %d %s", errno, cf_strerror(errno));
+				return -1;
+			}
+			if (!interface_addrs) {
+				cf_warning(CF_MISC, "getifaddrs returned NULL");
+				return -1;
+			}
+
+			struct ifaddrs *ifa;
+			for (ifa = interface_addrs; ifa != NULL && (!done); ifa = ifa->ifa_next) {
+				if (ifa->ifa_data != 0) {
+					struct ifreq req;
+					strcpy(req.ifr_name, ifa->ifa_name);
+			
+					/* Get MAC address */
+					if (ioctl(fdesc, SIOCGIFHWADDR, &req) == 0) {
+
+						uint8_t* mac = (uint8_t*)req.ifr_ifru.ifru_hwaddr.sa_data;
+						/* MAC address sanity check */
+						if ((mac[0] == 0 && mac[1] == 0 && mac[2] == 0 
+						&& mac[3] == 0 && mac[4] == 0 && mac[5] == 0)
+						|| (mac[0] == 0xff && mac[1] == 0xff && mac[2] == 0xff
+						&& mac[3] == 0xff && mac[4] == 0xff && mac[5] == 0xff )) {
+							
+							continue;
+						}
+						/* Get IP address */
+						if (cf_ipaddr_get(fdesc, req.ifr_name, node_ipp) == 0) {
+							done = true;
+							continue;
+						}
+					}
+					else {
+						/* Continue to the next interface if cannot get MAC address */
+						continue;
+					}
+				}
+			}
+		}
+		else {
 			cf_warning(CF_MISC, "can't get physical address of interface name specfied in config file, tried %s. fatal: %d %s", interface_names[0], errno, cf_strerror(errno));
+			close(fdesc);
+			return(-1);
+		}
+	}
+	if (!done) {
+		cf_warning(CF_MISC, "Tried eth,bond,wlan and list of all available interfaces on device.Failed to retrieve physical address with errno %d %s\n", errno, cf_strerror(errno));
 		close(fdesc);
 		return(-1);
 	}
@@ -202,13 +262,13 @@ cf_nodeid_get( unsigned short port, cf_node *id, char **node_ipp, hb_mode_enum h
 		if (*hb_addrp == NULL)
 			*hb_addrp = cf_strdup(*node_ipp);
 
-		cf_info (CF_MISC, "Heartbeat address for mesh: %s", *hb_addrp);
+		cf_info(CF_MISC, "Heartbeat address for mesh: %s", *hb_addrp);
 	}
 
 	*id = 0;
 	memcpy(id, req.ifr_hwaddr.sa_data, 6);
 
-	memcpy( ((byte *)id) + 6, &port, 2);
+	memcpy(((byte *)id) + 6, &port, 2);
 
 	cf_debug(CF_MISC, "port %d id %"PRIx64, port, *id);
 

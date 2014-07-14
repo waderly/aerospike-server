@@ -444,7 +444,7 @@ as_sindex__defrag_fn(void *udata)
 			AS_SINDEX_RELEASE(si);
 		}
 next_ns:
-		usleep(1);
+		sleep(1);
 		ns_id = (ns_id + 1) % g_config.namespaces;
 	}
 	return(0);

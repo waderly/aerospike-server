@@ -23,7 +23,6 @@
 #include "fault.h"
 
 #include <errno.h>
-#include <execinfo.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -37,6 +36,7 @@
 #include <unistd.h>
 
 #include <citrusleaf/alloc.h>
+#include <citrusleaf/cf_b64.h>
 
 
 /* cf_fault_context_strings, cf_fault_severity_strings, cf_fault_scope_strings
@@ -460,31 +460,7 @@ cf_fault_event(const cf_fault_context context, const cf_fault_severity severity,
 	if (CF_CRITICAL == severity) {
 		fflush(NULL);
 
-		void *bt[CF_FAULT_BACKTRACE_DEPTH];
-		char **btstr;
-		int btn;
-		int wb = 0;
-
-		btn = backtrace(bt, CF_FAULT_BACKTRACE_DEPTH);
-		btstr = backtrace_symbols(bt, btn);
-		if (!btstr) {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				char *no_bkstr = " --- NO BACKTRACE AVAILABLE --- \n";
-				wb += write(cf_fault_sinks[i].fd, no_bkstr, strlen(no_bkstr));
-			}
-		}
-		else {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				for (int j=0; j < btn; j++) {
-					char line[60];
-					sprintf(line, "critical error: backtrace: frame %d ",j);
-					wb += write(cf_fault_sinks[i].fd, line, strlen(line));
-					wb += write(cf_fault_sinks[i].fd, btstr[j], strlen(btstr[j]));
-					wb += write(cf_fault_sinks[i].fd, "\n", 1);
-				}
-			}
-		}
-
+		// Our signal handler will log a stack trace.
 		abort();
 	}
 } // end cf_fault_event()
@@ -565,10 +541,6 @@ generate_column_hex_string(void *mem_ptr, uint len, char* output)
 
 
 
-// Use this for the Base64 encoding.
-const char base64_chars[] =
-		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 /**
  * Generate a Base64 String Representation of the binary string.
  * Base64 encoding converts three octets into four 6-bit encoded characters.
@@ -580,59 +552,17 @@ const char base64_chars[] =
  * Base 64 Rep:  010011(19) 010110(22) 000101(5) 101110(46)
  * Base 64 Chars:     T(19)      W(22)      F(5)      u(46)
  * and so this string is converted into the Base 64 string: "TWFu"
- *
- * Note that we should be using the cf_b64.c functions, but those are hidden
- * over on the CLIENT SIDE of the world (for now).
  */
 int generate_base64_string(void *mem_ptr, uint len, char output_buf[])
 {
-	char * p = output_buf;
-	int i = 0;
-	int j = 0;
-	unsigned char char_array_3[3];
-	unsigned char char_array_4[4] = { 0, 0, 0, 0 }; // initialize to quiet build warning
-	int in_len = len;
-	char * bytes_to_encode = (char *) mem_ptr;
-	void * startp = p; // Remember where we started.
+	uint32_t encoded_len = cf_b64_encoded_len(len);
+	// TODO - check that output_buf is big enough, and/or truncate.
 
-	while (in_len--) {
-		char_array_3[i++] = *(bytes_to_encode++);
+	cf_b64_encode((const uint8_t*)mem_ptr, len, output_buf);
 
-		if (i == 3) {
-			char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-			char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-			char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-			char_array_4[3] = char_array_3[2] & 0x3f;
+	output_buf[encoded_len] = 0; // null-terminate
 
-			for (i = 0; (i < 4); i++) {
-				*p++ = base64_chars[char_array_4[i]];
-			}
-
-			i = 0;
-		}
-	}
-
-	if (i) {
-		for (j = i; j < 3; j++) {
-			char_array_3[j] = '\0';
-		}
-
-		char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-		char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-		char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-		char_array_4[3] = char_array_3[2] & 0x3f;
-
-		for (j = 0; (j < i + 1); j++) {
-			*p++ =  base64_chars[char_array_4[j]];
-		}
-
-		while (i++ < 3) {
-			*p++ = '=';
-		}
-	}
-
-	*p++ = 0; // Null terminate the output buffer.
-	return (int) ((void *)p - startp); // show how much space we used.
+	return (int)(encoded_len + 1); // bytes we used, including null-terminator
 } // end generate_base64_hex_string()
 
 
@@ -729,9 +659,6 @@ cf_fault_event2(const cf_fault_context context, const cf_fault_severity severity
 	char mbuf[2048];
 	time_t now;
 	struct tm nowtm;
-	void *bt[CF_FAULT_BACKTRACE_DEPTH];
-	char **btstr;
-	int btn;
 
 #define BIN_LIMIT 1024
 	char binary_buf[BIN_LIMIT];
@@ -855,28 +782,7 @@ cf_fault_event2(const cf_fault_context context, const cf_fault_severity severity
 	if (CF_CRITICAL == severity) {
 		fflush(NULL);
 
-		int wb = 0;
-
-		btn = backtrace(bt, CF_FAULT_BACKTRACE_DEPTH);
-		btstr = backtrace_symbols(bt, btn);
-		if (!btstr) {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				char *no_bkstr = " --- NO BACKTRACE AVAILABLE --- \n";
-				wb += write(cf_fault_sinks[i].fd, no_bkstr, strlen(no_bkstr));
-			}
-		}
-		else {
-			for (int i = 0; i < cf_fault_sinks_inuse; i++) {
-				for (int j=0; j < btn; j++) {
-					char line[60];
-					sprintf(line, "critical error: backtrace: frame %d ",j);
-					wb += write(cf_fault_sinks[i].fd, line, strlen(line));
-					wb += write(cf_fault_sinks[i].fd, btstr[j], strlen(btstr[j]));
-					wb += write(cf_fault_sinks[i].fd, "\n", 1);
-				}
-			}
-		}
-
+		// Our signal handler will log a stack trace.
 		abort();
 	}
 }
