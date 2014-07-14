@@ -158,8 +158,8 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_b64.h"
 
-#include "b64.h"
 #include "fault.h"
 #include "queue.h"
 #include "util.h"
@@ -1577,21 +1577,22 @@ as_partition_getreplica_write_str(cf_dyn_buf *db)
 	}
 }
 
-/* Temporary stub function, the format of string-parser has to change */
+
+#define BITMAP_SIZE		((AS_PARTITIONS + 7) / 8)
+#define B64_BITMAP_SIZE	(((BITMAP_SIZE + 2) / 3) * 4)
+
 void
 as_partition_getreplica_master_str(cf_dyn_buf *db)
 {
-	const int bitmap_size = (AS_PARTITIONS + 7) / 8;
-	uint8_t master_bitmap[bitmap_size];
-	const int u64_size = ((bitmap_size + 2) / 3) * 4;
-	uint8_t u64_bitmap[u64_size];
+	uint8_t master_bitmap[BITMAP_SIZE];
+	char b64_bitmap[B64_BITMAP_SIZE];
 
 	size_t db_sz = db->used_sz;
 
 	for (uint i = 0; i < g_config.namespaces; i++) {
 		as_namespace *ns = g_config.namespace[i];
 
-		memset(master_bitmap, 0, bitmap_size);
+		memset(master_bitmap, 0, BITMAP_SIZE);
 		cf_dyn_buf_append_string(db, ns->name);
 		cf_dyn_buf_append_char(db, ':');
 
@@ -1609,9 +1610,8 @@ as_partition_getreplica_master_str(cf_dyn_buf *db)
 			}
 		}
 
-		int encode_size = bitmap_size;
-		base64_encode((uint8_t *)master_bitmap, (uint8_t *)u64_bitmap, &encode_size);
-		cf_dyn_buf_append_buf(db, u64_bitmap, u64_size);
+		cf_b64_encode(master_bitmap, BITMAP_SIZE, b64_bitmap);
+		cf_dyn_buf_append_buf(db, (uint8_t*)b64_bitmap, B64_BITMAP_SIZE);
 		cf_dyn_buf_append_char(db, ';');
 	}
 
@@ -1646,17 +1646,15 @@ as_partition_getreplica_read_str(cf_dyn_buf *db)
 void
 as_partition_getreplica_prole_str(cf_dyn_buf *db)
 {
-	const int bitmap_size = (AS_PARTITIONS + 7) / 8;
-	uint8_t prole_bitmap[bitmap_size];
-	const int u64_size = ((bitmap_size + 2) / 3) * 4;
-	uint8_t u64_bitmap[u64_size];
+	uint8_t prole_bitmap[BITMAP_SIZE];
+	char b64_bitmap[B64_BITMAP_SIZE];
 
 	size_t db_sz = db->used_sz;
 
 	for (uint i = 0; i < g_config.namespaces; i++) {
 		as_namespace *ns = g_config.namespace[i];
 
-		memset(prole_bitmap, 0, sizeof(uint8_t) * bitmap_size);
+		memset(prole_bitmap, 0, sizeof(uint8_t) * BITMAP_SIZE);
 		cf_dyn_buf_append_string(db, ns->name);
 		cf_dyn_buf_append_char(db, ':');
 
@@ -1673,9 +1671,8 @@ as_partition_getreplica_prole_str(cf_dyn_buf *db)
 			}
 		}
 
-		int encode_in_size = bitmap_size;
-		base64_encode((uint8_t *)prole_bitmap, (uint8_t *)u64_bitmap, &encode_in_size);
-		cf_dyn_buf_append_buf(db, u64_bitmap, u64_size);
+		cf_b64_encode(prole_bitmap, BITMAP_SIZE, b64_bitmap);
+		cf_dyn_buf_append_buf(db, (uint8_t*)b64_bitmap, B64_BITMAP_SIZE);
 		cf_dyn_buf_append_char(db, ';');
 	}
 
