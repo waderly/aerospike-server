@@ -37,9 +37,9 @@
 #include "aerospike/as_module.h"
 #include "aerospike/mod_lua.h"
 #include "citrusleaf/alloc.h"
+#include "citrusleaf/cf_b64.h"
 #include "citrusleaf/cf_crypto.h"
 
-#include "b64.h"
 #include "dynbuf.h"
 #include "fault.h"
 
@@ -92,8 +92,6 @@ static int file_read(char * filename, uint8_t ** content, size_t * content_len, 
 	FILE *  file            = NULL;
 	char    line[1024]      = {0};
 	size_t  line_len        = sizeof(line);
-	char *  src             = NULL;
-	size_t  src_len         = 0;
 
 	file_resolve(filepath, filename, NULL);
 
@@ -111,15 +109,17 @@ static int file_read(char * filename, uint8_t ** content, size_t * content_len, 
 
 		if ( buf.used_sz > 0 ) {
 
-			src = cf_dyn_buf_strdup(&buf);
-			src_len = buf.used_sz;
+			char *src = cf_dyn_buf_strdup(&buf);
 
-			file_generation(filepath, (uint8_t *)src, src_len, hash);
+			file_generation(filepath, (uint8_t *)src, buf.used_sz, hash);
 
-			*content = (uint8_t *)cf_malloc(base64_encode_maxlen(src_len));
-			*content_len = src_len;
+			uint32_t src_len = (uint32_t)buf.used_sz;
+			uint32_t out_size = cf_b64_encoded_len(src_len);
 
-			base64_encode((uint8_t *) src, *content, (int *) content_len);
+			*content = (uint8_t *)cf_malloc(out_size);
+			*content_len = out_size;
+
+			cf_b64_encode((const uint8_t*)src, src_len, (char*)(*content));
 
 			cf_free(src);
 			src = NULL;
@@ -174,8 +174,8 @@ static int file_generation(char * filename, uint8_t * content, size_t content_le
 	unsigned char sha1[128] = {0};
 	int len = 20;
 	SHA1((const unsigned char *) content, (unsigned long) content_len, (unsigned char *) sha1);
-	base64_encode(sha1, hash, &len);
-	hash[len] = 0;
+	cf_b64_encode(sha1, len, (char*)hash);
+	hash[cf_b64_encoded_len(len)] = 0;
 	return 0;
 }
 
@@ -402,10 +402,11 @@ int udf_cask_info_put(char *name, char * params, cf_dyn_buf * out) {
 	}
 
 	// base 64 decode it
-	int decoded_len = strlen(udf_content);
+	uint32_t encoded_len = strlen(udf_content);
+	uint32_t decoded_len = cf_b64_decoded_buf_size(encoded_len) + 1;
 	char * decoded_str = cf_malloc(decoded_len);
-	rc = base64_decode((uint8_t *)udf_content, (uint8_t *)decoded_str, &decoded_len, true);
-	if ( rc ) {
+
+	if ( ! cf_b64_validate_and_decode(udf_content, encoded_len, (uint8_t*)decoded_str, &decoded_len) ) {
 		cf_info(AS_UDF, "invalid base64 content %s", filename);
 		cf_dyn_buf_append_string(out, "error=invalid_base64_content");
 		cf_free(decoded_str);
@@ -429,13 +430,14 @@ int udf_cask_info_put(char *name, char * params, cf_dyn_buf * out) {
 		cf_dyn_buf_append_string(out, ";line=");
 		cf_dyn_buf_append_uint32(out, err.line);
 
-		int message_len = strlen(err.message);
-		char message[base64_encode_maxlen(message_len)];
+		uint32_t message_len = strlen(err.message);
+		uint32_t enc_message_len = cf_b64_encoded_len(message_len);
+		char enc_message[enc_message_len];
 
-		base64_encode((uint8_t *) err.message, (uint8_t *) message, &message_len);
+		cf_b64_encode((const uint8_t*)err.message, message_len, enc_message);
 
 		cf_dyn_buf_append_string(out, ";message=");
-		cf_dyn_buf_append_buf(out, (uint8_t *) message, message_len);
+		cf_dyn_buf_append_buf(out, (uint8_t *)enc_message, enc_message_len);
 
 		cf_free(udf_content);
 		return 0;
@@ -562,16 +564,11 @@ udf_cask_smd_accept_fn(char *module, as_smd_item_list_t *items, void *udata, uin
 			const char *content64_str = json_string_value(content64_obj);
 
 			// base 64 decode it
-			int content_len = strlen(content64_str);
-			char *content_str = cf_malloc(content_len);
-			// base64_decode function does not add '\0' at the end , if input string is of length%3 = 0
-			// content_len is greater than required size.
-			// It leads adding junk characters at the end of LUA file.
-			// Zeroing out the string, so that it will have '\0' at end in all cases.
-			memset (content_str, 0, content_len);
+			uint32_t encoded_len = strlen(content64_str);
+			uint32_t decoded_len = cf_b64_decoded_buf_size(encoded_len) + 1;
+			char *content_str = cf_malloc(decoded_len);
 
-			int e = base64_decode((uint8_t *)content64_str, (uint8_t *)content_str, &content_len, true);
-			if (e) {
+			if (! cf_b64_validate_and_decode(content64_str, encoded_len, (uint8_t*)content_str, &decoded_len)) {
 				cf_info(AS_UDF, "invalid script on accept, will not register %s", item->key);
 				cf_free(content_str);
 				json_decref(content64_obj);
@@ -579,12 +576,14 @@ udf_cask_smd_accept_fn(char *module, as_smd_item_list_t *items, void *udata, uin
 				continue;
 			}
 
-			cf_debug(AS_UDF, "pushing to %s, %d bytes [%s]", item->key, content_len, content_str);
+			content_str[decoded_len] = 0;
+
+			cf_debug(AS_UDF, "pushing to %s, %d bytes [%s]", item->key, decoded_len, content_str);
 			mod_lua_wrlock(&mod_lua);
 
 			// content_gen is actually a hash. Not sure if it's filled out or what.
 			unsigned char       content_gen[256]    = {0};
-			e = file_write(item->key, (uint8_t *) content_str, content_len, content_gen);
+			int e = file_write(item->key, (uint8_t *) content_str, decoded_len, content_gen);
 			cf_free(content_str);
 			json_decref(content64_obj);
 			json_decref(item_obj);

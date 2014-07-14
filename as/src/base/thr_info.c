@@ -46,7 +46,6 @@
 
 #include "xdr_config.h"
 
-#include "b64.h"
 #include "cf_str.h"
 #include "dynbuf.h"
 #include "jem.h"
