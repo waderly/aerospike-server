@@ -40,6 +40,7 @@
 
 #include "base/datamodel.h"
 #include "base/proto.h"
+#include "base/security.h"
 #include "base/thr_scan.h"
 #include "base/udf_rw.h"
 
@@ -352,8 +353,13 @@ as_release_file_handle(as_file_handle *proto_fd_h)
 		}
 		else {
 			cf_free(proto_fd_h->proto);
-			proto_fd_h = 0;
+			proto_fd_h->proto = NULL;
 		}
+	}
+
+	if (proto_fd_h->security_filter) {
+		as_security_filter_destroy(proto_fd_h->security_filter);
+		proto_fd_h->security_filter = NULL;
 	}
 
 	cf_atomic_int_incr(&g_config.proto_connections_closed);

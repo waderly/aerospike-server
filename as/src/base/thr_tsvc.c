@@ -39,6 +39,7 @@
 #include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/proto.h"
+#include "base/security.h"
 #include "base/thr_batch.h"
 #include "base/thr_info.h"
 #include "base/thr_proxy.h"
@@ -289,6 +290,34 @@ transaction_check_msg(as_transaction *tr)
 }
 
 
+static inline bool
+security_check(as_transaction *tr, as_sec_priv priv)
+{
+	uint8_t result = as_security_check(tr->proto_fd_h, priv);
+
+	if (result != AS_PROTO_RESULT_OK) {
+		// For now we don't log successful data operations.
+		as_security_log(tr->proto_fd_h, result, priv, NULL, NULL);
+
+		as_msg_send_error(tr->proto_fd_h, (uint32_t)result);
+		tr->proto_fd_h = 0;
+		MICROBENCHMARK_HIST_INSERT_P(error_hist);
+		// TODO - error statistics.
+
+		return false;
+	}
+
+	return true;
+}
+
+
+static inline bool
+is_udf(cl_msg *msgp)
+{
+	return as_msg_field_get(&msgp->msg, AS_MSG_FIELD_TYPE_UDF_FILENAME) != NULL;
+}
+
+
 // Handle the transaction, including proxy to another node if necessary.
 void
 process_transaction(as_transaction *tr)
@@ -341,6 +370,11 @@ process_transaction(as_transaction *tr)
 		goto Cleanup;
 	}
 
+	// First, check that the socket is authenticated.
+	if (tr->proto_fd_h && ! security_check(tr, PRIV_NONE)) {
+		goto Cleanup;
+	}
+
 	// If this key digest hasn't been computed yet, prepare the transaction -
 	// side effect, swaps the bytes (cases where transaction is requeued, the
 	// transation may have already been preprocessed...) If the message hasn't
@@ -350,7 +384,7 @@ process_transaction(as_transaction *tr)
 			// transaction_prepare() return values:
 			// 0:  OK
 			// -1: General error.
-			// -2: Request received with no key (scan).
+			// -2: Request received with no key (scan or query).
 			// -3: Request received with digest array (batch).
 			if (rv == -2) {
 				// Has no key or digest, which means it's a either table scan or
@@ -362,6 +396,10 @@ process_transaction(as_transaction *tr)
 						AS_MSG_FIELD_TYPE_INDEX_RANGE) != NULL) {
 					cf_detail(AS_TSVC, "Received Query Request(%"PRIx64")", tr->trid);
 					cf_atomic64_incr(&g_config.query_reqs);
+					if (! security_check(tr,
+							is_udf(msgp) ? PRIV_UDF_QUERY : PRIV_QUERY)) {
+						goto Cleanup;
+					}
 					// Responsibility of query layer to free the msgp.
 					free_msgp = false;
 					rr = as_query(tr);   // <><><> Q U E R Y <><><>
@@ -376,6 +414,10 @@ process_transaction(as_transaction *tr)
 					// We got a scan, it might be for udfs, no need to know now,
 					// for now, do not free msgp for all the cases. Should take
 					// care of it inside as_tscan.
+					if (! security_check(tr,
+							is_udf(msgp) ? PRIV_UDF_SCAN : PRIV_SCAN)) {
+						goto Cleanup;
+					}
 					free_msgp = false;
 					rr = as_tscan(tr);   // <><><> S C A N <><><>
 					// Process the scan return codes:
@@ -399,6 +441,9 @@ process_transaction(as_transaction *tr)
 				}
 			} else if (rv == -3) {
 				// Has digest array, is batch - msgp gets freed through cleanup.
+				if (! security_check(tr, PRIV_READ)) {
+					goto Cleanup;
+				}
 				if (0 != as_batch(tr)) {
 					cf_info(AS_TSVC, "error from batch function");
 					as_msg_send_error(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_PARAMETER);
@@ -509,6 +554,11 @@ process_transaction(as_transaction *tr)
 			if (tr->udata.req_udata) {
 				free_msgp = false;
 			}
+			else if (tr->proto_fd_h && ! security_check(tr,
+					is_udf(msgp) ? PRIV_UDF_APPLY : PRIV_WRITE)) {
+				goto Cleanup;
+			}
+
 
 			// If the transaction is "shipped proxy op" to the winner node then
 			// just do the migrate reservation.
@@ -536,6 +586,10 @@ process_transaction(as_transaction *tr)
 			}
 		}
 		else {  // <><><> READ Transaction <><><>
+
+			if (tr->proto_fd_h && ! security_check(tr, PRIV_READ)) {
+				goto Cleanup;
+			}
 
 			// If the transaction is "shipped proxy op" to the winner node then
 			// just do the migrate reservation.

@@ -44,6 +44,7 @@
 #include "base/cfg.h"
 #include "base/packet_compression.h"
 #include "base/proto.h"
+#include "base/security.h"
 #include "base/thr_info.h"
 #include "base/thr_tsvc.h"
 #include "base/transaction.h"
@@ -123,16 +124,28 @@ demarshal_file_handle_init()
 void *
 thr_demarshal_reaper_fn(void *arg)
 {
+	uint64_t last = cf_getms();
+
 	while (true) {
 		uint64_t now = cf_getms();
 		uint inuse_cnt = 0;
 		uint64_t kill_ms = g_config.proto_fd_idle_ms;
+		bool refresh = false;
+
+		if (now - last > (uint64_t)(g_config.security_refresh * 1000)) {
+			refresh = true;
+			last = now;
+		}
 
 		pthread_mutex_lock(&g_file_handle_a_LOCK);
 
 		for (int i = 0; i < g_file_handle_a_sz; i++) {
 			if (g_file_handle_a[i]) {
 				as_file_handle *fd_h = g_file_handle_a[i];
+
+				if (refresh) {
+					as_security_refresh(fd_h);
+				}
 
 				// Reap if not obviously in use.
 				if (fd_h->inuse == false) {
@@ -331,6 +344,7 @@ thr_demarshal(void *arg)
 				fd_h->proto = 0;
 				fd_h->proto_unread = 0;
 				fd_h->fh_info = 0;
+				fd_h->security_filter = as_security_filter_create();
 
 				// Insert into the global table so the reaper can manage it. Do
 				// this before queueing it up for demarshal threads - once
@@ -590,6 +604,13 @@ thr_demarshal(void *arg)
 						// Get original packet.
 						tr.msgp = (cl_msg *)decompressed_buf;
 						as_proto_swap(&(tr.msgp->proto));
+					}
+
+					// Security protocol transactions.
+					if (tr.msgp->proto.type == PROTO_TYPE_SECURITY) {
+						as_security_transact(&tr);
+						cf_atomic_int_incr(&g_config.proto_transactions);
+						goto NextEvent;
 					}
 
 					// Fast path for info protocol requests.
