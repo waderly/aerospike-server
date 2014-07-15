@@ -63,223 +63,226 @@ struct as_namespace_s;
 typedef struct as_config_s {
 
 	/* Global service configuration */
-	uid_t uid;
-	gid_t gid;
-	char *pidfile;
-	bool run_as_daemon;
+	uid_t				uid;
+	gid_t				 gid;
+	char				*pidfile;
+	bool				run_as_daemon;
 
 	/* A unique instance ID: Either HW inspired, or Cluster Group/Node ID */
-	cf_node self_node;
-	uint16_t cluster_mode;
-	cf_node hw_self_node; // Cache the HW value self-node value, for various uses.
+	cf_node				self_node;
+	uint16_t			cluster_mode;
+	cf_node				hw_self_node; // Cache the HW value self-node value, for various uses.
 
 	/* IP address */
-	char *node_ip;
+	char				*node_ip;
 
 	/* Heartbeat system */
-	hb_mode_enum hb_mode;
-	hb_protocol_enum hb_protocol;
-	char *hb_addr, *hb_init_addr;
-	int hb_port, hb_init_port;
-	char *hb_tx_addr;
-	uint32_t hb_interval, hb_timeout;
-	unsigned char hb_mcast_ttl;
+	hb_mode_enum		hb_mode;
+	hb_protocol_enum	hb_protocol;
+	char				*hb_addr;
+	char 				*hb_init_addr;
+	int					hb_port;
+	int					hb_init_port;
+	char				*hb_tx_addr;
+	uint32_t			hb_interval;
+	uint32_t			hb_timeout;
+	unsigned char		hb_mcast_ttl;
 
-	uint64_t start_ms; // filled with the start time of the server
+	uint64_t			start_ms; // filled with the start time of the server
 
 	/* tuning parameters */
-	int			n_migrate_threads;
-	int			n_info_threads;
-	int			n_batch_threads;
+	int					n_migrate_threads;
+	int					n_info_threads;
+	int					n_batch_threads;
 
 	/* Query tunables */
-	uint32_t	query_threads;
-	uint32_t	query_worker_threads;
-	uint32_t	query_priority;
-	uint32_t	query_sleep;
-	uint32_t	query_bsize;
-	bool		query_job_tracking;
-	bool		query_in_transaction_thr;
-	uint64_t	query_buf_size;
-	uint32_t	query_threshold;
-	uint32_t	query_rec_count_bound;
-	bool		query_req_in_query_thread;
-	uint32_t	query_req_max_inflight;
-	uint32_t	query_bufpool_size;
-	uint32_t	query_short_q_max_size;
-	uint32_t	query_long_q_max_size;
-	uint32_t	query_untracked_time;
+	uint32_t			query_threads;
+	uint32_t			query_worker_threads;
+	uint32_t			query_priority;
+	uint32_t			query_sleep;
+	uint32_t			query_bsize;
+	bool				query_job_tracking;
+	bool				query_in_transaction_thr;
+	uint64_t			query_buf_size;
+	uint32_t			query_threshold;
+	uint32_t			query_rec_count_bound;
+	bool				query_req_in_query_thread;
+	uint32_t			query_req_max_inflight;
+	uint32_t			query_bufpool_size;
+	uint32_t			query_short_q_max_size;
+	uint32_t			query_long_q_max_size;
+	uint32_t			query_untracked_time;
 
-	int			n_transaction_queues;
-	int			n_transaction_threads_per_queue;
-	int			n_transaction_duplicate_threads;
-	int			n_service_threads;
-	int			n_fabric_workers;
-	bool		use_queue_per_device;
-	bool		allow_inline_transactions;
+	int					n_transaction_queues;
+	int					n_transaction_threads_per_queue;
+	int					n_transaction_duplicate_threads;
+	int					n_service_threads;
+	int					n_fabric_workers;
+	bool				use_queue_per_device;
+	bool				allow_inline_transactions;
 
 	// Refresh socket privileges periodically - interval in seconds.
 	uint32_t security_refresh;
 
 	/* max client file descriptors */
-	int n_proto_fd_max;
+	int					n_proto_fd_max;
 
 	/* after this many milliseconds, connections are aborted unless transaction is in progress */
-	int proto_fd_idle_ms;
+	int					proto_fd_idle_ms;
 
 	/* The TCP port for the fabric */
-	int	fabric_port;
+	int					fabric_port;
 
 	/* The TCP port for the info socket */
-	int info_port;
+	int					info_port;
 
 	/* Whether to bypass thr_tsvc for Info protocol requests. */
-	bool info_fastpath_enabled;
+	bool				info_fastpath_enabled;
 
 	/* The TCP socket for the listener */
-	cf_socket_cfg socket;
+	cf_socket_cfg		socket;
 
-	char *external_address; // hostname that clients will connect on
+	char				*external_address; // hostname that clients will connect on
 
-	char *network_interface_name; // network_interface_name to use on this machine for generating the IP addresses
+	char				*network_interface_name; // network_interface_name to use on this machine for generating the IP addresses
 
 	/* Whether or not a socket can be reused (SO_REUSEADDR) */
-	bool socket_reuse_addr;
+	bool				socket_reuse_addr;
 
 	/* Consensus algorithm runtime data */
-	as_paxos *paxos;
+	as_paxos			*paxos;
 
 	/*
 	 * heartbeat: takes the lock and fills in this structure
 	 * paxos: read only uses it for detecting  changes
 	 */
-	cf_node hb_paxos_succ_list_index[AS_CLUSTER_SZ];
-	cf_node hb_paxos_succ_list[AS_CLUSTER_SZ][AS_CLUSTER_SZ];
-	pthread_mutex_t	hb_paxos_lock;
+	cf_node				hb_paxos_succ_list_index[AS_CLUSTER_SZ];
+	cf_node				hb_paxos_succ_list[AS_CLUSTER_SZ][AS_CLUSTER_SZ];
+	pthread_mutex_t		hb_paxos_lock;
 
 	/* System Metadata module state */
-	as_smd_t *smd;
+	as_smd_t			*smd;
 
 	/* a global generation count on all partition state changes */
-	cf_atomic_int	partition_generation;
+	cf_atomic_int		partition_generation;
 
 	/* The transaction queues */
-	uint32_t	transactionq_current;
-	cf_queue	*transactionq_a[MAX_TRANSACTION_QUEUES];
-	cf_queue	*transaction_slow_q; // One slow queue to hold sleepy trans
+	uint32_t			transactionq_current;
+	cf_queue			*transactionq_a[MAX_TRANSACTION_QUEUES];
+	cf_queue			*transaction_slow_q; // One slow queue to hold sleepy trans
 
 	/* object lock structure */
-	olock		*record_locks;
+	olock				*record_locks;
 
 	/* global configuration for how often to print 'ticker' info to the log - 0 is no ticker */
-	uint32_t	ticker_interval;
+	uint32_t			ticker_interval;
 
 	// whether to collect microbenchmarks
-	bool microbenchmarks;
+	bool				microbenchmarks;
 
 	// whether to collect storage benchmarks
-	bool storage_benchmarks;
+	bool				storage_benchmarks;
 
 	// whether memory accounting is enabled
-	bool memory_accounting;
+	bool				memory_accounting;
 
 	// whether ASMalloc integration is enabled
-	bool asmalloc_enabled;
+	bool				asmalloc_enabled;
 
 	// whether to log information about existing "msg" objects and queues
-	bool fabric_dump_msgs;
+	bool				fabric_dump_msgs;
 
 	// maximum number of "msg" objects permitted per type
-	int64_t max_msgs_per_type;
+	int64_t				max_msgs_per_type;
 
 	// size at which to dump incoming data
-	uint32_t dump_message_above_size;
+	uint32_t			dump_message_above_size;
 
 	// the common work directory cache
-	char *work_directory;
+	char				*work_directory;
 
 	/*
 	**  TUNING PARAMETERS
 	*/
 
 	/* global timeout configuration */
-	uint32_t transaction_retry_ms;
+	uint32_t			transaction_retry_ms;
 	// max time (ms) in the proxy system before we kick the request out forever
-	uint32_t transaction_max_ms;
+	uint32_t			transaction_max_ms;
 	// transaction pending limit - number of pending transactions ON A SINGLE RECORD (0 means no limit)
-	uint32_t transaction_pending_limit;
+	uint32_t			transaction_pending_limit;
 	/* transaction_repeatable_read flag defines whether a read should attempt to get all duplicate values before returning */
-	bool transaction_repeatable_read;
+	bool				transaction_repeatable_read;
 	/* disable generation checking */
-	bool generation_disable;
-	bool write_duplicate_resolution_disable;
+	bool				generation_disable;
+	bool				write_duplicate_resolution_disable;
 	/* respond client on master completion */
-	bool respond_client_on_master_completion;
+	bool				respond_client_on_master_completion;
 	// replication is queued and sent
-	bool replication_fire_and_forget;
+	bool				replication_fire_and_forget;
 	/* enables node snubbing - this code caused a Paxos issue in the past */
-	bool snub_nodes;
+	bool				snub_nodes;
 
 	// number of records between an enforced context switch - thus 1 is very low priority, 1000000 would be very high
-	uint32_t scan_priority;
+	uint32_t			scan_priority;
 	// amount of time a thread will sleep after yielding scan_priority amount of data. (in microseconds)
-	uint32_t scan_sleep;
+	uint32_t			scan_sleep;
 	// maximum count of database requests in a single batch
-	uint32_t batch_max_requests;
+	uint32_t			batch_max_requests;
 	// number of records between an enforced context switch - thus 1 is very low priority, 1000000 would be very high
-	uint32_t batch_priority;
+	uint32_t			batch_priority;
 
 	/* tuning parameter for how often to run nsup to evict data in a namespace */
-	uint32_t	nsup_period;
-	uint32_t	nsup_auto_hwm_pct; // where auto-hwm kicks in: ie, 10 pct free
-	uint32_t	nsup_queue_hwm; // tsvc queue hwm check
-	uint32_t	nsup_queue_lwm; // tsvc queue lwm check
-	uint32_t	nsup_queue_escape; // tsvc queue lwm check
-	bool		nsup_startup_evict;
+	uint32_t			nsup_period;
+	uint32_t			nsup_auto_hwm_pct; // where auto-hwm kicks in: ie, 10 pct free
+	uint32_t			nsup_queue_hwm; // tsvc queue hwm check
+	uint32_t			nsup_queue_lwm; // tsvc queue lwm check
+	uint32_t			nsup_queue_escape; // tsvc queue lwm check
+	bool				nsup_startup_evict;
 
 	/* tuning parameter for how often to run retransmit checks for paxos */
-	uint32_t paxos_retransmit_period;
+	uint32_t			paxos_retransmit_period;
 	/* parameter that let the cluster run under lower replication factor for less than 1 */
-	uint32_t paxos_single_replica_limit; // cluster size at which, and below, the cluster will run with repl factor 1
+	uint32_t			paxos_single_replica_limit; // cluster size at which, and below, the cluster will run with repl factor 1
 	/* Maximum size of cluster allowed to be formed. */
-	uint64_t paxos_max_cluster_size;
+	uint64_t			paxos_max_cluster_size;
 	/* Currently-active Paxos protocol version. */
-	paxos_protocol_enum paxos_protocol;
+	paxos_protocol_enum	paxos_protocol;
 	/* Currently-active Paxos recovery policy. */
-	paxos_recovery_policy_enum paxos_recovery_policy;
+	paxos_recovery_policy_enum	paxos_recovery_policy;
 
 	/* number of records between an enforced context switch --- 1 is lowest possible priority, 10000 would be full-speed */
-	uint32_t migrate_xmit_priority;
-	uint32_t migrate_xmit_sleep;
-	uint32_t migrate_read_priority;
-	uint32_t migrate_read_sleep;
-	uint32_t migrate_xmit_hwm;
-	uint32_t migrate_xmit_lwm;
+	uint32_t			migrate_xmit_priority;
+	uint32_t			migrate_xmit_sleep;
+	uint32_t			migrate_read_priority;
+	uint32_t			migrate_read_sleep;
+	uint32_t			migrate_xmit_hwm;
+	uint32_t			migrate_xmit_lwm;
 	// For receiver-side migration flow control:
-	int migrate_max_num_incoming;
-	cf_atomic_int migrate_num_incoming;
+	int					migrate_max_num_incoming;
+	cf_atomic_int		migrate_num_incoming;
 	// For debouncing re-tansmitted migrate start messages:
-	int migrate_rx_lifetime_ms;
+	int					migrate_rx_lifetime_ms;
 
-	uint32_t defrag_queue_hwm; // write queue hwm check
-	uint32_t defrag_queue_lwm; // write queue lwm check
-	uint32_t defrag_queue_escape; // write queue wait limit
-	uint32_t defrag_queue_priority; // ms to wait per loop (0 ok)
+	uint32_t			defrag_queue_hwm; // write queue hwm check
+	uint32_t			defrag_queue_lwm; // write queue lwm check
+	uint32_t			defrag_queue_escape; // write queue wait limit
+	uint32_t			defrag_queue_priority; // ms to wait per loop (0 ok)
 
-	uint32_t fb_health_msg_per_burst; // health probe paxos messages per "burst"
-	uint32_t fb_health_msg_timeout; // milliseconds after which to give up on health probe message
-	uint32_t fb_health_good_pct; // percent of successful messages in a burst at/above which node is deemed ok
-	uint32_t fb_health_bad_pct; // percent of successful messages in a burst at/below which node is deemed bad
-	bool auto_dun; // enables fb health and paxos to dun nodes
-	bool auto_undun; // enables fb health to undun nodes that have been dunned
+	uint32_t			fb_health_msg_per_burst; // health probe paxos messages per "burst"
+	uint32_t			fb_health_msg_timeout; // milliseconds after which to give up on health probe message
+	uint32_t			fb_health_good_pct; // percent of successful messages in a burst at/above which node is deemed ok
+	uint32_t			fb_health_bad_pct; // percent of successful messages in a burst at/below which node is deemed bad
+	bool				auto_dun; // enables fb health and paxos to dun nodes
+	bool				auto_undun; // enables fb health to undun nodes that have been dunned
 
 	// Temporary dangling prole garbage collection.
-	uint32_t prole_extra_ttl;	// seconds beyond expiry time after which we garbage collect, 0 for no garbage collection
+	uint32_t			prole_extra_ttl;	// seconds beyond expiry time after which we garbage collect, 0 for no garbage collection
 
-	xdr_config		xdr_cfg;							// XDR related config parameters
-	xdr_lastship_s	xdr_lastship[AS_CLUSTER_SZ];		// last XDR shipping info of other nodes
-	cf_node			xdr_clmap[AS_CLUSTER_SZ];			// cluster map as known to XDR
-	uint64_t		xdr_self_lastshiptime[DC_MAX_NUM];	// last XDR shipping by this node
+	xdr_config			xdr_cfg;							// XDR related config parameters
+	xdr_lastship_s		xdr_lastship[AS_CLUSTER_SZ];		// last XDR shipping info of other nodes
+	cf_node				xdr_clmap[AS_CLUSTER_SZ];			// cluster map as known to XDR
+	uint64_t			xdr_self_lastshiptime[DC_MAX_NUM];	// last XDR shipping by this node
 
 	// configuration to put cap on amount of memory
 	// all secondary index put together can take
@@ -288,314 +291,327 @@ typedef struct as_config_s {
 	uint64_t		sindex_data_max_memory;   // Maximum memory for secondary index trees
 	cf_atomic_int	sindex_data_memory_used;  // Maximum memory for secondary index trees
 	uint32_t		sindex_populator_scan_priority;
-	cf_atomic_int   sindex_gc_timedout;
+	cf_atomic_int   sindex_gc_timedout;           // Number of time sindex gc iteration timed out waiting for partition lock
+	uint64_t        sindex_gc_inactivity_dur;     // Commulative sum of sindex GC thread inactivity.
+	uint64_t        sindex_gc_activity_dur;       // Commulative sum of sindex gc thread activity.
+	uint64_t        sindex_gc_list_creation_time; // Commulative sum of list creation phase in sindex GC
+	uint64_t        sindex_gc_list_deletion_time; // Commulative sum of list deletion phase in sindex GC
+	uint64_t        sindex_gc_garbage_found;      // Amount of garbage found during list creation phase
+	uint64_t        sindex_gc_garbage_cleaned;    // Amount of garbage deleted during list deletion phase
+	uint64_t        sindex_gc_objects_validated;  // Commulative sum of sindex objects validated
+	bool            sindex_gc_enable_histogram;
+	histogram      *_sindex_gc_validate_obj_hist; // Histogram to track time taken to validate sindex object
+	histogram      *_sindex_gc_delete_obj_hist;   // Histogram to track time taken to delelte sindex object by GC
+	histogram      *_sindex_gc_pimd_rlock_hist;   // HIstogram to track time spent under pimd rlock by sindex GC
+	histogram      *_sindex_gc_pimd_wlock_hist;   // Histogram to track time spent under pimd wlock by sindex GC
 
-	cf_atomic64	query_reqs;
-	cf_atomic64	query_fail;
-	cf_atomic64	query_short_queue_full;
-	cf_atomic64	query_long_queue_full;
-	cf_atomic64	query_short_running;
-	cf_atomic64	query_long_running;
-	cf_atomic64	query_tracked;
-	cf_atomic64	query_false_positives;
+	cf_atomic64			query_reqs;
+	cf_atomic64			query_fail;
+	cf_atomic64			query_short_queue_full;
+	cf_atomic64			query_long_queue_full;
+	cf_atomic64			query_short_running;
+	cf_atomic64			query_long_running;
+	cf_atomic64			query_tracked;
+	cf_atomic64			query_false_positives;
+	bool				query_enable_histogram;
 
 	// Aggregation stat
-	cf_atomic64	n_aggregation;
-	cf_atomic64	n_agg_success;
-	cf_atomic64	n_agg_abort;
-	cf_atomic64	n_agg_errs;
-	cf_atomic64	agg_response_size;
-	cf_atomic64	agg_num_records;
+	cf_atomic64			n_aggregation;
+	cf_atomic64			n_agg_success;
+	cf_atomic64			n_agg_abort;
+	cf_atomic64			n_agg_errs;
+	cf_atomic64			agg_response_size;
+	cf_atomic64			agg_num_records;
 
 	// Lookup stat
-	cf_atomic64	n_lookup;
-	cf_atomic64	n_lookup_success;
-	cf_atomic64	n_lookup_abort;
-	cf_atomic64	n_lookup_errs;
-	cf_atomic64	lookup_response_size;
-	cf_atomic64	lookup_num_records;
+	cf_atomic64			n_lookup;
+	cf_atomic64			n_lookup_success;
+	cf_atomic64			n_lookup_abort;
+	cf_atomic64			n_lookup_errs;
+	cf_atomic64			lookup_response_size;
+	cf_atomic64			lookup_num_records;
 
-	uint64_t		udf_runtime_max_memory; // Maximum runtime memory allowed for per UDF
-	uint64_t		udf_runtime_max_gmemory; // maximum runtime memory alloed for all UDF
-	cf_atomic_int	udf_runtime_gmemory_used; // Current runtime memory reserve by per UDF - BUG if global should be 64?
+	uint64_t			udf_runtime_max_memory; // Maximum runtime memory allowed for per UDF
+	uint64_t			udf_runtime_max_gmemory; // maximum runtime memory alloed for all UDF
+	cf_atomic_int		udf_runtime_gmemory_used; // Current runtime memory reserve by per UDF - BUG if global should be 64?
 
 	/*
 	** STATISTICS
 	*/
-	cf_atomic_int	fabric_msgs_sent;
-	cf_atomic_int	fabric_msgs_rcvd;
-	cf_atomic_int	fabric_msgs_selfsend;  // not included in prev send + receive
-	cf_atomic_int	fabric_write_short;
-	cf_atomic_int	fabric_write_medium;
-	cf_atomic_int	fabric_write_long;
-	cf_atomic_int	fabric_read_short;
-	cf_atomic_int	fabric_read_medium;
-	cf_atomic_int	fabric_read_long;
-	cf_atomic_int	migrate_msgs_sent;
-	cf_atomic_int	migrate_msgs_rcvd;
-	cf_atomic_int	migrate_inserts_sent;
-	cf_atomic_int	migrate_inserts_rcvd;
-	cf_atomic_int	migrate_acks_sent;
-	cf_atomic_int	migrate_acks_rcvd;
-	cf_atomic_int	migrate_progress_send;
-	cf_atomic_int	migrate_progress_recv;
-	cf_atomic_int	migrate_reads;
-	cf_atomic_int	migrate_num_incoming_accepted;
-	cf_atomic_int	migrate_num_incoming_refused; // For receiver-side migration flow control.
-	cf_atomic_int	proto_transactions;
-	cf_atomic_int	proxy_initiate; // initiated
-	cf_atomic_int	proxy_action;   // did it
-	cf_atomic_int	proxy_retry;    // retried it
-	cf_atomic_int	proxy_retry_q_full;
-	cf_atomic_int	proxy_unproxy;
-	cf_atomic_int	proxy_retry_same_dest;
-	cf_atomic_int	proxy_retry_new_dest;
-	cf_atomic_int	tscan_initiate;
-	cf_atomic_int	tscan_succeeded;
-	cf_atomic_int	tscan_aborted;
-	cf_atomic_int	write_master;
-	cf_atomic_int	write_prole;
-	cf_atomic_int	read_dup_prole;
-	cf_atomic_int	rw_err_dup_internal;
+	cf_atomic_int		fabric_msgs_sent;
+	cf_atomic_int		fabric_msgs_rcvd;
+	cf_atomic_int		fabric_msgs_selfsend;  // not included in prev send + receive
+	cf_atomic_int		fabric_write_short;
+	cf_atomic_int		fabric_write_medium;
+	cf_atomic_int		fabric_write_long;
+	cf_atomic_int		fabric_read_short;
+	cf_atomic_int		fabric_read_medium;
+	cf_atomic_int		fabric_read_long;
+	cf_atomic_int		migrate_msgs_sent;
+	cf_atomic_int		migrate_msgs_rcvd;
+	cf_atomic_int		migrate_inserts_sent;
+	cf_atomic_int		migrate_inserts_rcvd;
+	cf_atomic_int		migrate_acks_sent;
+	cf_atomic_int		migrate_acks_rcvd;
+	cf_atomic_int		migrate_progress_send;
+	cf_atomic_int		migrate_progress_recv;
+	cf_atomic_int		migrate_reads;
+	cf_atomic_int		migrate_num_incoming_accepted;
+	cf_atomic_int		migrate_num_incoming_refused; // For receiver-side migration flow control.
+	cf_atomic_int		proto_transactions;
+	cf_atomic_int		proxy_initiate; // initiated
+	cf_atomic_int		proxy_action;   // did it
+	cf_atomic_int		proxy_retry;    // retried it
+	cf_atomic_int		proxy_retry_q_full;
+	cf_atomic_int		proxy_unproxy;
+	cf_atomic_int		proxy_retry_same_dest;
+	cf_atomic_int		proxy_retry_new_dest;
+	cf_atomic_int		tscan_initiate;
+	cf_atomic_int		tscan_succeeded;
+	cf_atomic_int		tscan_aborted;
+	cf_atomic_int		write_master;
+	cf_atomic_int		write_prole;
+	cf_atomic_int		read_dup_prole;
+	cf_atomic_int		rw_err_dup_internal;
 	// When rw_dup_prole() sees a cluster key mismatch, we increment this counter.
-	cf_atomic_int	rw_err_dup_cluster_key;
-	cf_atomic_int	rw_err_dup_send;
-	cf_atomic_int	rw_err_write_internal;
-	cf_atomic_int	rw_err_write_cluster_key;
-	cf_atomic_int	rw_err_write_send;
-	cf_atomic_int	rw_err_ack_internal;
-	cf_atomic_int	rw_err_ack_nomatch;
-	cf_atomic_int	rw_err_ack_badnode;
-	cf_atomic_int	proto_connections_opened;
-	cf_atomic_int	proto_connections_closed;
-	cf_atomic_int	fabric_connections_opened;
-	cf_atomic_int	fabric_connections_closed;
-	cf_atomic_int	heartbeat_connections_opened;
-	cf_atomic_int	heartbeat_connections_closed;
-	cf_atomic_int	heartbeat_received_self;
-	cf_atomic_int	heartbeat_received_foreign;
-	cf_atomic_int	info_connections_opened;
-	cf_atomic_int	info_connections_closed;
-	cf_atomic_int	n_waiting_transactions;
-	cf_atomic_int	global_record_ref_count;
-	cf_atomic_int	global_record_lock_count;
-	cf_atomic_int	global_tree_count;
-	cf_atomic_int	write_req_object_count;
-	cf_atomic_int	migrate_tx_object_count;
-	cf_atomic_int	migrate_rx_object_count;
-	cf_atomic_int	nsup_tree_count;
-	cf_atomic_int	nsup_subtree_count;
-	cf_atomic_int	scan_tree_count;
-	cf_atomic_int	dup_tree_count;
-	cf_atomic_int	wprocess_tree_count;
-	cf_atomic_int	migrx_tree_count;
-	cf_atomic_int	migtx_tree_count;
-	cf_atomic_int	ssdr_tree_count;
-	cf_atomic_int	ssdw_tree_count;
-	cf_atomic_int	rw_tree_count;
-	cf_atomic_int	reaper_count;
+	cf_atomic_int		rw_err_dup_cluster_key;
+	cf_atomic_int		rw_err_dup_send;
+	cf_atomic_int		rw_err_write_internal;
+	cf_atomic_int		rw_err_write_cluster_key;
+	cf_atomic_int		rw_err_write_send;
+	cf_atomic_int		rw_err_ack_internal;
+	cf_atomic_int		rw_err_ack_nomatch;
+	cf_atomic_int		rw_err_ack_badnode;
+	cf_atomic_int		proto_connections_opened;
+	cf_atomic_int		proto_connections_closed;
+	cf_atomic_int		fabric_connections_opened;
+	cf_atomic_int		fabric_connections_closed;
+	cf_atomic_int		heartbeat_connections_opened;
+	cf_atomic_int		heartbeat_connections_closed;
+	cf_atomic_int		heartbeat_received_self;
+	cf_atomic_int		heartbeat_received_foreign;
+	cf_atomic_int		info_connections_opened;
+	cf_atomic_int		info_connections_closed;
+	cf_atomic_int		n_waiting_transactions;
+	cf_atomic_int		global_record_ref_count;
+	cf_atomic_int		global_record_lock_count;
+	cf_atomic_int		global_tree_count;
+	cf_atomic_int		write_req_object_count;
+	cf_atomic_int		migrate_tx_object_count;
+	cf_atomic_int		migrate_rx_object_count;
+	cf_atomic_int		nsup_tree_count;
+	cf_atomic_int		nsup_subtree_count;
+	cf_atomic_int		scan_tree_count;
+	cf_atomic_int		dup_tree_count;
+	cf_atomic_int		wprocess_tree_count;
+	cf_atomic_int		migrx_tree_count;
+	cf_atomic_int		migtx_tree_count;
+	cf_atomic_int		ssdr_tree_count;
+	cf_atomic_int		ssdw_tree_count;
+	cf_atomic_int		rw_tree_count;
+	cf_atomic_int		reaper_count;
 
-	cf_atomic_int	batch_initiate;
-	cf_atomic_int	batch_tree_count;
-	cf_atomic_int	batch_timeout;
-	cf_atomic_int	batch_errors;
+	cf_atomic_int		batch_initiate;
+	cf_atomic_int		batch_tree_count;
+	cf_atomic_int		batch_timeout;
+	cf_atomic_int		batch_errors;
 
-	cf_hist_track *	rt_hist; // histogram that tracks read performance
-	cf_hist_track *	ut_hist; // histogram that tracks udf performance
-	cf_hist_track *	wt_hist; // histogram that tracks write performance
-	cf_hist_track *	px_hist; // histogram that tracks proxy performance
-	cf_hist_track *	wt_reply_hist; // write histogram from start to reply to client
-	cf_hist_track *	q_hist;  // histogram that tracks query performance
-	cf_hist_track *	q_rcnt_hist;  // histogram that tracks query row count
+	cf_hist_track *		rt_hist; // histogram that tracks read performance
+	cf_hist_track *		ut_hist; // histogram that tracks udf performance
+	cf_hist_track *		wt_hist; // histogram that tracks write performance
+	cf_hist_track *		px_hist; // histogram that tracks proxy performance
+	cf_hist_track *		wt_reply_hist; // write histogram from start to reply to client
+	cf_hist_track *		q_hist;  // histogram that tracks query performance
+	cf_hist_track *		q_rcnt_hist;  // histogram that tracks query row count
 
-	uint32_t		hist_track_back; // total time span in seconds over which to cache data
-	uint32_t		hist_track_slice; // period in seconds at which to cache histogram data
-	char *			hist_track_thresholds; // comma-separated bucket (ms) values to track
+	uint32_t			hist_track_back; // total time span in seconds over which to cache data
+	uint32_t			hist_track_slice; // period in seconds at which to cache histogram data
+	char *				hist_track_thresholds; // comma-separated bucket (ms) values to track
 
-	histogram *		rt_cleanup_hist; // histogram around as_storage_record_close and as_record_done
-	histogram *		rt_net_hist; // histogram around the network send on reads
-	histogram *		wt_net_hist; // histogram around the network send on writes
-	histogram *		rt_storage_read_hist; // histogram taken from after opening the device to after reading from device
-	histogram *		rt_storage_open_hist; // histogram around as_storage_record_open
-	histogram *		rt_tree_hist; // histogram from rw_complete to fetching record from rb tree
-	histogram *		rt_internal_hist; // read histogram from internal to rw_complete
-	histogram *		wt_internal_hist; // write histogram from internal to either send to prole or return to client (if no replication)
-	histogram *		rt_start_hist; // read histogram from read_start to internal
-	histogram *		wt_start_hist; // write histogram from write_start to internal
-	histogram *		rt_q_process_hist; // histogram from transaction off q to read_start
-	histogram *		wt_q_process_hist; // histogram from transaction off q to write_start
-	histogram *		q_wait_hist; // histogram taken right after transaction is plucked off the q
-	histogram *		demarshal_hist; // histogram around demarshal loop only
-	histogram *		wt_master_wait_prole_hist; // histogram of time spent on master between sending rw and ack
-	histogram *		wt_prole_hist; // histogram that tracks write replication performance (in fabric)
-	histogram *		rt_resolve_hist; // histogram that tracks duplicate resolution after receiving all messages from other nodes
-	histogram *		wt_resolve_hist; // histogram that tracks duplicate resolution after receiving all messages from other nodes
-	histogram *		rt_resolve_wait_hist; // histogram that tracks the time the master waits for other nodes to complete duplicate resolution on reads
-	histogram *		wt_resolve_wait_hist; // histogram that tracks the time the master waits for other nodes to complete duplicate resolution on writes
-	histogram *		error_hist;  // histogram of error requests only
-	histogram *		batch_q_process_hist; // histogram of time spent processing batch messages in transaction q
-	histogram *		info_tr_q_process_hist;  // histogram of time spent processing info messages in transaction q
-	histogram *		info_q_wait_hist;  // histogram of time info transaction spends on info q
-	histogram *		info_post_lock_hist; // histogram of time spent processing the Info command under the mutex before sending the response on the network
-	histogram *		info_fulfill_hist; // histogram of time spent to fulfill info request after taking it off the info q
+	histogram *			rt_cleanup_hist; // histogram around as_storage_record_close and as_record_done
+	histogram *			rt_net_hist; // histogram around the network send on reads
+	histogram *			wt_net_hist; // histogram around the network send on writes
+	histogram *			rt_storage_read_hist; // histogram taken from after opening the device to after reading from device
+	histogram *			rt_storage_open_hist; // histogram around as_storage_record_open
+	histogram *			rt_tree_hist; // histogram from rw_complete to fetching record from rb tree
+	histogram *			rt_internal_hist; // read histogram from internal to rw_complete
+	histogram *			wt_internal_hist; // write histogram from internal to either send to prole or return to client (if no replication)
+	histogram *			rt_start_hist; // read histogram from read_start to internal
+	histogram *			wt_start_hist; // write histogram from write_start to internal
+	histogram *			rt_q_process_hist; // histogram from transaction off q to read_start
+	histogram *			wt_q_process_hist; // histogram from transaction off q to write_start
+	histogram *			q_wait_hist; // histogram taken right after transaction is plucked off the q
+	histogram *			demarshal_hist; // histogram around demarshal loop only
+	histogram *			wt_master_wait_prole_hist; // histogram of time spent on master between sending rw and ack
+	histogram *			wt_prole_hist; // histogram that tracks write replication performance (in fabric)
+	histogram *			rt_resolve_hist; // histogram that tracks duplicate resolution after receiving all messages from other nodes
+	histogram *			wt_resolve_hist; // histogram that tracks duplicate resolution after receiving all messages from other nodes
+	histogram *			rt_resolve_wait_hist; // histogram that tracks the time the master waits for other nodes to complete duplicate resolution on reads
+	histogram *			wt_resolve_wait_hist; // histogram that tracks the time the master waits for other nodes to complete duplicate resolution on writes
+	histogram *			error_hist;  // histogram of error requests only
+	histogram *			batch_q_process_hist; // histogram of time spent processing batch messages in transaction q
+	histogram *			info_tr_q_process_hist;  // histogram of time spent processing info messages in transaction q
+	histogram *			info_q_wait_hist;  // histogram of time info transaction spends on info q
+	histogram *			info_post_lock_hist; // histogram of time spent processing the Info command under the mutex before sending the response on the network
+	histogram *			info_fulfill_hist; // histogram of time spent to fulfill info request after taking it off the info q
 
-	histogram *		write_storage_close_hist; // histogram of time spent around record_storage close on a write path
-	histogram *		write_sindex_hist; // secondary index latency histogram
-	histogram *		defrag_storage_close_hist; // histogram of time spent around record_storage close on a defrag path
-	histogram *		prole_fabric_send_hist; // histogram of time spent for prole fabric getting queued
+	histogram *			write_storage_close_hist; // histogram of time spent around record_storage close on a write path
+	histogram *			write_sindex_hist; // secondary index latency histogram
+	histogram *			defrag_storage_close_hist; // histogram of time spent around record_storage close on a defrag path
+	histogram *			prole_fabric_send_hist; // histogram of time spent for prole fabric getting queued
 
 #ifdef HISTOGRAM_OBJECT_LATENCY
 	// these track read latencies of different size databuckets
-	histogram *		read0_hist;
-	histogram *		read1_hist;
-	histogram *		read2_hist;
-	histogram *		read3_hist;
-	histogram *		read4_hist;
-	histogram *		read5_hist;
-	histogram *		read6_hist;
-	histogram *		read7_hist;
-	histogram *		read8_hist;
-	histogram *		read9_hist;
+	histogram *			read0_hist;
+	histogram *			read1_hist;
+	histogram *			read2_hist;
+	histogram *			read3_hist;
+	histogram *			read4_hist;
+	histogram *			read5_hist;
+	histogram *			read6_hist;
+	histogram *			read7_hist;
+	histogram *			read8_hist;
+	histogram *			read9_hist;
 #endif
 
-	cf_atomic_int	stat_read_reqs;
-	cf_atomic_int	stat_read_reqs_xdr;
-	cf_atomic_int	stat_read_success;
-	cf_atomic_int	stat_read_errs_notfound;
-	cf_atomic_int	stat_read_errs_other;
+	cf_atomic_int		stat_read_reqs;
+	cf_atomic_int		stat_read_reqs_xdr;
+	cf_atomic_int		stat_read_success;
+	cf_atomic_int		stat_read_errs_notfound;
+	cf_atomic_int		stat_read_errs_other;
 
-	cf_atomic_int	stat_write_reqs;
-	cf_atomic_int	stat_write_reqs_xdr;
-	cf_atomic_int	stat_write_success;
-	cf_atomic_int	stat_write_errs; // deprecated
-	cf_atomic_int	stat_write_errs_notfound;
-	cf_atomic_int	stat_write_errs_other;
-	cf_atomic_int	stat_write_latency_gt50;
-	cf_atomic_int	stat_write_latency_gt100;
-	cf_atomic_int	stat_write_latency_gt250;
-	cf_atomic_int	stat_xdr_pipe_writes;
-	cf_atomic_int	stat_xdr_pipe_miss;
+	cf_atomic_int		stat_write_reqs;
+	cf_atomic_int		stat_write_reqs_xdr;
+	cf_atomic_int		stat_write_success;
+	cf_atomic_int		stat_write_errs; // deprecated
+	cf_atomic_int		stat_write_errs_notfound;
+	cf_atomic_int		stat_write_errs_other;
+	cf_atomic_int		stat_write_latency_gt50;
+	cf_atomic_int		stat_write_latency_gt100;
+	cf_atomic_int		stat_write_latency_gt250;
+	cf_atomic_int		stat_xdr_pipe_writes;
+	cf_atomic_int		stat_xdr_pipe_miss;
 
-	cf_atomic_int	stat_delete_success;
-	cf_atomic_int	stat_rw_timeout;
+	cf_atomic_int		stat_delete_success;
+	cf_atomic_int		stat_rw_timeout;
 
-	cf_atomic_int	stat_compressed_pkts_received;
+	cf_atomic_int		stat_compressed_pkts_received;
 
-	cf_atomic_int	stat_proxy_reqs;
-	cf_atomic_int	stat_proxy_reqs_xdr;
-	cf_atomic_int	stat_proxy_success;
-	cf_atomic_int	stat_proxy_errs;
-	cf_atomic_int	stat_proxy_retransmits;
-	cf_atomic_int	stat_proxy_redirect;
+	cf_atomic_int		stat_proxy_reqs;
+	cf_atomic_int		stat_proxy_reqs_xdr;
+	cf_atomic_int		stat_proxy_success;
+	cf_atomic_int		stat_proxy_errs;
+	cf_atomic_int		stat_proxy_retransmits;
+	cf_atomic_int		stat_proxy_redirect;
 
 	// When another proxy has passed in a transaction, and it is from a different
 	// cluster instance (cluster key mismatch), then we retry the transaction
 	// by diverting it to another proxy (either proxy_divert() or proxy_send_redirect()).
-	cf_atomic_int stat_cluster_key_trans_to_proxy_retry;
+	cf_atomic_int		stat_cluster_key_trans_to_proxy_retry;
 
 	// When the cluster keys match (either it's a client-generated transaction,
 	// or the proxy tr CK matches the Partition CK), BUT the node itself is not yet
 	// consistent (the Node CK doesn't match the Partition CK), we must re-queue
 	// the transaction.
-	cf_atomic_int stat_cluster_key_transaction_reenqueue;
+	cf_atomic_int		stat_cluster_key_transaction_reenqueue;
 
 	// When the cluster keys match (either it's a client-generated transaction,
 	// or the proxy tr CK matches the Partition CK), BUT the node itself is not yet
 	// consistent (the Node CK doesn't match the Partition CK), we queue the
 	// transaction in a special "slow" transaction queue -- until the
 	// CK mismatch has been resolved.
-	cf_atomic_int stat_slow_trans_queue_push;
+	cf_atomic_int		stat_slow_trans_queue_push;
 
 	// After we have queued up a transaction on the slow queue, we then count
 	// the number of times pop off a transaction from the slow queue and
 	// we re-queue it on to the regular queue.  We expect slow queue push
 	// and pop to match.
-	cf_atomic_int stat_slow_trans_queue_pop;
+	cf_atomic_int		stat_slow_trans_queue_pop;
 
 	// When we pop from the slow queue -- we pop the entire batch of held
 	// transactions in one quick "whooosh".  Here we count the number of
 	// slow queue batch POP operations.
-	cf_atomic_int stat_slow_trans_queue_batch_pop;
+	cf_atomic_int		stat_slow_trans_queue_batch_pop;
 
 	// For all REGULAR jobs (that pass thru the CK test), count the number of
 	// regular RW jobs processed.
-	cf_atomic_int stat_cluster_key_regular_processed;
+	cf_atomic_int		stat_cluster_key_regular_processed;
 
 	// Problem writing the prole -- Retry (return CK error), which will cause
 	// the master to requeue the transaction and try it again.  This is also known
 	// as the "ABSENT PARTITION" or "TURD" problem, which we fix by having the
 	// prole spot the CK mismatch and returning CLUSTER_KEY_MISMATCH error.
-	cf_atomic_int stat_cluster_key_prole_retry;
+	cf_atomic_int		stat_cluster_key_prole_retry;
 
 	// The Number of Partitions that were impacted by Partition Transaction Queue.
-	cf_atomic_int stat_cluster_key_partition_transaction_queue_count;
+	cf_atomic_int		stat_cluster_key_partition_transaction_queue_count;
 
 	// When a Prole Write fails, it returns a CLUSTER_KEY_MISMATCH error to the
 	// master, who then re-queues the transaction to be performed again.
 	// There are two cases: One for Duplicate transactions and one for RW trans.
-	cf_atomic_int	stat_cluster_key_err_ack_dup_trans_reenqueue;
-	cf_atomic_int	stat_cluster_key_err_ack_rw_trans_reenqueue;
+	cf_atomic_int		stat_cluster_key_err_ack_dup_trans_reenqueue;
+	cf_atomic_int		stat_cluster_key_err_ack_rw_trans_reenqueue;
 
-	cf_atomic_int	stat_expired_objects;
-	cf_atomic_int	stat_evicted_objects;
-	cf_atomic_int	stat_deleted_set_objects;
-	cf_atomic_int	stat_evicted_set_objects;
-	cf_atomic_int	stat_evicted_objects_time;
-	cf_atomic_int	stat_zero_bin_records;
-	cf_atomic_int	stat_nsup_deletes_not_shipped;
+	cf_atomic_int		stat_expired_objects;
+	cf_atomic_int		stat_evicted_objects;
+	cf_atomic_int		stat_deleted_set_objects;
+	cf_atomic_int		stat_evicted_set_objects;
+	cf_atomic_int		stat_evicted_objects_time;
+	cf_atomic_int		stat_zero_bin_records;
+	cf_atomic_int		stat_nsup_deletes_not_shipped;
 
-	cf_atomic_int	err_tsvc_requests;
-	cf_atomic_int	err_out_of_space;
-	cf_atomic_int	err_duplicate_proxy_request;
-	cf_atomic_int	err_rw_request_not_found;
-	cf_atomic_int	err_rw_cant_put_unique;
-	cf_atomic_int	err_rw_pending_limit;
+	cf_atomic_int		err_tsvc_requests;
+	cf_atomic_int		err_out_of_space;
+	cf_atomic_int		err_duplicate_proxy_request;
+	cf_atomic_int		err_rw_request_not_found;
+	cf_atomic_int		err_rw_cant_put_unique;
+	cf_atomic_int		err_rw_pending_limit;
 
-	cf_atomic_int	err_replica_null_node;
-	cf_atomic_int	err_replica_non_null_node;
-	cf_atomic_int	err_sync_copy_null_node;
-	cf_atomic_int	err_sync_copy_null_master;
+	cf_atomic_int		err_replica_null_node;
+	cf_atomic_int		err_replica_non_null_node;
+	cf_atomic_int		err_sync_copy_null_node;
+	cf_atomic_int		err_sync_copy_null_master;
 
-	cf_atomic_int	err_storage_queue_full;
-	cf_atomic_int	stat_storage_startup_load;
+	cf_atomic_int		err_storage_queue_full;
+	cf_atomic_int		stat_storage_startup_load;
 
-	cf_atomic_int	err_storage_defrag_corrupt_record;
-	cf_atomic_int	stat_storage_defrag_wait;
+	cf_atomic_int		err_storage_defrag_corrupt_record;
+	cf_atomic_int		stat_storage_defrag_wait;
 
-	cf_atomic_int	err_write_fail_unknown;
-	cf_atomic_int	err_write_fail_key_exists;
-	cf_atomic_int	err_write_fail_generation;
-	cf_atomic_int	err_write_fail_generation_xdr;
-	cf_atomic_int	err_write_fail_bin_exists;
-	cf_atomic_int	err_write_fail_parameter;
-	cf_atomic_int	err_write_fail_noxdr;
-	cf_atomic_int	err_write_fail_prole_unknown;
-	cf_atomic_int	err_write_fail_prole_generation;
-	cf_atomic_int	err_write_fail_not_found;
-	cf_atomic_int	err_write_fail_incompatible_type;
-	cf_atomic_int	err_write_fail_prole_delete;
-	cf_atomic_int	err_write_fail_key_mismatch;
+	cf_atomic_int		err_write_fail_unknown;
+	cf_atomic_int		err_write_fail_key_exists;
+	cf_atomic_int		err_write_fail_generation;
+	cf_atomic_int		err_write_fail_generation_xdr;
+	cf_atomic_int		err_write_fail_bin_exists;
+	cf_atomic_int		err_write_fail_parameter;
+	cf_atomic_int		err_write_fail_noxdr;
+	cf_atomic_int		err_write_fail_prole_unknown;
+	cf_atomic_int		err_write_fail_prole_generation;
+	cf_atomic_int		err_write_fail_not_found;
+	cf_atomic_int		err_write_fail_incompatible_type;
+	cf_atomic_int		err_write_fail_prole_delete;
+	cf_atomic_int		err_write_fail_key_mismatch;
 
-	cf_atomic_int	stat_duplicate_operation;
+	cf_atomic_int		stat_duplicate_operation;
 
 	//stats for UDF read - write operation.
-	cf_atomic_int	udf_read_reqs;
-	cf_atomic_int	udf_read_success;
-	cf_atomic_int	udf_read_errs_other;
+	cf_atomic_int		udf_read_reqs;
+	cf_atomic_int		udf_read_success;
+	cf_atomic_int		udf_read_errs_other;
 
-	cf_atomic_int	udf_write_reqs;
-	cf_atomic_int	udf_write_success;
-	cf_atomic_int	udf_write_errs_other;
+	cf_atomic_int		udf_write_reqs;
+	cf_atomic_int		udf_write_success;
+	cf_atomic_int		udf_write_errs_other;
 
-	cf_atomic_int	udf_delete_reqs;
-	cf_atomic_int	udf_delete_success;
-	cf_atomic_int	udf_delete_errs_other;
+	cf_atomic_int		udf_delete_reqs;
+	cf_atomic_int		udf_delete_success;
+	cf_atomic_int		udf_delete_errs_other;
 
-	cf_atomic_int	udf_lua_errs;
+	cf_atomic_int		udf_lua_errs;
 
-	cf_atomic_int	udf_scan_rec_reqs;
-	cf_atomic_int	udf_query_rec_reqs;
-	cf_atomic_int	udf_replica_writes;
+	cf_atomic_int		udf_scan_rec_reqs;
+	cf_atomic_int		udf_query_rec_reqs;
+	cf_atomic_int		udf_replica_writes;
 
 	// For Lua Garbage Collection, we want to track three things:
 	// (1) The number of times we were below the GC threshold
@@ -610,15 +626,15 @@ typedef struct as_config_s {
 	// cf_atomic_int	stat_lua_gc_full;
 
 	/* Namespaces */
-	uint32_t namespaces;
-	struct as_namespace_s *namespace[AS_NAMESPACE_SZ];
+	uint32_t			namespaces;
+	struct as_namespace_s * namespace[AS_NAMESPACE_SZ];
 
 	// To speed up transaction enqueue's determination of data-in-memory:
-	uint32_t n_namespaces_in_memory;
-	uint32_t n_namespaces_not_in_memory;
+	uint32_t			n_namespaces_in_memory;
+	uint32_t			n_namespaces_not_in_memory;
 
 	// MOD_LUA Config
-	mod_lua_config	mod_lua;
+	mod_lua_config		mod_lua;
 
 	// Cluster Config Info
 	cluster_config_t	cluster;

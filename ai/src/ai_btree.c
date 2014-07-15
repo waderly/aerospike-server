@@ -37,6 +37,8 @@
 #include "bt_iterator.h"
 #include "bt_output.h"
 #include "find.h"
+#include "base/thr_sindex.h"
+#include "base/cfg.h"
 
 #include <citrusleaf/alloc.h>
 #include <citrusleaf/cf_clock.h>
@@ -62,7 +64,7 @@
 bool g_use_arr = true;
 
 // AI_BTREE GLOBALS
-static cf_queue *g_q_dig_arr = NULL;
+static cf_queue *g_q_dig_arr        = NULL;
 extern pthread_rwlock_t g_ai_rwlock;
 
 #define AI_GRLOCK()													\
@@ -95,23 +97,6 @@ init_ai_objFromDigest(ai_obj *akey, cf_digest *d)
 	init_ai_objU160(akey, *(uint160 *)d);
 }
 
-
-int
-ll_ai_obj_dig_reduce_fn(cf_ll_element *ele, void *udata)
-{
-	return CF_LL_REDUCE_DELETE;
-}
-
-void
-ll_ai_obj_dig_destroy_fn(cf_ll_element *ele)
-{
-	ll_ai_obj_dig_element * node = (ll_ai_obj_dig_element *) ele;
-	if (node) {
-		if (node->a)
-			cf_free(node->a);
-		cf_free(node);
-	}
-}
 
 void
 ai_btree_init(void) {
@@ -689,13 +674,13 @@ btree_addsinglerec(as_sindex_metadata *imd, cf_digest *dig, cf_ll *recl, uint64_
 	if (!as_sindex_partition_isactive(imd->si->ns, dig)) {
 		return 0;
 	}
-	cf_ll_element *ele = recl->tail;
-	bool create = !ele;
+	bool create   = (cf_ll_size(recl) == 0) ? true : false;
 	dig_arr_t *dt;
 	if (!create) {
+		cf_ll_element * ele = cf_ll_get_tail(recl);
 		dt = ((ll_recl_element*)ele)->dig_arr;
 		if (dt->num == NUM_DIGS_PER_ARR) {
-			create = 1;
+			create = true;
 		}
 	}
 	if (create) {
@@ -975,7 +960,7 @@ ai_btree_delete(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, as_sindex_ke
  *
  */
 static long
-build_defrag_list_from_nbtr(as_namespace *ns, ai_obj *acol, bt *nbtr, long nofst, long *limit, cf_ll *apk2d)
+build_defrag_list_from_nbtr(as_namespace *ns, ai_obj *acol, bt *nbtr, long nofst, long *limit, uint64_t * tot_found, cf_ll *gc_list)
 {
 	int error = -1;
 	btEntry *nbe;
@@ -987,31 +972,47 @@ build_defrag_list_from_nbtr(as_namespace *ns, ai_obj *acol, bt *nbtr, long nofst
 		return error;
 	}
 
-	uint64_t stime = cf_getus();
-	long found = 0;
-	long processed = 0;
-
+	long      found             = 0;
+	long  processed             = 0;
+	uint64_t validation_time_ms = 0;
 	while ((nbe = btRangeNext(nbi, 1))) {
 		ai_obj *akey = nbe->key;
 		// STEP 2: if this PK is to be deleted then add it to PKtoDeleteList
+		SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ms);
 		int ret = as_sindex_can_defrag_record(ns, (cf_digest *) (&akey->y));
+		SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
+		validation_time_ms = 0; 
+
 		if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
 			*limit = 0;
 			break;
 		} else if (ret == AS_SINDEX_GC_OK){
-			ai_obj_digest_t *a = cf_malloc(sizeof(ai_obj_digest_t));
-			if (!a) {
-				return error;
+
+			bool create   = (cf_ll_size(gc_list) == 0) ? true : false;
+			objs_to_defrag_arr *dt;
+
+			if (!create) {
+				cf_ll_element * ele = cf_ll_get_tail(gc_list);
+				dt = ((ll_sindex_gc_element*)ele)->objs_to_defrag;
+				if (dt->num == SINDEX_GC_NUM_OBJS_PER_ARR) {
+					create = true;
+				}
 			}
-			cloneDigestFromai_obj(&a->dig, akey);
-			ai_objClone(&a->acol, acol);
-			cf_detail(AS_SINDEX, "Built to Defrag [%lu %ld] from  [%lu %ld]",
-					  acol->l, *((uint64_t *)&akey->y), a->acol.l, *((uint64_t *)&a->dig));
-			// add this to the list
-			ll_ai_obj_dig_element * node;
-			node    = cf_malloc(sizeof(ll_ai_obj_dig_element));
-			node->a = a;
-			cf_ll_append(apk2d, (cf_ll_element *)node );
+			if (create) {
+				dt = as_sindex_gc_get_defrag_arr();
+				if (!dt) {
+					*tot_found += found;
+					return -1;
+				}
+				ll_sindex_gc_element  * node;
+				node = cf_malloc(sizeof(ll_sindex_gc_element));
+				node->objs_to_defrag = dt;
+				cf_ll_append(gc_list, (cf_ll_element *)node);
+			}
+			cloneDigestFromai_obj(&(dt->acol_digs[dt->num].dig), akey);
+			ai_objClone(&(dt->acol_digs[dt->num].acol), acol);
+
+			dt->num += 1;		
 			found++;
 		}
 		processed++;
@@ -1019,36 +1020,50 @@ build_defrag_list_from_nbtr(as_namespace *ns, ai_obj *acol, bt *nbtr, long nofst
 		if (*limit == 0) break;
 	}
 	btReleaseRangeIterator(nbi);
-	cf_detail(AS_SINDEX, "Total lookup %ld found %ld time %d microseconds", processed, found, cf_getus() - stime);
-
+	*tot_found += found; 
 	return processed;
 }
 
 static long
-build_defrag_list_from_arr(as_namespace *ns, ai_obj *acol, ai_arr *arr, long nofst, long *limit, cf_ll *apk2d)
+build_defrag_list_from_arr(as_namespace *ns, ai_obj *acol, ai_arr *arr, long nofst, long *limit, uint64_t * tot_found, cf_ll *gc_list)
 {
-	int error = -1;
-	long found = 0;
-	long processed = 0;
-	uint64_t stime = cf_getus();
-
+	long     found              = 0;
+	long     processed          = 0;
+	uint64_t validation_time_ms = 0;
 	for (int i = nofst; i < arr->used; i++) {
+		SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ms);	
 		int ret = as_sindex_can_defrag_record(ns, (cf_digest *) &arr->data[i * CF_DIGEST_KEY_SZ]);
+		SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
+		validation_time_ms = 0;
 		if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
 			*limit = 0;
 			break;
 		} else if (ret == AS_SINDEX_GC_OK) {
-			ai_obj_digest_t *a = cf_malloc(sizeof(ai_obj_digest_t));
-			if (!a) {
-				return error;
+			bool create   = (cf_ll_size(gc_list) == 0) ? true : false;
+			objs_to_defrag_arr *dt;
+
+			if (!create) {
+				cf_ll_element * ele = cf_ll_get_tail(gc_list);
+				dt = ((ll_sindex_gc_element*)ele)->objs_to_defrag;
+				if (dt->num == SINDEX_GC_NUM_OBJS_PER_ARR) {
+					create = true;
+				}
 			}
-			memcpy(&a->dig, (cf_digest *) &arr->data[i * CF_DIGEST_KEY_SZ], CF_DIGEST_KEY_SZ);
-			ai_objClone(&a->acol, acol);
-			// add this to list
-			ll_ai_obj_dig_element * node;
-			node    = cf_malloc(sizeof(ll_ai_obj_dig_element));
-			node->a = a;
-			cf_ll_append(apk2d, (cf_ll_element *)node );
+			if (create) {
+				dt = as_sindex_gc_get_defrag_arr();
+				if (!dt) {
+					*tot_found += found;
+					return -1;
+				}
+				ll_sindex_gc_element  * node;
+				node = cf_malloc(sizeof(ll_sindex_gc_element));
+				node->objs_to_defrag = dt;
+				cf_ll_append(gc_list, (cf_ll_element *)node);
+			}
+			memcpy(&(dt->acol_digs[dt->num].dig), (cf_digest *) &arr->data[i * CF_DIGEST_KEY_SZ], CF_DIGEST_KEY_SZ);	
+			ai_objClone(&(dt->acol_digs[dt->num].acol), acol);
+
+			dt->num += 1;		
 			found++;
 		}
 		processed++;
@@ -1057,8 +1072,7 @@ build_defrag_list_from_arr(as_namespace *ns, ai_obj *acol, ai_arr *arr, long nof
 			break;
 		}
 	}
-	cf_detail(AS_SINDEX, "Total lookup %ld found %ld time %d microseconds", processed, found, cf_getus() - stime);
-
+	*tot_found += found; 
 	return processed;
 }
 
@@ -1075,7 +1089,7 @@ build_defrag_list_from_arr(as_namespace *ns, ai_obj *acol, ai_arr *arr, long nof
  */
 int
 ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, ai_obj *icol,
-						   long *nofst, long limit, cf_ll *apk2d)
+						   long *nofst, long limit, uint64_t * tot_processed, uint64_t * tot_found, cf_ll *gc_list)
 {
 	int ret = AS_SINDEX_ERR;
 
@@ -1083,8 +1097,6 @@ ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, a
 		return ret;
 	}
 
-	int total = limit;
-	uint64_t starttime = cf_getus();
 	as_namespace *ns = imd->si->ns;
 	if (!ns) {
 		ns = as_namespace_get_byname((char *)imd->ns_name);
@@ -1122,9 +1134,9 @@ ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, a
 			break;
 		}
 		if (anbtr->is_btree) {
-			processed = build_defrag_list_from_nbtr(ns, acol, anbtr->u.nbtr, *nofst, &limit, apk2d);
+			processed = build_defrag_list_from_nbtr(ns, acol, anbtr->u.nbtr, *nofst, &limit, tot_found, gc_list);
 		} else {
-			processed = build_defrag_list_from_arr(ns, acol, anbtr->u.arr, *nofst, &limit, apk2d);
+			processed = build_defrag_list_from_arr(ns, acol, anbtr->u.arr, *nofst, &limit, tot_found, gc_list);
 		}
 
 		if (processed < 0) {    // error .. abort everything.
@@ -1132,6 +1144,7 @@ ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, a
 			ret = AS_SINDEX_ERR;
 			break;
 		}
+		*tot_processed += processed;
 		// This tree may have some more digest to defrag
 		if (limit == 0) {
 			*nofst = *nofst + processed;
@@ -1149,17 +1162,16 @@ ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, a
 	btReleaseRangeIterator(bi);
 END:
 	cf_free(iname);
-	cf_detail(AS_SINDEX, " List creation time %d microseconds for batch size %d", cf_getus() - starttime, total);
 
 	return ret;
 }
 
 /*
- * Deletes the digest as in the passed in as apk2d, bound by n2del number of
+ * Deletes the digest as in the passed in as gc_list, bound by n2del number of
  * elements per iteration, with *deleted successful deletes.
  */
 bool
-ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *apk2d, ulong n2del, ulong *deleted)
+ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *gc_list, ulong n2del, ulong *deleted)
 {
 	// If n2del is zero here, that means caller do not want to defrag
 	if (n2del == 0 ) {
@@ -1169,37 +1181,51 @@ ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *
 	as_namespace *ns = imd->si->ns;
 	// STEP 3: go thru the PKtoDeleteList and delete the keys
 	ulong bb = pimd->ibtr->msize + pimd->ibtr->nsize;
-	while (apk2d->sz) {
-		ll_ai_obj_dig_element * node = (ll_ai_obj_dig_element * )apk2d->head;
-		ai_obj_digest_t *a           = node->a;
+	uint64_t validation_time_ms = 0;
+	uint64_t deletion_time_ms   = 0;
+	while (cf_ll_size(gc_list)) {
+		cf_ll_element        * ele  = cf_ll_get_head(gc_list);
+		ll_sindex_gc_element * node = (ll_sindex_gc_element * )ele;
+		objs_to_defrag_arr   * dt   = node->objs_to_defrag;
 
 		// check before deleting. The digest may re-appear after the list
 		// creation and before deletion from the secondary index
-		int ret = as_sindex_can_defrag_record(ns, &a->dig);
-		if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
-			break;
-		} else if (ret == AS_SINDEX_GC_OK) {
-			ai_obj           apk;
-			init_ai_objFromDigest(&apk, &a->dig);
-			ai_obj          *acol = &(a->acol);
 
-			cf_detail(AS_SINDEX, "Defragged %lu %ld", acol->l, *((uint64_t *)&apk.y));
-
-			if (reduced_iRem(pimd->ibtr, acol, &apk) == AS_SINDEX_OK) {
-				success++;
+		int i = 0;
+		while (dt->num != 0) {
+			i = dt->num - 1;
+			SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ms);
+			int ret = as_sindex_can_defrag_record(ns, &(dt->acol_digs[i].dig));
+			SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
+			validation_time_ms = 0;
+			if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
+				goto END;
+			} else if (ret == AS_SINDEX_GC_OK) {
+				ai_obj           apk;
+				init_ai_objFromDigest(&apk, &(dt->acol_digs[i].dig));
+				ai_obj          *acol = &(dt->acol_digs[i].acol);
+				cf_detail(AS_SINDEX, "Defragged %lu %ld", acol->l, *((uint64_t *)&apk.y));
+				
+				SET_TIME_FOR_SINDEX_GC_HIST(deletion_time_ms);
+				if (reduced_iRem(pimd->ibtr, acol, &apk) == AS_SINDEX_OK) {
+					success++;
+					SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_delete_obj_hist, deletion_time_ms);
+				}
+				deletion_time_ms = 0;
+			}
+			dt->num -= 1;
+			n2del--;
+			if (n2del == 0) {
+				goto END;
 			}
 		}
-
-		cf_ll_delete(apk2d, (cf_ll_element*)node);
-		n2del--;
-		if (n2del == 0) {
-			break;
-		}
+		cf_ll_delete(gc_list, (cf_ll_element*)node);
 	}
-	ulong ab = pimd->ibtr->msize + pimd->ibtr->nsize;
-	as_sindex_release_data_memory(imd, (bb - ab));
-	*deleted = success;
-	return apk2d->sz ? true : false;
+
+END:
+	as_sindex_release_data_memory(imd, (bb -  pimd->ibtr->msize - pimd->ibtr->nsize));
+	*deleted += success;
+	return cf_ll_size(gc_list) ? true : false;
 }
 
 /* NOTE: The creation of a secondary index is the following two commands
