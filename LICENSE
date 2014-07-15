@@ -1,4 +1,35 @@
-Licenses for Aerospike open source components
+================================================================================
+
+AEROSPIKE SERVER LICENSE
+
+The Aerospike Server is made availabled under the terms of the GNU Affero 
+General Public License version 3 (AGPLv3), as stated in the file `LICENSE-AGPL`.
+
+Individual files may be made available under their own specific license, 
+all compatible with AGPLv3. Please see individual files for details.
+
+================================================================================
+
+AEROSPIKE MODULE LICENSE
+
+The following directories and their subdirectories thereof are made available 
+under the terms of the Apache License, version 2.0, as stated in the file
+`LICENSE-APACHE`, or a compatible license stated in the file itself. Please
+see individual files for details.
+
+  - modules/asmalloc
+  - modules/common
+  - modules/lua-core
+  - modules/mod-lua
+
+================================================================================
+
+THIRD PARTY LIBRARY LICENSES
+
+The following are the licenses for 3rd party libraries utilized by Aerospike 
+Server.
+
+--------------------------------------------------------------------------------
 
 Lua
 ---
@@ -16,10 +47,12 @@ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
 PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY 
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-_______________________________________________________________
+
+--------------------------------------------------------------------------------
 
 Jansson
 -------
+
 Copyright (c) 2009-2012 Petri Lehtinen <petri@digip.org>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
@@ -38,10 +71,41 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-_______________________________________________________________
+
+--------------------------------------------------------------------------------
+
+jemalloc
+--------
+
+Copyright (C) 2002-2014 Jason Evans <jasone@canonware.com>.
+All rights reserved.
+Copyright (C) 2007-2012 Mozilla Foundation.  All rights reserved.
+Copyright (C) 2009-2014 Facebook, Inc.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright notice(s),
+   this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice(s),
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER(S) ``AS IS'' AND ANY EXPRESS
+OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO
+EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
 
 BTree
 -----
+
 Copyright 1997-1999, 2001 John-Mark Gurney.
 All rights reserved.
 
@@ -53,7 +117,8 @@ are met:
 2. Redistributions in binary form must reproduce the above copyright
    notice, this list of conditions and the following disclaimer in the
    documentation and/or other materials provided with the distribution.
-_______________________________________________________________
+
+--------------------------------------------------------------------------------
 
 BCrypt
 ------
@@ -77,4 +142,6 @@ it if you give credit where it is due and keep your modifications in
 the public domain as well, but I don't require that in order to let
 you place this code and any modifications you make under a license
 of your choice.
+
+--------------------------------------------------------------------------------
 

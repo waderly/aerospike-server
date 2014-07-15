@@ -22,7 +22,7 @@ dist:
 
 	@# docs
 	install -pm 644 -D $(SOURCE)/README $(TARGET)/README
-	install -pm 644 -D $(PKG)/license.txt $(TARGET)/license.txt
+	install -pm 644 -D $(DEPTH)/LICENSE $(TARGET)/LICENSE
 
 	@# binaries
 	install -pm 755 -Dd $(TARGET)/bin

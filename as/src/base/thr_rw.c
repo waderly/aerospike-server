@@ -148,14 +148,14 @@ write_request_restart(wreq_tr_element *w)
 {
 	as_transaction *tr = &w->tr;
 	cf_debug(AS_RW, "as rw start:  QUEUEING BACK (%d:%p) %"PRIx64"",
-			 tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, tr->keyd);
+			 tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, *(uint64_t*)&tr->keyd);
 
 	MICROBENCHMARK_RESET_P();
 
 	if (0 != thr_tsvc_enqueue(tr)) {
 		cf_warning(AS_RW,
 				"WRITE REQUEST: FAILED queueing back request %"PRIx64"",
-				tr->keyd);
+				*(uint64_t*)&tr->keyd);
 		cf_free(tr->msgp);
 		tr->msgp = 0;
 	}
@@ -338,7 +338,7 @@ int rw_dump_reduce(void *key, uint32_t keylen, void *data, void *udata) {
 
 void verify_fail(char *msg, as_transaction *tr, as_record *r, int bin_count) {
 	cf_warning(AS_TSVC, "read verify failed: reason %s digest %"PRIx64"",
-			msg, tr->keyd);
+			msg, *(uint64_t*)&tr->keyd);
 
 #ifdef VERIFY_BREAK
 	// more and more diagnostic info to go here
@@ -520,7 +520,7 @@ rw_msg_setup(msg *m, as_transaction *tr, cf_digest *keyd,
 		if (tr->rsv.n_dupl > 1) {
 			cf_debug(AS_RW, "{%s:%d} requesting duplicates from %d nodes, very "
 					 "unlikely, digest %"PRIx64"",
-					 tr->rsv.ns->name, tr->rsv.pid, tr->rsv.n_dupl, tr->keyd);
+					 tr->rsv.ns->name, tr->rsv.pid, tr->rsv.n_dupl, *(uint64_t*)&tr->keyd);
 		}
 	} else if (op == RW_OP_MULTI) {
 		// TODO: What is meaning of generation and TTL here ???
@@ -809,7 +809,7 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 			WR_TRACK_INFO(wr, "internal_rw_start: delete local done ");
 			cf_detail(AS_RW,
 					"write_delete_local for digest returns %d, %d digest %"PRIx64"",
-					rv, tr->result_code, tr->keyd);
+					rv, tr->result_code, *(uint64_t*)&tr->keyd);
 		} else {
 			write_local_generation wlg;
 			wlg.use_gen_check = false;
@@ -1165,7 +1165,7 @@ int as_rw_start(as_transaction *tr, bool is_read) {
 
 					cf_debug(AS_RW,
 							"proxy_write_start: duplicate, ignoring {%s:%d} %"PRIx64"",
-							tr->rsv.ns->name, tr->rsv.pid, tr->keyd);
+							tr->rsv.ns->name, tr->rsv.pid, *(uint64_t*)&tr->keyd);
 					cf_rc_release(wr);
 					WR_TRACK_INFO(wr, "as_rw_start: proxy - ignored");
 					WR_RELEASE(wr);
@@ -1191,7 +1191,7 @@ int as_rw_start(as_transaction *tr, bool is_read) {
 				if (wq_depth > g_config.transaction_pending_limit) {
 					cf_debug(AS_RW,
 							"as_rw_start: pending limit, ignoring {%s:%d} %"PRIx64"",
-							tr->rsv.ns->name, tr->rsv.pid, tr->keyd);
+							tr->rsv.ns->name, tr->rsv.pid, *(uint64_t*)&tr->keyd);
 					cf_rc_release(wr);
 					WR_TRACK_INFO(wr, "as_rw_start: pending - limit");
 					WR_RELEASE(wr);
@@ -1239,7 +1239,7 @@ int as_rw_start(as_transaction *tr, bool is_read) {
 
 			cf_detail(AS_RW,
 					"as rw start:  write in progress QUEUEING returning 0 (%d:%p) %"PRIx64"",
-					tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, tr->keyd);
+					tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, *(uint64_t*)&tr->keyd);
 
 			as_partition_release(&tr->rsv);
 			cf_atomic_int_decr(&g_config.rw_tree_count);
@@ -1252,7 +1252,7 @@ int as_rw_start(as_transaction *tr, bool is_read) {
 			WR_TRACK_INFO(wr, "as_rw_start: not found: return -2");
 			cf_detail(AS_RW,
 					"as rw start:  could not find request in hash table! returning -2 {%s.%d} (%d:%p) %"PRIx64"",
-					tr->rsv.ns->name, tr->rsv.pid, tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, tr->keyd);
+					tr->rsv.ns->name, tr->rsv.pid, tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, *(uint64_t*)&tr->keyd);
 		}
 		cf_rc_release(wr);
 		WR_TRACK_INFO(wr, "as_rw_start: 694");
@@ -1262,7 +1262,7 @@ int as_rw_start(as_transaction *tr, bool is_read) {
 	else if (rv != 0) {
 		cf_info(AS_RW,
 				"as_write_start:  unknown reason %d can't put unique? {%s.%d} (%d:%p) %"PRIx64"",
-				rv, tr->rsv.ns->name, tr->rsv.pid, tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, tr->keyd);
+				rv, tr->rsv.ns->name, tr->rsv.pid, tr->proto_fd_h ? tr->proto_fd_h->fd : 0, tr->proxy_msg, *(uint64_t*)&tr->keyd);
 		WR_TRACK_INFO(wr, "as_rw_start: 701");
 		udf_rw_complete(tr, -2, __FILE__, __LINE__);
 		UREQ_DATA_RESET(&tr->udata);
@@ -2947,17 +2947,17 @@ int write_local_preprocessing(as_transaction *tr, write_local_generation *wlg,
 			cf_debug(AS_RW, "journal wr: unusual state %d", (int)tr->rsv.state);
 		}
 		write_journal(tr, wlg);
-		cf_detail(AS_RW, "write_local: writing in journal %"PRIx64"", tr->keyd);
+		cf_detail(AS_RW, "write_local: writing in journal %"PRIx64"", *(uint64_t*)&tr->keyd);
 		return 0;
 	}
 	else if (tr->rsv.reject_writes) {
 		cf_debug(AS_RW, "{%s:%d} write_local: partition rejects writes - writes will flow from master. digest %"PRIx64"",
-				ns->name, tr->rsv.pid, tr->keyd);
+				ns->name, tr->rsv.pid, *(uint64_t*)&tr->keyd);
 		return 0;
 	}
 	else if (AS_PARTITION_STATE_DESYNC == tr->rsv.state) {
 		cf_debug(AS_RW, "{%s:%d} write_local: partition is desync - writes will flow from master. digest %"PRIx64"",
-				ns->name, tr->rsv.pid, tr->keyd);
+				ns->name, tr->rsv.pid, *(uint64_t*)&tr->keyd);
 		return 0;
 	}
 
@@ -3493,7 +3493,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 				// Allow AS_PARTICLE_TYPE_NULL, although bin-delete operations
 				// are not likely in single-bin configuration.
 				op->particle_type != AS_PARTICLE_TYPE_NULL) {
-			cf_warning(AS_RW, "write_local: %lx can't write non-integer in data-in-index configuration", tr->keyd);
+			cf_warning(AS_RW, "write_local: %lx can't write non-integer in data-in-index configuration", *(uint64_t*)&tr->keyd);
 			write_local_failed(tr, &r_ref, record_created, tree, &rd, AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE);
 			return -1;
 		}
@@ -3549,7 +3549,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 
 		if (m->info2 & AS_MSG_INFO2_BIN_CREATE_ONLY) {
 			if (bin) {
-				cf_debug(AS_RW, "returning FAIL BIN EXISTS. digest %"PRIx64"", tr->keyd);
+				cf_debug(AS_RW, "returning FAIL BIN EXISTS. digest %"PRIx64"", *(uint64_t*)&tr->keyd);
 				write_local_failed(tr, &r_ref, record_created, tree, &rd, AS_PROTO_RESULT_FAIL_BIN_EXISTS);
 				return -1;
 			}
@@ -3557,7 +3557,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 
 		if (m->info3 & AS_MSG_INFO3_BIN_REPLACE_ONLY) {
 			if (! bin) {
-				cf_debug(AS_RW, "returning FAIL NOT FOUND for must-exist bin. digest %"PRIx64"", tr->keyd);
+				cf_debug(AS_RW, "returning FAIL NOT FOUND for must-exist bin. digest %"PRIx64"", *(uint64_t*)&tr->keyd);
 				write_local_failed(tr, &r_ref, record_created, tree, &rd, AS_PROTO_RESULT_FAIL_BIN_NOT_FOUND);
 				return -1;
 			}
@@ -3576,13 +3576,13 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 					||
 					((op->op == AS_MSG_OP_MC_APPEND || op->op == AS_MSG_OP_MC_PREPEND) &&
 						(op->particle_type != type || type != AS_PARTICLE_TYPE_STRING))) {
-					cf_warning(AS_RW, "%lx failed append/prepend - incompatible type", tr->keyd);
+					cf_warning(AS_RW, "%lx failed append/prepend - incompatible type", *(uint64_t*)&tr->keyd);
 					write_local_failed(tr, &r_ref, record_created, tree, &rd, AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE);
 					return -1;
 				}
 				else if ((op->op == AS_MSG_OP_INCR || op->op == AS_MSG_OP_MC_INCR) &&
 						type != AS_PARTICLE_TYPE_INTEGER) {
-					cf_warning(AS_RW, "%lx failed increment - existing bin type not integer", tr->keyd);
+					cf_warning(AS_RW, "%lx failed increment - existing bin type not integer", *(uint64_t*)&tr->keyd);
 					write_local_failed(tr, &r_ref, record_created, tree, &rd, AS_PROTO_RESULT_FAIL_INCOMPATIBLE_TYPE);
 					return -1;
 				}
@@ -3694,7 +3694,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	// vinfo machinery.
 	if (! as_storage_record_can_fit(&rd)) {
 		cf_warning(AS_RW, "{%s} write_local: %lx too big - %u bins, particles flat size %u",
-				ns->name, tr->keyd, rd.n_bins_to_write, rd.particles_flat_size);
+				ns->name, *(uint64_t*)&tr->keyd, rd.n_bins_to_write, rd.particles_flat_size);
 		write_local_failed(tr, &r_ref, record_created, tree, &rd, AS_PROTO_RESULT_FAIL_RECORD_TOO_BIG);
 		return -1;
 	}
@@ -4159,7 +4159,7 @@ pthread_mutex_t journal_lock = PTHREAD_MUTEX_INITIALIZER;
 // So although it hurts, take a copy
 
 int write_journal(as_transaction *tr, write_local_generation *wlg) {
-	cf_detail(AS_RW, "write to journal: %"PRIx64, tr->keyd);
+	cf_detail(AS_RW, "write to journal: %"PRIx64, *(uint64_t*)&tr->keyd);
 
 	if (!journal_hash)
 		return (0);
@@ -4228,7 +4228,7 @@ int write_journal(as_transaction *tr, write_local_generation *wlg) {
 //
 
 int write_delete_journal(as_transaction *tr) {
-	cf_detail(AS_RW, "write to delete journal: %"PRIx64"", tr->keyd);
+	cf_detail(AS_RW, "write to delete journal: %"PRIx64"", *(uint64_t*)&tr->keyd);
 
 	if (journal_hash == 0)
 		return (0);
@@ -4461,7 +4461,7 @@ write_process_op(as_namespace *ns, cf_digest *keyd, cl_msg *msgp,
 			cf_info(AS_RW,
 					"rw prole operation: failed, ns %s rv %d result code %d, "
 					"digest %"PRIx64"",
-					ns->name, rv, tr.result_code, *(uint64_t * )&tr.keyd);
+					ns->name, rv, tr.result_code, *(uint64_t*)&tr.keyd);
 		}
 	}
 

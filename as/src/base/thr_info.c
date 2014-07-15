@@ -46,7 +46,6 @@
 
 #include "xdr_config.h"
 
-#include "b64.h"
 #include "cf_str.h"
 #include "jem.h"
 #include "meminfo.h"
@@ -2877,8 +2876,22 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			cf_info(AS_INFO, "Changing value of query-longq-max-size from %d to %d ", g_config.query_long_q_max_size, val);
 			g_config.query_long_q_max_size = val;
 		}
-		else
+		else if (0 == as_info_parameter_get(params, "query-microbenchmark", context, &context_len)) {
+			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) { 
+				cf_info(AS_INFO, "Changing value of query-enable-histogram to %s", context);
+				g_config.query_enable_histogram = true;
+			}    
+			else if (strncmp(context, "false", 5) == 0 || strncmp(context, "no", 2) == 0) { 
+				cf_info(AS_INFO, "Changing value of query-enable-histogram to %s", context);
+				g_config.query_enable_histogram = false;
+			}    
+			else {
+				goto Error;
+			}
+		}
+		else {
 			goto Error;
+		}
 	}
 	else if (strcmp(context, "network.heartbeat") == 0) {
 		context_len = sizeof(context);
@@ -4326,6 +4339,8 @@ info_debug_ticker_fn(void *gcc_is_ass)
 				cf_hist_track_dump(g_config.q_hist);
 			if (g_config.q_rcnt_hist)
 				cf_hist_track_dump(g_config.q_rcnt_hist);
+
+			as_query_histogram_dumpall();
 
 			if (g_config.microbenchmarks) {
 				if (g_config.rt_cleanup_hist)
@@ -6397,8 +6412,11 @@ as_info_init()
 	// create worker threads
 	g_info_work_q = cf_queue_create(sizeof(info_work), true);
 
+	char vstr[64];
+	sprintf(vstr, "%s build %s", aerospike_build_type, aerospike_build_id);
+
 	// Set some basic values
-	as_info_set("version", "Aerospike 3.0", true);       // Returns the Aerospike server major version.
+	as_info_set("version", vstr, true);                  // Returns the edition and build number.
 	as_info_set("build", aerospike_build_id, true);      // Returns the build number for this server.
 	as_info_set("edition", aerospike_build_type, true);  // Return the edition of this build.
 	as_info_set("digests", "RIPEMD160", false);          // Returns the hashing algorithm used by the server for key hashing.
