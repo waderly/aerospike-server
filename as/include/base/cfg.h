@@ -122,7 +122,7 @@ typedef struct as_config_s {
 	bool				allow_inline_transactions;
 
 	// Refresh socket privileges periodically - interval in seconds.
-	uint32_t security_refresh;
+	uint32_t			security_refresh;
 
 	/* max client file descriptors */
 	int					n_proto_fd_max;
@@ -640,7 +640,7 @@ typedef struct as_config_s {
 	cluster_config_t	cluster;
 
 	// Security configuration info.
-	as_sec_config sec_cfg;
+	as_sec_config		sec_cfg;
 
 } as_config;
 
