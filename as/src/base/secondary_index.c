@@ -453,7 +453,7 @@ as_sindex__process_ret(as_sindex *si, int ret, as_sindex_op op,
 				cf_atomic64_incr(&si->stats.n_objects);
 			}
 			cf_atomic64_incr(&si->stats.n_writes);
-			SINDEX_HIST_INSERT_DATA_POINT(si, write_hist, starttime);
+			SINDEX_HIST_INSERT_DATA_POINT_US(si, write_hist, starttime);
 			break;
 		case AS_SINDEX_OP_DELETE:
 			if (ret && ret != AS_SINDEX_KEY_NOTFOUND) {
@@ -465,7 +465,7 @@ as_sindex__process_ret(as_sindex *si, int ret, as_sindex_op op,
 				cf_atomic64_decr(&si->stats.n_objects);
 			}
 			cf_atomic64_incr(&si->stats.n_deletes);
-			SINDEX_HIST_INSERT_DATA_POINT(si, delete_hist, starttime);
+			SINDEX_HIST_INSERT_DATA_POINT_US(si, delete_hist, starttime);
 			break;
 		case AS_SINDEX_OP_READ:
 			if (ret < 0) { // AS_SINDEX_CONTINUE(1) also OK
@@ -633,7 +633,9 @@ as_sindex__op_by_skey(as_sindex   *si, as_sindex_key *skey,
 	as_sindex_pmetadata *pimd = &imd->pimd[ai_btree_key_hash(imd, &skey->b[0])];
 	uint64_t starttime = 0;
 	if (op == AS_SINDEX_OP_DELETE) {
-		starttime = cf_getus();
+		if (si->enable_histogram) {
+			starttime = cf_getus();
+		}
 		SINDEX_WLOCK(&pimd->slock);
 		ret       = ai_btree_delete(imd, pimd, skey,(void *)&rd->keyd);
 		SINDEX_UNLOCK(&pimd->slock);
@@ -641,7 +643,9 @@ as_sindex__op_by_skey(as_sindex   *si, as_sindex_key *skey,
 			SITRACE(si, DML, debug, "AS_SINDEX_OP_DELETE: Fail %d", ret);
 		}
 	} else if (op == AS_SINDEX_OP_INSERT) {
-		starttime = cf_getus();
+		if (si->enable_histogram) {
+			starttime = cf_getus();
+		}
 		SINDEX_WLOCK(&pimd->slock);
 		ret       = ai_btree_put(imd, pimd, skey, (void *)&rd->keyd);
 		SINDEX_UNLOCK(&pimd->slock);
@@ -760,8 +764,8 @@ as_sindex__stats_clear(as_sindex *si) {
 	histogram_clear(s->_write_hist);
 	histogram_clear(s->_delete_hist);
 	histogram_clear(s->_query_hist);
-	histogram_clear(s->_query_cl_hist);
-	histogram_clear(s->_query_ai_hist);
+	histogram_clear(s->_query_batch_io);
+	histogram_clear(s->_query_batch_lookup);
 	histogram_clear(s->_query_rcnt_hist);
 	histogram_clear(s->_query_diff_hist);
 }
@@ -844,32 +848,31 @@ void
 as_sindex__setup_histogram(as_sindex *si)
 {
 	char hist_name[AS_ID_INAME_SZ+64];
-	sprintf(hist_name, "%s_write_hist", si->imd->iname);
-
+	sprintf(hist_name, "%s_write_us", si->imd->iname);
 	if (NULL == (si->stats._write_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex write histogram");
 
-	sprintf(hist_name, "%s_delete_hist", si->imd->iname);
+	sprintf(hist_name, "%s_delete_us", si->imd->iname);
 	if (NULL == (si->stats._delete_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex delete histogram");
 
-	sprintf(hist_name, "%s_query_hist", si->imd->iname);
+	sprintf(hist_name, "%s_query", si->imd->iname);
 	if (NULL == (si->stats._query_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query histogram");
 
-	sprintf(hist_name, "%s_query_ai_hist", si->imd->iname);
-	if (NULL == (si->stats._query_ai_hist = histogram_create(hist_name)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query alc histogram");
+	sprintf(hist_name, "%s_query_batch_lookup_us", si->imd->iname);
+	if (NULL == (si->stats._query_batch_lookup = histogram_create(hist_name)))
+		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query batch-lookup histogram");
 
-	sprintf(hist_name, "%s_query_cl_hist", si->imd->iname);
-	if (NULL == (si->stats._query_cl_hist = histogram_create(hist_name)))
-		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query cl histogram");
+	sprintf(hist_name, "%s_query_batch_io_us", si->imd->iname);
+	if (NULL == (si->stats._query_batch_io = histogram_create(hist_name)))
+		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query io histogram");
 
-	sprintf(hist_name, "%s_query_row_count_hist", si->imd->iname);
+	sprintf(hist_name, "%s_query_row_count", si->imd->iname);
 	if (NULL == (si->stats._query_rcnt_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query row count histogram");
 
-	sprintf(hist_name, "%s_query_diff_hist", si->imd->iname);
+	sprintf(hist_name, "%s_query_diff_count", si->imd->iname);
 	if (NULL == (si->stats._query_diff_hist = histogram_create(hist_name)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex query diff histogram");
 
@@ -878,13 +881,13 @@ as_sindex__setup_histogram(as_sindex *si)
 int
 as_sindex__destroy_histogram(as_sindex *si)
 {
-	if (si->stats._write_hist)  cf_free(si->stats._write_hist);
-	if (si->stats._delete_hist) cf_free(si->stats._delete_hist);
-	if (si->stats._query_hist)  cf_free(si->stats._query_hist);
-	if (si->stats._query_ai_hist) cf_free(si->stats._query_ai_hist);
-	if (si->stats._query_cl_hist)  cf_free(si->stats._query_cl_hist);
-	if (si->stats._query_rcnt_hist) cf_free(si->stats._query_rcnt_hist);
-	if (si->stats._query_diff_hist) cf_free(si->stats._query_diff_hist);
+	if (si->stats._write_hist)            cf_free(si->stats._write_hist);
+	if (si->stats._delete_hist)           cf_free(si->stats._delete_hist);
+	if (si->stats._query_hist)            cf_free(si->stats._query_hist);
+	if (si->stats._query_batch_lookup)    cf_free(si->stats._query_batch_lookup);
+	if (si->stats._query_batch_io)        cf_free(si->stats._query_batch_io);
+	if (si->stats._query_rcnt_hist)       cf_free(si->stats._query_rcnt_hist);
+	if (si->stats._query_diff_hist)       cf_free(si->stats._query_diff_hist);
 	return 0;
 }
 
@@ -902,15 +905,15 @@ as_sindex_init(as_namespace *ns)
 
 	ns->sindex_cnt = 0;
 	for (int i = 0; i < AS_SINDEX_MAX; i++) {
-		as_sindex *si = &ns->sindex[i];
+		as_sindex *si                    = &ns->sindex[i];
 		memset(si, 0, sizeof(as_sindex));
-		si->state     = AS_SINDEX_INACTIVE;
-		si->stats._delete_hist = NULL;
-		si->stats._query_hist = NULL;
-		si->stats._query_ai_hist = NULL;
-		si->stats._query_cl_hist = NULL;
-		si->stats._query_rcnt_hist = NULL;
-		si->stats._query_diff_hist = NULL;
+		si->state                        = AS_SINDEX_INACTIVE;
+		si->stats._delete_hist           = NULL;
+		si->stats._query_hist            = NULL;
+		si->stats._query_batch_lookup    = NULL;
+		si->stats._query_batch_io        = NULL;
+		si->stats._query_rcnt_hist       = NULL;
+		si->stats._query_diff_hist       = NULL;
 	}
 	
 	// binid to simatch lookup
@@ -1418,7 +1421,7 @@ as_sindex_query(as_sindex *si, as_sindex_range *srange, as_sindex_qctx *qctx)
 		SINDEX_UNLOCK(&imd->slock);
 		return ret;
 	}
-	uint64_t starttime = cf_getus();
+	uint64_t starttime = 0;
 	ret = ai_btree_query(imd, srange, qctx);
 	as_sindex__process_ret(si, ret, AS_SINDEX_OP_READ, starttime, __LINE__);
 	SINDEX_UNLOCK(&imd->pimd[qctx->pimd_idx].slock);
@@ -2422,10 +2425,10 @@ as_sindex_histogram_dumpall(as_namespace *ns)
 			histogram_dump(si->stats._delete_hist);
 		if (si->stats._query_hist)
 			histogram_dump(si->stats._query_hist);
-		if (si->stats._query_ai_hist)
-			histogram_dump(si->stats._query_ai_hist);
-		if (si->stats._query_cl_hist)
-			histogram_dump(si->stats._query_cl_hist);
+		if (si->stats._query_batch_lookup)
+			histogram_dump(si->stats._query_batch_lookup);
+		if (si->stats._query_batch_io)
+			histogram_dump(si->stats._query_batch_io);
 		if (si->stats._query_rcnt_hist)
 			histogram_dump(si->stats._query_rcnt_hist);
 		if (si->stats._query_diff_hist)

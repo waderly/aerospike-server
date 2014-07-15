@@ -30,6 +30,56 @@
 #include <stdbool.h>
 
 #include "queue.h"
+#include "ai_obj.h"
+#include "hist.h"
+#include "citrusleaf/cf_digest.h"
+
+#define SET_TIME_FOR_SINDEX_GC_HIST(start_time)                                           \
+do {                                                                                      \
+	if (g_config.sindex_gc_enable_histogram) {                                            \
+		start_time = cf_getms();                                                          \
+	}                                                                                     \
+} while(0);
+
+#define SINDEX_GC_HIST_INSERT_DATA_POINT(type, start_time_ms)                             \
+do {                                                                                      \
+	if (start_time_ms != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
+		histogram_insert_data_point(g_config._ ##type, start_time_ms);                    \
+	}                                                                                     \
+} while(0);
+
+#define SINDEX_GC_HIST_INSERT_DATA_POINT_US(type, start_time_us)                          \
+do {                                                                                      \
+	if (start_time_us != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
+		histogram_insert_delta(g_config._ ##type, cf_getus() - start_time_us);            \
+	}                                                                                     \
+} while(0);
+
+#define SINDEX_GC_HIST_INSERT_DELTA(type, delta)                                          \
+do {                                                                                      \
+	if (g_config.sindex_gc_enable_histogram && g_config._ ##type) {                       \
+		histogram_insert_delta(g_config._ ##type, delta);                                 \
+	}                                                                                     \
+} while(0);
+
+
+#define SINDEX_GC_QUEUE_HIGHWATER  10
+#define SINDEX_GC_NUM_OBJS_PER_ARR 20
+
+typedef struct acol_digest_t {
+	cf_digest dig;
+	ai_obj    acol;
+} acol_digest;
+
+typedef struct objs_to_defrag_arr_t {
+	acol_digest acol_digs[SINDEX_GC_NUM_OBJS_PER_ARR];
+	uint32_t    num;
+} objs_to_defrag_arr;
+
+typedef struct ll_sindex_gc_element_s {
+	cf_ll_element        ele;
+	objs_to_defrag_arr * objs_to_defrag;
+} ll_sindex_gc_element;
 
 extern pthread_rwlock_t sindex_rwlock;
 extern cf_queue *g_sindex_populate_q;
@@ -37,4 +87,6 @@ extern cf_queue *g_sindex_destroy_q;
 extern cf_queue *g_sindex_populateall_done_q;
 extern bool      g_sindex_boot_done;
 
-int as_sindex_thr_init();
+void as_sindex_thr_init();
+void as_sindex_gc_histogram_dumpall();
+objs_to_defrag_arr * as_sindex_gc_get_defrag_arr(void);

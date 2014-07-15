@@ -474,7 +474,7 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 		as_index_delete(tr->rsv.tree, &tr->keyd);
 		urecord->starting_memory_bytes = 0;
 		*urecord_op                    = UDF_OPTYPE_DELETE;
-	} else if (*urecord_op == UDF_OPTYPE_WRITE) {
+	} else if (*urecord_op == UDF_OPTYPE_WRITE)	{
 		cf_detail(AS_UDF, "Committing Changes %"PRIx64" n_bins %d", rd->keyd, as_bin_get_n_bins(r_ref->r, rd));
 
 		size_t  rec_props_data_size = as_storage_record_rec_props_size(rd);
@@ -483,10 +483,9 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 			as_storage_record_set_rec_props(rd, rec_props_data);
 		}
 
-		// Generation is already updated, increment_generation should be false
 		write_local_post_processing(tr, tr->rsv.ns, NULL, &urecord->pickled_buf,
 			&urecord->pickled_sz, &urecord->pickled_void_time,
-			&urecord->pickled_rec_props, false /*increment_generation*/,
+			&urecord->pickled_rec_props, true/*increment_generation*/,
 			NULL, r_ref->r, rd, urecord->starting_memory_bytes);
 
 		// Now ok to accommodate a new stored key.
@@ -497,7 +496,7 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 
 			as_index_set_flags(r_ref->r, AS_INDEX_FLAG_KEY_STORED);
 		}
-}
+	}
 
 	// get set-id and generation before record-close
 	as_generation generation = 0;

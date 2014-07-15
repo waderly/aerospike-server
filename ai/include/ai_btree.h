@@ -25,22 +25,14 @@
 #include "base/secondary_index.h"
 
 #include "ai_obj.h"
+#include <citrusleaf/cf_ll.h>
 
 #define NUM_DIGS_PER_ARR 51
+
 typedef struct dig_arr_t { //NOTE: this data structure MUST be 1KB exactly
 	cf_digest digs[NUM_DIGS_PER_ARR];
 	uint32_t  num;
 } __attribute__ ((packed)) dig_arr_t;
-
-typedef struct ai_obj_digest_t {
-	cf_digest dig;
-	ai_obj acol;
-} ai_obj_digest_t;
-
-typedef struct ll_ai_obj_dig_element_s {
-	cf_ll_element ele;
-	ai_obj_digest_t * a;
-} ll_ai_obj_dig_element;
 
 typedef struct ll_recl_element_s {
 	cf_ll_element   ele;
@@ -91,7 +83,7 @@ void ai_post_append_only_file_init(int nprts);
 
 int ai_post_index_creation_setup_metadata(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, int simatch, int bimatch, int idx);
 
-int ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, struct ai_obj *icol, long *nofst, long lim, cf_ll *apk2d);
+int ai_btree_build_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, struct ai_obj *icol, long *nofst, long lim, uint64_t * tot_processed, uint64_t * tot_found, cf_ll *apk2d);
 
 bool ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *apk2d, ulong n2del, ulong *deleted);
 
@@ -99,6 +91,3 @@ int ai_btree_key_hash(as_sindex_metadata *imd, as_sindex_bin *sbin);
 
 int ai_post_index_creation_setup_pmetadata(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, int simatch, int idx);
 
-void ll_ai_obj_dig_destroy_fn(cf_ll_element *ele);
-
-int ll_ai_obj_dig_reduce_fn(cf_ll_element *ele, void *udata);
