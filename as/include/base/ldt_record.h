@@ -57,7 +57,7 @@
  * child to an Aerospike "Top Record".
  */
 typedef struct ldt_chunk_s {
-	as_rec              c_urec;
+	as_rec            * c_urec_p;
 	udf_record          c_urecord;   // Currently open chunk
 	as_transaction      tr;
 	as_storage_rd       rd;
