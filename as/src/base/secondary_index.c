@@ -496,10 +496,9 @@ as_sindex__skey_from_rd(as_sindex_metadata *imd, as_sindex_key *skey,
 										strlen(imd->bnames[i]));
 		if (b && (as_bin_get_particle_type(b) ==
 					as_sindex_pktype_from_sktype(imd->btype[i]))) {
-			// optimize do not copy
-			// Populate digest value in skey so Aerospike Index B-tree hashing for
-			// string works
 
+			// populate the skey so that it can be 
+			// inserted into the sindex tree.
 			ret = as_sindex_sbin_from_bin(imd->si->ns, imd->set,
 											b, &skey->b[i]);
 			if (ret != AS_SINDEX_OK) {
@@ -608,13 +607,10 @@ int
 as_sindex__skey_release(as_sindex_key *skey)
 {
 	if (!skey) return AS_SINDEX_ERR_PARAM;
-	/*else {
-		for (int i = 0; i < skey->num_binval; i++) {
-			if (skey->b[i].flag & SINDEX_FLAG_BIN_DOFREE) {
-				cf_free(skey->b[i].u.str);
-			}
-		}
-	}*/
+	// This is function is meant to release any resources
+	// associated with as_sindex_key structure.
+	// Currently as_sindex_key does not contain any resources 
+	// which should be freed.
 	return AS_SINDEX_OK;
 }
 
@@ -2099,8 +2095,6 @@ as_sindex_range_from_msg(as_namespace *ns, as_msg *msgp, as_sindex_range *srange
 		int type    = *data++;
 		start->type = type;
 		end->type   = start->type;
-		start->flag &= ~SINDEX_FLAG_BIN_DOFREE;
-		end->flag   &= ~SINDEX_FLAG_BIN_DOFREE;
 	
 		if ((type == AS_PARTICLE_TYPE_INTEGER)) {
 			// get start point
@@ -2147,10 +2141,10 @@ as_sindex_range_from_msg(as_namespace *ns, as_msg *msgp, as_sindex_range *srange
 				cf_warning(AS_SINDEX, "Out of bound query key size %ld", startl);
 				goto Cleanup;
 			}
-
+			uint32_t endl	   = ntohl(*((uint32_t *)data));
 			data              += sizeof(uint32_t);
 			char * end_binval        = (char *)data;
-			if (strncmp(start_binval, end_binval, startl)) {
+			if (startl != endl && strncmp(start_binval, end_binval, startl)) {
 				cf_warning(AS_SINDEX,
                            "Only Equality Query Supported in Strings %s-%s",
                            start_binval, end_binval);
@@ -2212,12 +2206,14 @@ as_sindex_sbin_from_op(as_msg_op *op, as_sindex_bin *sbin, int binid)
 	GTRACE(CALLSTACK, debug, "as_sindex_sbin_from_op");
 	sbin->id    = binid;
 	sbin->type  = op->particle_type;
-	sbin->flag &= ~SINDEX_FLAG_BIN_DOFREE;
-	sbin->flag &= ~SINDEX_FLAG_BIN_ISVALID;
 
 	if (op->particle_type == AS_PARTICLE_TYPE_STRING) {
 		char * binval = (char *)as_msg_op_get_value_p(op);
 		uint32_t valsz = as_msg_op_get_value_sz(op);
+		if ( valsz < 0 || valsz > AS_SINDEX_MAX_STRING_KSIZE) {
+			cf_warning( AS_SINDEX, " sindex key size out of bounds %d ", valsz);
+			return AS_SINDEX_ERR_PARAM;
+		}
 		sbin->flag |= SINDEX_FLAG_BIN_ISVALID;
 		cf_digest_compute(binval, valsz, &sbin->digest);
 	} else if (op->particle_type == AS_PARTICLE_TYPE_INTEGER) {
@@ -2272,12 +2268,14 @@ as_sindex_sbin_from_bin(as_namespace *ns, const char *set, as_bin *b, as_sindex_
 		sbin->flag &= ~SINDEX_FLAG_BIN_ISVALID;
 		uint32_t valsz;
 		as_particle_tobuf(b, 0, &valsz);
-
+		if ( valsz < 0 || valsz > AS_SINDEX_MAX_STRING_KSIZE) {
+			cf_warning( AS_SINDEX, "sindex key size out of bounds %d ", valsz);
+			return AS_SINDEX_ERR;
+		}
 		// when copying from record the new copy is made. because
 		// inserts happens after the tree has done the stuff
 		switch(as_bin_get_particle_type(b)) {
 			case AS_PARTICLE_TYPE_INTEGER:  {
-				sbin->flag &= ~SINDEX_FLAG_BIN_DOFREE;
 				as_particle_tobuf(b, (byte *)&sbin->u.i64, &valsz);
 				uint64_t val    = __cpu_to_be64(sbin->u.i64);
 				sbin->u.i64     = val;
@@ -2288,6 +2286,9 @@ as_sindex_sbin_from_bin(as_namespace *ns, const char *set, as_bin *b, as_sindex_
 				sbin->flag |= SINDEX_FLAG_BIN_ISVALID;
 				byte* bin_val;
 				as_particle_p_get( b, &bin_val, &valsz);
+				// compute the digest for string type index and store 
+				// it in sbin, this digest is store into the sindex tree 
+				// which is a B-Tree.
 				cf_digest_compute(bin_val, valsz, &sbin->digest);
 				return AS_SINDEX_OK;
 			}

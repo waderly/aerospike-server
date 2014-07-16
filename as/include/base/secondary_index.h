@@ -132,13 +132,13 @@ typedef enum {
  * bin_id lists the bin id being touched. 
  */
 #define SINDEX_FLAG_BIN_ISVALID    0x01
-#define SINDEX_FLAG_BIN_DOFREE     0x02
 #define SINDEX_STRONSTACK_VALSZ    256
 typedef struct as_sindex_bin_s {
 	uint32_t          id;
 	as_particle_type  type; // this type is citrusleaf type
+	// Union is to support sindex for other datatypes in future.
+	// Currently sindex is supported for only int64 and string.
 	union {
-		char    *blob;
 		int64_t  i64;
 	} u;
 	cf_digest         digest;
