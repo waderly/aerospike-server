@@ -2845,6 +2845,65 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		uint64_t bytes_memory = as_storage_record_get_n_bytes_memory(&rd);
 		uint16_t old_n_bins = rd.n_bins;
 
+		/*
+		 * A bin having sindex can be updated in this process.
+		 * oldbins = bins from record
+		 * newbins = bins from disk
+		 * First part of the algorithm tries to gather the sbins of bins whose index > number of newbins.
+		 * Note- We can make sbin of a bin only when there is a sindex on it.
+		 * Second half of the algorithm iterates in newbins and oldbins and tries to create 
+		 * and match the sbins of the bins of same index.
+		 * If they dont match, we put the sbin from oldbins into the oldbin array and sbin from newbins into the newbin array.
+		 * In the end we delete the sbins from oldbin array and insert the sbins from newbin array.
+		 *
+		 * Example 1:
+		 * 		Assume all bins have sindex on it.
+		 * 		oldbins - bin1:a, bin2:c, bin3:d, bin4:e
+		 * 		newbins - bin1:a, bin2:cc
+		 * In this case bin3 and bin4 is deleted. Value of bin2 is changed.
+		 * Here index of bin3 and bin4 is > number of newbins (2). Thus we make sbin of bin3 and bin4 and put it in the oldbin array
+		 * Size of oldbin array is now 2.
+		 * Iteration1: 
+		 * 		sbin1 of bin1 from oldbins.
+		 * 		sbin2 of bin1 from newbins
+		 *		Match sbin1 and sbin2. They will match. Do nothing
+		 *		Size of oldbin array = 2 and newbin array = 0
+		 *
+		 * Iteration2:
+		 * 		sbin1 of bin2 from oldbins
+		 * 		sbin2 of bin2 from newbins
+		 *		Match sbin1 and sbin2. They will not match. Add them to their respective array.
+		 *		Size of oldbin array = 3 and newbin array = 1
+		 * End: 
+		 * 		Deletes all the sbins of oldbin array from secondary index trees
+		 * 		Inesert all the sbins of newbin array from secondary index trees
+		 *
+		 * Example 2:
+		 * 		oldbins - bin1:a, bin2:b
+		 * 		newbins - bin1:a, bin2:bb, bin3:c, bin4:d
+		 * Value of bin2 is changed.
+		 * Here the number of oldbins (2) < number of newbins (4). 
+		 * Thus we will add nothing in the oldbin array.
+		 * Size of oldbin array is now 0.
+		 * Iteration1: 
+		 * 		sbin1 of bin1 from oldbins.
+		 * 		sbin2 of bin1 from newbins
+		 *		Match sbin1 and sbin2. They will match. Do nothing
+		 *		Size of oldbin array = 0 and newbin array = 0
+		 *
+		 * Iteration2:
+		 * 		sbin1 of bin2 from oldbins
+		 * 		sbin2 of bin2 from newbins
+		 *		Match sbin1 and sbin2. They will not match. Add them to their respective array.
+		 *		Size of oldbin array = 1 and newbin array = 1
+		 * Iteration3 and Iteration4:
+		 *  	Create sbins of bin3 and bin4 and put them in newbin array.
+		 *  	Size of oldbin array = 1 and newbin array = 3
+		 * End: 
+		 * 		Deletes all the sbins of oldbin array from secondary index trees
+		 * 		Inesert all the sbins of newbin array from secondary index trees
+		 */
+		
 		bool has_sindex = as_sindex_ns_has_sindex(ns);
 		SINDEX_BINS_SETUP(oldbin, rd.n_bins);
 		SINDEX_BINS_SETUP(newbin, block->n_bins);
@@ -2898,7 +2957,9 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 						check_update = true;
 					}
 					else {
-						GTRACE(CALLER, debug, "Failed to get sbin");
+						if (sindex_ret == AS_SINDEX_ERR_NOTFOUND) {
+							GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
+						}
 					}
 				}
 				as_bin_set_version(b, ssd_bin->version, ns->single_bin);
@@ -2923,13 +2984,13 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 				else {
 					check_update = false;
 					if (sindex_ret == AS_SINDEX_ERR_NOTFOUND) {
-						GTRACE(CALLER, debug, "Failed to get sbin");
+						GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 					}
 				}
 
 				// If values are updated, then check if both the values are the
 				// same. If so, make it a no-op.
-				if (check_update) {
+				if (check_update && newbin_cnt > 0 && oldbin_cnt > 0) {
 					if (as_sindex_sbin_match(&newbin[newbin_cnt - 1], &oldbin[oldbin_cnt - 1])) {
 						as_sindex_sbin_free(&newbin[newbin_cnt - 1]);
 						as_sindex_sbin_free(&oldbin[oldbin_cnt - 1]);

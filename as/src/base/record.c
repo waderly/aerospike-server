@@ -621,6 +621,7 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	uint16_t old_n_bins =  (ns->storage_data_in_memory || ns->single_bin) ?
 			rd->n_bins : as_bin_inuse_count(rd);
 
+	// To read the algorithm of upating sindex in bins check notes in ssd_record_add function.
 	SINDEX_BINS_SETUP(oldbin, old_n_bins);
 	SINDEX_BINS_SETUP(newbin, newbins);
 	int32_t  delta_bins   = (int32_t)newbins - (int32_t)old_n_bins;
@@ -687,7 +688,7 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 					oldbin_cnt++;
 				} else {
 					if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-						cf_detail(AS_RECORD, "Failed to get sbin ");
+						cf_detail(AS_RECORD, "Failed to get sbin with error %d", sindex_ret);
 					}
 				}
 			}
@@ -720,14 +721,14 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 			} else {
 				check_update = false;
 				if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-					cf_detail(AS_RECORD, "Failed to get sbin ");
+					cf_detail(AS_RECORD, "Failed to get sbin with error %d", sindex_ret);
 				}
 			}
 		}
 
 		//  if the values is updated; then check if both the values are same
 		//  if they are make it a no-op
-		if (check_update) {
+		if (check_update && newbin_cnt > 0 && oldbin_cnt > 0) {
 			if (as_sindex_sbin_match(&newbin[newbin_cnt - 1], &oldbin[oldbin_cnt - 1])) {
 				as_sindex_sbin_free(&newbin[newbin_cnt - 1]);
 				as_sindex_sbin_free(&oldbin[oldbin_cnt - 1]);
