@@ -2878,10 +2878,6 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 					}
 				}
 
-				if (del_success) {
-					check_update = true;
-				}
-
 				oldbin_cnt += del_success;
 				as_bin_allocate_bin_space(r, &rd, delta_bins);
 			}
@@ -2889,29 +2885,28 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 
 		for (uint16_t i = 0; i < block->n_bins; i++) {
 			as_bin* b;
-
+			check_update = false;
 			if (i < old_n_bins) {
 				b = &rd.bins[i];
+				if (has_sindex) {
+					sindex_ret = as_sindex_sbin_from_bin(ns,
+							as_index_get_set_name(r, ns), &rd.bins[i],
+							&oldbin[oldbin_cnt]);
+
+					if (sindex_ret == AS_SINDEX_OK) {
+						oldbin_cnt++;
+						check_update = true;
+					}
+					else {
+						GTRACE(CALLER, debug, "Failed to get sbin");
+					}
+				}
 				as_bin_set_version(b, ssd_bin->version, ns->single_bin);
 				as_bin_set_id_from_name(ns, b, ssd_bin->name);
 			}
 			else {
 				b = as_bin_create(r, &rd, (uint8_t*)ssd_bin->name,
 						strlen(ssd_bin->name), ssd_bin->version);
-			}
-
-			if (has_sindex) {
-				sindex_ret = as_sindex_sbin_from_bin(ns,
-						as_index_get_set_name(r, ns), &rd.bins[i],
-						&oldbin[oldbin_cnt]);
-
-				if (sindex_ret == AS_SINDEX_OK) {
-					oldbin_cnt++;
-					check_update = true;
-				}
-				else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-					GTRACE(CALLER, debug, "Failed to get sbin");
-				}
 			}
 
 			ssd_populate_bin(b, ssd_bin, block_head, ns->single_bin, true);
@@ -2925,9 +2920,11 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 				if (sindex_ret == AS_SINDEX_OK) {
 					newbin_cnt++;
 				}
-				else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-					GTRACE(CALLER, debug, "Failed to get sbin");
+				else {
 					check_update = false;
+					if (sindex_ret == AS_SINDEX_ERR_NOTFOUND) {
+						GTRACE(CALLER, debug, "Failed to get sbin");
+					}
 				}
 
 				// If values are updated, then check if both the values are the

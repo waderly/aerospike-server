@@ -3858,9 +3858,11 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 						if (sindex_ret == AS_SINDEX_OK) {
 							newbin_cnt++;
 						}
-						else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
+						else {
 							check_update = false;
-							GTRACE(CALLER, debug, "Failed to get sbin ");
+							if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
+								GTRACE(CALLER, debug, "Failed to get sbin ");
+							}
 						}
 					}
 
