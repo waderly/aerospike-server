@@ -125,6 +125,9 @@
 **          the module with the received metadata items.  Modules will generally, however,
 **          define their own Accept callback to take actions based upon the changed metadata,
 **          such as creating secondary indexes or defining new User Defined Functions (UDFs.)
+**          The originator of the accept event, either via a cluster-wide merge, or an SMD API
+**          invocation, or else upon the creation of an initially-empty module, is specified
+**          by the accept option parameter value.
 **
 **     3). The Can Accept Callback ("as_smd_can_accept_cb()"):  When the Paxos principal
 **          receives a metadata change request (set or delete), it will first attempt to
@@ -199,6 +202,14 @@
 **    - The "set" command requires "key" and "value", the "delete" command only requires "key";
 **    - The "get" command can take "module", "key" and "node" parameters, which if specified as
 **       empty, e.g., "module=;key=", will perform a wildcard metadata item retrieval.
+**
+**   Open Issues:
+**   ------------
+**
+**   The SMD API currently provides no mechanism for notifying the caller whether (or when)
+**   the request has succeeded (or failed.)  The challenge is that in general the asynchronous
+**   event may be triggered on a remote node, e.g., the Paxos principal.  Support for an optional
+**   callback for this purpose (per-module or per-API call) may be added in the future.
 **
 */
 
@@ -1875,6 +1886,7 @@ static int transact_complete_fn(msg *response, void *udata, int fabric_err)
 //	as_smd_t *smd = (as_smd_t *) udata; // (Not used.)
 	int e = 0;
 	uint32_t op = 0;
+
 	if (!response) {
 		cf_warning(AS_SMD, "Null response message passed in transaction complete!");
 		return -1;
@@ -1892,8 +1904,6 @@ static int transact_complete_fn(msg *response, void *udata, int fabric_err)
 
 	cf_debug(AS_SMD, "System Metadata received transaction complete for operation %s (fabric error %d)", AS_SMD_MSG_OP_NAME(op), fabric_err);
 
-	// TODO: What else to do in the success case??? 
-
 	as_fabric_msg_put(response);
 
 	return 0;
@@ -1908,6 +1918,12 @@ static int as_smd_proxy_to_principal(as_smd_t *smd, as_smd_msg_op_t op, as_smd_i
 
 	// Send the new metadata to the Paxos principal.
 	cf_node principal = as_paxos_succession_getprincipal();
+
+	if (!principal) {
+		cf_warning(AS_SMD, "failed to get the Paxos principal node ~~ Not proxying SMD msg");
+		return -1;
+	}
+
 	msg *msg = NULL;
 
 	cf_debug(AS_SMD, "forwarding %s metadata request to Paxos principal node %016lX", AS_SMD_MSG_OP_NAME(op), principal);
@@ -1915,7 +1931,7 @@ static int as_smd_proxy_to_principal(as_smd_t *smd, as_smd_msg_op_t op, as_smd_i
 	// Get an existing (or create a new) System Metadata fabric msg for the appropriate operation and metadata item.
 	size_t num_items = 1;
 	if (!(msg = as_smd_msg_get(op, &item, num_items, item->module_name, AS_SMD_ACCEPT_OPT_API))) {
-		cf_warning(AS_SMD, "failed to get a System Metadata fabric msg for operation %s transact start", AS_SMD_MSG_OP_NAME(op));
+		cf_warning(AS_SMD, "failed to get a System Metadata fabric msg for operation %s transact start for module \"%s\"", AS_SMD_MSG_OP_NAME(op), item->module_name);
 		return -1;
 	}
 
@@ -1998,11 +2014,13 @@ static int as_smd_metadata_change(as_smd_t *smd, as_smd_msg_op_t op, as_smd_item
 {
 	int retval = 0;
 
-	if (AS_SMD_STATE_RUNNING == smd->state) {
+	if ((AS_SMD_STATE_RUNNING == smd->state) && item->key) {
 		// Forward to Paxos principal.
+		// [Ideally, would re-try or at least notify (via an as-yet nonexistent mechanism) upon failure.]
 		return as_smd_proxy_to_principal(smd, op, item);
 	} else {
-		// Short-circuit to handle change locally when this node is starting up.
+		// Short-circuit to handle change locally when this node is starting up
+		// or when an initially-empty module is being created, as indicated by NULL item key (and value.)
 
 		cf_debug(AS_SMD, "handling metadata change type %s locally: module \"%s\" ; key \"%s\"", AS_SMD_MSG_OP_NAME(op), item->module_name, item->key);
 

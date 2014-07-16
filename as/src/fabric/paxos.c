@@ -882,6 +882,11 @@ as_paxos_succession_getprincipal()
 {
 	as_paxos *p = g_config.paxos;
 
+	if (!p) {
+		cf_warning(AS_PAXOS, "Paxos is not yet initialized ~~ returning NULL principal");
+		return 0;
+	}
+
 	/* Find the first living node in the succession */
 	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
 		if ((0 != p->succession[i]) && p->alive[i]) {
