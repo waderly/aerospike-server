@@ -45,7 +45,7 @@
 
 #include "base/cfg.h"
 #include "base/system_metadata.h"
-
+#include <sys/stat.h>
 
 char udf_smd_module_name[] = "UDF";
 
@@ -489,6 +489,8 @@ int udf_cask_info_remove(char *name, char * params, cf_dyn_buf * out) {
 
 	char    filename[128]   = {0};
 	int     filename_len    = sizeof(filename);
+	char file_path[1024]	= {0};
+	struct stat buf;
 
 	cf_debug(AS_INFO, "UDF CASK INFO REMOVE");
 
@@ -496,6 +498,22 @@ int udf_cask_info_remove(char *name, char * params, cf_dyn_buf * out) {
 	if ( as_info_parameter_get(params, "filename", filename, &filename_len) ) {
 		cf_info(AS_UDF, "invalid or missing filename");
 		cf_dyn_buf_append_string(out, "error=invalid_filename");
+	}
+
+	// now check if such a file-name exists :
+	if (!g_config.mod_lua.user_path)
+	{
+		return -1;
+	}
+
+	snprintf(file_path, 1024, "%s/%s", g_config.mod_lua.user_path, filename);
+
+	cf_debug(AS_INFO, " Lua file removal full-path is : %s \n", file_path);
+
+	if (stat(file_path, &buf) != 0) {
+		cf_info(AS_UDF, "failed to read file from : %s, error : %s", file_path, cf_strerror(errno));
+		cf_dyn_buf_append_string(out, "error=file_not_found");
+		return -1;
 	}
 
 	as_smd_delete_metadata(udf_smd_module_name, filename);

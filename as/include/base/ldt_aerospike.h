@@ -31,3 +31,4 @@ extern const   as_aerospike_hooks ldt_aerospike_hooks;
 as_aerospike * ldt_aerospike_new();
 as_aerospike * ldt_aerospike_init(as_aerospike *);
 int            ldt_init(void);
+bool           ldt_record_destroy(as_rec *);
