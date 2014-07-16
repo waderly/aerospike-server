@@ -164,7 +164,6 @@ udf_storage_record_close(udf_record *urecord)
 
 		if (r_ref) {
 			as_storage_record_close(r_ref->r, rd);
-			bzero(urecord->rd, sizeof(as_storage_rd));
 		} else {
 			// Should never happen.
 			cf_warning(AS_UDF, "Unexpected Internal Error (null r_ref)");
@@ -267,7 +266,6 @@ udf_record_close(udf_record *urecord, bool release_rsv)
 				  (urecord->flag & UDF_RECORD_FLAG_IS_SUBRECORD) ? "Sub" : "");
 		udf_storage_record_close(urecord);
 		as_record_done(r_ref, tr->rsv.ns);
-		bzero(urecord->r_ref, sizeof(as_index_ref));
 		urecord->flag &= ~UDF_RECORD_FLAG_OPEN;
 		cf_detail_digest(AS_UDF, &urecord->tr->keyd,
 			"Storage Close:: Rec(%p) Flag(%x) Digest:", urecord, urecord->flag );

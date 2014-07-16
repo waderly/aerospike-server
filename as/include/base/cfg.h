@@ -121,9 +121,6 @@ typedef struct as_config_s {
 	bool				use_queue_per_device;
 	bool				allow_inline_transactions;
 
-	// Refresh socket privileges periodically - interval in seconds.
-	uint32_t			security_refresh;
-
 	/* max client file descriptors */
 	int					n_proto_fd_max;
 

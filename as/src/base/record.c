@@ -521,13 +521,15 @@ as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t s
 	}
 
 	int sindex_ret = AS_SINDEX_OK;
-	SINDEX_BINS_SETUP(newbin, newbins);
 	int newbin_cnt = 0;
 	bool has_sindex = as_sindex_ns_has_sindex(rd->ns);
 
 	if (has_sindex) {
 		SINDEX_GRLOCK();
 	}
+   
+	int sindex_bins =  (newbins < rd->ns->sindex_cnt) ? newbins : rd->ns->sindex_cnt; 
+	SINDEX_BINS_SETUP(newbin, sindex_bins);
 
 	for (uint16_t i = 0; i < newbins; i++) {
 		if (buf >= buf_lim) {
@@ -621,9 +623,6 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	uint16_t old_n_bins =  (ns->storage_data_in_memory || ns->single_bin) ?
 			rd->n_bins : as_bin_inuse_count(rd);
 
-	// To read the algorithm of upating sindex in bins check notes in ssd_record_add function.
-	SINDEX_BINS_SETUP(oldbin, old_n_bins);
-	SINDEX_BINS_SETUP(newbin, newbins);
 	int32_t  delta_bins   = (int32_t)newbins - (int32_t)old_n_bins;
 	int      sindex_ret   = AS_SINDEX_OK;
 	int      oldbin_cnt   = 0;
@@ -634,6 +633,12 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	if (has_sindex) {
 		SINDEX_GRLOCK();
 	}
+    int sindex_old_bins = (old_n_bins < ns->sindex_cnt) ? old_n_bins : ns->sindex_cnt;
+    int sindex_new_bins = ( newbins < ns->sindex_cnt) ? newbins : ns->sindex_cnt;
+	
+	// To read the algorithm of upating sindex in bins check notes in ssd_record_add function.
+	SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
+	SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 
 	if ((delta_bins < 0) && has_sindex) {
 		sindex_ret = as_sindex_sbin_from_rd(rd, newbins, old_n_bins, oldbin, &del_success);
