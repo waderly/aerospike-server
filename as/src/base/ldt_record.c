@@ -52,7 +52,7 @@ int
 ldt_record_init(ldt_record *lrecord)
 {
 	// h_urec is setup in udf_rw.c which point to the main record
-	memset(lrecord, 0, sizeof(ldt_record));
+	lrecord->h_urec  = 0;
 	lrecord->as      = &g_as_aerospike;
 
 	// No versioning right now !!!

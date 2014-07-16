@@ -45,6 +45,7 @@
 #include "base/datamodel.h"
 #include "base/monitor.h"
 #include "base/secondary_index.h"
+#include "base/security.h"
 #include "base/system_metadata.h"
 #include "base/thr_batch.h"
 #include "base/thr_info.h"
@@ -377,6 +378,7 @@ main(int argc, char **argv)
 	// nodes or clients yet.)
 
 	as_smd_init();				// System Metadata first - others depend on it
+	as_security_init();			// security features
 	ai_init();					// before as_storage_init() populates indexes
 	as_sindex_thr_init();		// defrag secondary index (ok during population)
 

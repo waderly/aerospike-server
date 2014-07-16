@@ -107,6 +107,7 @@ typedef struct as_file_handle_s {
 	uint32_t	fh_info;		// bitmap containing status info of this file handle
 	as_proto	*proto;
 	uint64_t	proto_unread;
+	void		*security_filter;
 } as_file_handle;
 
 #define FH_INFO_DONOT_REAP	0x00000001	// this bit indicates that this file handle should not be reaped
