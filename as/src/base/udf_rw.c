@@ -827,7 +827,6 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 	r_ref.skip_lock = false;
 
 	as_storage_rd  rd;
-	bzero(&rd, sizeof(as_storage_rd));
 
 	udf_record urecord;
 	udf_record_init(&urecord);
@@ -838,8 +837,6 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 	urecord.tr                 = tr;
 	urecord.r_ref              = &r_ref;
 	urecord.rd                 = &rd;
-	// TODO: replace bzero
-	bzero(&urecord.updates, sizeof(udf_record_bin) * UDF_RECORD_BIN_ULIMIT);
 	as_rec          urec;
 	as_rec_init(&urec, &urecord, &udf_record_hooks);
 
