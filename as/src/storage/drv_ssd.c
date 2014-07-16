@@ -2846,8 +2846,6 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		uint16_t old_n_bins = rd.n_bins;
 
 		bool has_sindex = as_sindex_ns_has_sindex(ns);
-		SINDEX_BINS_SETUP(oldbin, rd.n_bins);
-		SINDEX_BINS_SETUP(newbin, block->n_bins);
 		int sindex_ret = AS_SINDEX_OK;
 		int oldbin_cnt = 0;
 		int newbin_cnt = 0;
@@ -2856,6 +2854,10 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		if (has_sindex) {
 			SINDEX_GRLOCK();
 		}
+		int sindex_old_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
+		int sindex_new_bins = (ns->sindex_cnt < block->n_bins) ? ns->sindex_cnt : block->n_bins;
+		SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
+		SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 
 		if (! rd.ns->single_bin) {
 			int32_t delta_bins = (int32_t)block->n_bins - (int32_t)rd.n_bins;

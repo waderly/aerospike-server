@@ -1198,14 +1198,11 @@ as_query_record_matches(as_query_transaction *qtr, as_storage_rd *rd)
 			char buf[psz + 1];
 			as_particle_tobuf(b, (uint8_t *) buf, &psz);
 			buf[psz]     = '\0';
-			if (psz != start->valsz) {
+			cf_digest bin_digest;
+			cf_digest_compute( buf, psz, &bin_digest);
+			if (memcmp(&bin_digest, &start->digest, AS_DIGEST_KEY_SZ)) {
 				cf_detail(AS_QUERY, "as_query_record_validation: "
-						"String size mismatch %d != %d", psz, start->valsz);
-				return false;
-			}
-			else if (strncmp(buf, start->u.str, psz)) {
-				cf_detail(AS_QUERY, "as_query_record_validation: "
-						" String mismatch |%s| != |%s|  of size %d", start->u.str, buf, psz);
+						" String mismatch |%s|  of size %d", buf, psz);
 				return false;
 			} else {
 				return true;

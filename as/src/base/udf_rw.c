@@ -437,8 +437,25 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 
 	// TODO: optimize not to allocate buffer if it is single
 	// node cluster. No remote to send data to
+	// Check if UDF has updates.
 	if (urecord->flag & UDF_RECORD_FLAG_HAS_UPDATES) {
-		*urecord_op  = UDF_OPTYPE_WRITE;
+		// Check if the record is not deleted after an update
+		if ( urecord->flag & UDF_RECORD_FLAG_OPEN) {
+			*urecord_op = UDF_OPTYPE_WRITE;
+		} 
+		else {
+			// If the record has updates and it is not open, 
+			// and if it pre-existed it's an update followed by a delete.
+			if ( urecord->flag & UDF_RECORD_FLAG_PREEXISTS) {
+				*urecord_op = UDF_OPTYPE_DELETE;
+			} 
+			// If the record did not pre-exist and is updated
+			// and it is not open, then it is create followed by
+			// delete essentially no_op.
+			else {
+				*urecord_op = UDF_OPTYPE_NONE;
+			}
+		}
 	} else if ((urecord->flag & UDF_RECORD_FLAG_PREEXISTS)
 			   && !(urecord->flag & UDF_RECORD_FLAG_OPEN)) {
 		*urecord_op  = UDF_OPTYPE_DELETE;

@@ -2681,12 +2681,13 @@ write_delete_local(as_transaction *tr, bool journal, cf_node masternode)
 			// then we won't have record in that case secondary index entry is
 			// cleaned up by background sindex defrag thread.
 			if (as_sindex_ns_has_sindex(ns)) {
-				SINDEX_BINS_SETUP(oldbin, rd.n_bins);
 				int sindex_ret = AS_SINDEX_OK;
 				int oldbin_cnt = 0;
 				const char* set_name = as_index_get_set_name(r, ns);
 
 				SINDEX_GRLOCK();
+				int sindex_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
+				SINDEX_BINS_SETUP(oldbin, sindex_bins); 
 				for (int i = 0; i < rd.n_bins; i++) {
 					sindex_ret = as_sindex_sbin_from_bin(ns, set_name,
 							&rd.bins[i], &oldbin[oldbin_cnt]);
@@ -3753,8 +3754,6 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	i = 0;
 
 	uint16_t max_oldbins = as_bin_inuse_count(&rd);
-	SINDEX_BINS_SETUP(oldbin, max_oldbins);
-	SINDEX_BINS_SETUP(newbin, m->n_ops);
 	int sindex_ret = AS_SINDEX_OK;
 	int oldbin_cnt = 0;
 	int newbin_cnt = 0;
@@ -3762,6 +3761,10 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	if (has_sindex) {
 		SINDEX_GRLOCK();
 	}
+	int sindex_old_bins = ( ns->sindex_cnt < max_oldbins ) ? ns->sindex_cnt : max_oldbins;
+	int sindex_new_bins = ( ns->sindex_cnt < m->n_ops ) ? ns->sindex_cnt : m->n_ops;
+	SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
+	SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 	// If existing bins are loaded in rd.bins, it's easiest for record-level
 	// replace to delete them all and add new ones fresh.
 	if (replace_deletes_bins) {
