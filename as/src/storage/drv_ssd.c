@@ -2331,7 +2331,7 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 			as_record_done(&r_ref, ns);
 		}
 		else if (ns->ldt_enabled &&
-				(0 == as_record_get(rsv.sub_tree, &p_block->keyd, &r_ref, ns))) {
+				0 == as_record_get(rsv.sub_tree, &p_block->keyd, &r_ref, ns)) {
 			as_index* r = r_ref.r;
 
 			if (r->storage_key.ssd.rblock_id == rblock_id &&
@@ -2603,7 +2603,8 @@ as_storage_write_header(drv_ssd *ssd, ssd_device_header *header)
 	int fd = open(ssd->name, ssd->open_flag, S_IRUSR | S_IWUSR);
 
 	if (fd <= 0) {
-		cf_warning(AS_DRV_SSD, "unable to open file %s: %s", ssd->name, cf_strerror(errno));
+		cf_warning(AS_DRV_SSD, "unable to open file %s: %s", ssd->name,
+				cf_strerror(errno));
 		return -1;
 	}
 
@@ -2854,8 +2855,11 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		if (has_sindex) {
 			SINDEX_GRLOCK();
 		}
-		int sindex_old_bins = (ns->sindex_cnt < rd.n_bins) ? ns->sindex_cnt : rd.n_bins;
-		int sindex_new_bins = (ns->sindex_cnt < block->n_bins) ? ns->sindex_cnt : block->n_bins;
+
+		int sindex_old_bins = (ns->sindex_cnt < rd.n_bins) ?
+				ns->sindex_cnt : rd.n_bins;
+		int sindex_new_bins = (ns->sindex_cnt < block->n_bins) ?
+				ns->sindex_cnt : block->n_bins;
 		SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
 		SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 
@@ -2935,7 +2939,8 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 				// If values are updated, then check if both the values are the
 				// same. If so, make it a no-op.
 				if (check_update) {
-					if (as_sindex_sbin_match(&newbin[newbin_cnt - 1], &oldbin[oldbin_cnt - 1])) {
+					if (as_sindex_sbin_match(&newbin[newbin_cnt - 1],
+							&oldbin[oldbin_cnt - 1])) {
 						as_sindex_sbin_free(&newbin[newbin_cnt - 1]);
 						as_sindex_sbin_free(&oldbin[oldbin_cnt - 1]);
 						oldbin_cnt--;
@@ -2948,8 +2953,10 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		if (has_sindex) {
 			SINDEX_GUNLOCK();
 			// Delete should precede insert.
-			as_sindex_delete_by_sbin(ns, as_index_get_set_name(r, ns), oldbin_cnt, oldbin, &rd);
-			as_sindex_put_by_sbin(ns, as_index_get_set_name(r, ns), newbin_cnt, newbin, &rd);
+			as_sindex_delete_by_sbin(ns, as_index_get_set_name(r, ns),
+					oldbin_cnt, oldbin, &rd);
+			as_sindex_put_by_sbin(ns, as_index_get_set_name(r, ns),
+					newbin_cnt, newbin, &rd);
 			as_sindex_sbin_freeall(oldbin, oldbin_cnt);
 			as_sindex_sbin_freeall(newbin, newbin_cnt);
 		}

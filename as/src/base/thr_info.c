@@ -2003,9 +2003,6 @@ info_service_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";query-threshold=");
 	cf_dyn_buf_append_uint64(db, g_config.query_threshold);
 
-	cf_dyn_buf_append_string(db, ";security-refresh=");
-	cf_dyn_buf_append_uint32(db, g_config.security_refresh);
-
 	return(0);
 }
 
@@ -2220,6 +2217,26 @@ info_network_heartbeat_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_int(db, g_config.hb_timeout);
 }
 
+// TODO - security API?
+void
+info_security_config_get(cf_dyn_buf *db)
+{
+	cf_dyn_buf_append_string(db, ";enable-security=");
+	cf_dyn_buf_append_string(db, g_config.sec_cfg.security_enabled ? "true" : "false");
+	cf_dyn_buf_append_string(db, ";privilege-refresh-period=");
+	cf_dyn_buf_append_uint32(db, g_config.sec_cfg.privilege_refresh_period);
+	cf_dyn_buf_append_string(db, ";report-authentication-sinks=");
+	cf_dyn_buf_append_uint32(db, g_config.sec_cfg.report.authentication);
+	cf_dyn_buf_append_string(db, ";report-sys-admin-sinks=");
+	cf_dyn_buf_append_uint32(db, g_config.sec_cfg.report.sys_admin);
+	cf_dyn_buf_append_string(db, ";report-user-admin-sinks=");
+	cf_dyn_buf_append_uint32(db, g_config.sec_cfg.report.user_admin);
+	cf_dyn_buf_append_string(db, ";report-violation-sinks=");
+	cf_dyn_buf_append_uint32(db, g_config.sec_cfg.report.violation);
+	cf_dyn_buf_append_string(db, ";syslog-local=");
+	cf_dyn_buf_append_int(db, g_config.sec_cfg.syslog_local);
+}
+
 void
 info_xdr_config_get(cf_dyn_buf *db)
 {
@@ -2264,6 +2281,10 @@ info_command_config_get(char *name, char *params, cf_dyn_buf *db)
 				info_network_heartbeat_config_get(db);
 				return(0);
 			}
+			else if (strcmp(context, "security") == 0) {
+				info_security_config_get(db);
+				return(0);
+			}
 			else if (strcmp(context, "xdr") == 0) {
 				info_xdr_config_get(db);
 				return(0);
@@ -2283,6 +2304,7 @@ info_command_config_get(char *name, char *params, cf_dyn_buf *db)
 	info_service_config_get(db);
 	info_network_info_config_get(db);
 	info_network_heartbeat_config_get(db);
+	info_security_config_get(db);
 	info_xdr_config_get(db);
 
 	// Add the current histogram tracking settings.
@@ -2428,14 +2450,6 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			cf_info(AS_INFO, "Changing value of scan-sleep from %d to %d ", g_config.scan_sleep, val);
 			g_config.scan_sleep = val;
-		}
-		else if (0 == as_info_parameter_get(params, "security-refresh", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val) || val < 10 || val > 60 * 60 * 24) {
-				cf_warning(AS_INFO, "security-refresh must be an unsigned integer between 10 and 86400");
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of security-refresh from %u to %d", g_config.security_refresh, val);
-			g_config.security_refresh = (uint32_t)val;
 		}
 		else if (0 == as_info_parameter_get(params, "batch-max-requests", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
@@ -3315,6 +3329,20 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			goto Error;
 		}
 	} // end of namespace stanza
+	else if (strcmp(context, "security") == 0) {
+		context_len = sizeof(context);
+		if (0 == as_info_parameter_get(params, "privilege-refresh-period", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val) || val < 10 || val > 60 * 60 * 24) {
+				cf_warning(AS_INFO, "privilege-refresh-period must be an unsigned integer between 10 and 86400");
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of privilege-refresh-period from %u to %d", g_config.sec_cfg.privilege_refresh_period, val);
+			g_config.sec_cfg.privilege_refresh_period = (uint32_t)val;
+		}
+		else {
+			goto Error;
+		}
+	}
 	else if (strcmp(context, "xdr") == 0) {
 		context_len = sizeof(context);
 		if (0 == as_info_parameter_get(params, "enable-xdr", context, &context_len)) {
