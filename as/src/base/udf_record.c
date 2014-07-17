@@ -779,6 +779,26 @@ udf_record_set_type(const as_rec * rec,  uint8_t  ldt_rectype_bits)
 	urecord->rd->write_to_device = true;
 	return 0;
 }
+
+static int
+udf_record_set_ttl(const as_rec * rec,  uint32_t  ttl)
+{
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
+	}
+
+	udf_record * urecord = (udf_record *) as_rec_source(rec);
+	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
+		return -1;
+	}
+
+	urecord->tr->msgp->msg.record_ttl = ttl;
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
+	return 0;
+}
+
 /* Keep this for reference.
  * typedef enum {
 	// The first two values -- do NOT used in single bin mode
@@ -929,5 +949,6 @@ const as_rec_hooks udf_record_hooks = {
 	.digest		= udf_record_digest,
 	.set_flags	= udf_record_set_flags,	// @LDT:: added for control over LDT Bins from Lua
 	.set_type	= udf_record_set_type,	// @LDT:: added for control over Rec Types from Lua
+	.set_ttl	= udf_record_set_ttl,
 	.numbins	= NULL,
 };

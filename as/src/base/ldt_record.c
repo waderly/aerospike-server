@@ -129,6 +129,23 @@ ldt_record_set_type(const as_rec * rec,  uint8_t rec_type )
 }
 
 static int
+ldt_record_set_ttl(const as_rec * rec,  uint32_t ttl)
+{
+	static const char * meth = "ldt_record_set_ttl()";
+	if (!rec) {
+		cf_warning(AS_UDF, "%s Invalid Paramters: record=%p", meth, rec);
+		return 2;
+	}
+
+	ldt_record *lrecord   = (ldt_record *)as_rec_source(rec);
+	if (!lrecord) {
+		return 2;
+	}
+	const as_rec *h_urec  = lrecord->h_urec;
+	return as_rec_set_ttl(h_urec, ttl);
+}
+
+static int
 ldt_record_remove(const as_rec * rec, const char * name)
 {
 	static const char * meth = "ldt_record_remove()";
@@ -208,5 +225,6 @@ const as_rec_hooks ldt_record_hooks = {
 	.digest		= ldt_record_digest,
 	.set_flags	= ldt_record_set_flags,
 	.set_type	= ldt_record_set_type,
+	.set_ttl	= ldt_record_set_ttl,
 	.numbins	= NULL
 };
