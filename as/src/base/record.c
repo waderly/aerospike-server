@@ -494,7 +494,7 @@ as_record_count_unpickle_merge_bins_to_create(as_storage_rd *rd, uint8_t *buf, i
 
 // the unpickle merge
 // takes an existing record, and lays in the incoming data
-
+// This code works only when allow version is true. Behaviour of sindex in that scenario is not well defined.
 int
 as_record_unpickle_merge(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t sz, uint8_t **stack_particles, bool *record_written)
 {
@@ -635,6 +635,8 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 	}
     int sindex_old_bins = (old_n_bins < ns->sindex_cnt) ? old_n_bins : ns->sindex_cnt;
     int sindex_new_bins = ( newbins < ns->sindex_cnt) ? newbins : ns->sindex_cnt;
+	
+	// To read the algorithm of upating sindex in bins check notes in ssd_record_add function.
 	SINDEX_BINS_SETUP(oldbin, sindex_old_bins);
 	SINDEX_BINS_SETUP(newbin, sindex_new_bins);
 
@@ -645,9 +647,6 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 		} else {
 			cf_warning(AS_RECORD, "sbin delete failed: %s", as_sindex_err_str(sindex_ret));
 		}
-	}
-	if (del_success) {
-		check_update = true;
 	}
 	oldbin_cnt += del_success;
 
@@ -670,6 +669,7 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 
 	int ret = 0;
 	for (uint16_t i = 0; i < newbins; i++) {
+		check_update = false;
 		if (buf >= buf_lim) {
 			cf_warning(AS_RECORD, "as_record_unpickle_replace: bad format: on bin %d of %d, %p >= %p (diff: %lu) newbins: %d", i, newbins, buf, buf_lim, buf - buf_lim, newbins);
 			ret = -3;
@@ -680,14 +680,10 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 		byte *name = buf;
 		buf += name_sz;
 		uint8_t version = *buf++;
-		bool bin_has_sindex = true;
 
 		as_bin *b;
 		if (i < old_n_bins) {
 			b = &rd->bins[i];
-			as_bin_set_version(b, version, ns->single_bin);
-			as_bin_set_id_from_name_buf(ns, b, name, name_sz);
-
 			if (has_sindex) {
 				// delete also
 				sindex_ret = as_sindex_sbin_from_bin(ns, set_name, b,
@@ -696,13 +692,13 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 					check_update = true;
 					oldbin_cnt++;
 				} else {
-					if (sindex_ret == AS_SINDEX_ERR_NOTFOUND) {
-						bin_has_sindex = false;
-					} else {
-						cf_detail(AS_RECORD, "Failed to get sbin ");
+					if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
+						cf_detail(AS_RECORD, "Failed to get sbin with error %d", sindex_ret);
 					}
 				}
 			}
+			as_bin_set_version(b, version, ns->single_bin);
+			as_bin_set_id_from_name_buf(ns, b, name, name_sz);
 		}
 		else {
 			b = as_bin_create(r, rd, name, name_sz, version);
@@ -721,31 +717,28 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 
 		as_particle_frombuf(b, type, buf, d_sz, *stack_particles, ns->storage_data_in_memory);
 
-		if (has_sindex && bin_has_sindex) {
+		if (has_sindex) {
 			// insert
 			sindex_ret = as_sindex_sbin_from_bin(ns, set_name, b,
 					&newbin[newbin_cnt]);
 			if (sindex_ret == AS_SINDEX_OK) {
 				newbin_cnt++;
 			} else {
+				check_update = false;
 				if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-					check_update = false;
-					cf_detail(AS_RECORD, "Failed to get sbin ");
+					cf_detail(AS_RECORD, "Failed to get sbin with error %d", sindex_ret);
 				}
 			}
 		}
 
 		//  if the values is updated; then check if both the values are same
 		//  if they are make it a no-op
-		if (check_update) {
-			if ((newbin_cnt > 0) && (oldbin_cnt > 0)) {
-				if (as_sindex_sbin_match(&newbin[newbin_cnt - 1],
-						&oldbin[oldbin_cnt - 1])) {
-					as_sindex_sbin_free(&newbin[newbin_cnt - 1]);
-					as_sindex_sbin_free(&oldbin[oldbin_cnt - 1]);
-					oldbin_cnt--;
-					newbin_cnt--;
-				}
+		if (check_update && newbin_cnt > 0 && oldbin_cnt > 0) {
+			if (as_sindex_sbin_match(&newbin[newbin_cnt - 1], &oldbin[oldbin_cnt - 1])) {
+				as_sindex_sbin_free(&newbin[newbin_cnt - 1]);
+				as_sindex_sbin_free(&oldbin[oldbin_cnt - 1]);
+				oldbin_cnt--;
+				newbin_cnt--;
 			}
 		}
 

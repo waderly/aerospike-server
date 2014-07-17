@@ -3782,7 +3782,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 					oldbin_cnt++;
 				}
 				else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-					GTRACE(CALLER, debug, "failed to get sbin");
+					GTRACE(CALLER, debug, "failed to get sbin with error %d", sindex_ret);
 				}
 			}
 		}
@@ -3813,7 +3813,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 									&rd.bins[i], &oldbin[oldbin_cnt]);
 							if (sindex_ret == AS_SINDEX_OK) oldbin_cnt++;
 							else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-								GTRACE(CALLER, debug, "Failed to get sbin ");
+								GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 							}
 						}
 						as_bin_destroy(&rd, i);
@@ -3844,7 +3844,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 							oldbin_cnt++;
 						}
 						else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-							GTRACE(CALLER, debug, "Failed to get sbin ");
+							GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 						}
 					}
 					as_particle_frombuf(b, op->particle_type,
@@ -3861,15 +3861,17 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 						if (sindex_ret == AS_SINDEX_OK) {
 							newbin_cnt++;
 						}
-						else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
+						else {
 							check_update = false;
-							GTRACE(CALLER, debug, "Failed to get sbin ");
+							if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
+								GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
+							}
 						}
 					}
 
 					//  if the values is updated; then check if both the values are same
 					//  if they are make it a no-op
-					if (has_sindex && check_update) {
+					if (has_sindex && check_update && newbin_cnt > 0 && oldbin_cnt > 0) {
 						if (as_sindex_sbin_match(&newbin[newbin_cnt - 1], &oldbin[oldbin_cnt - 1])) {
 							as_sindex_sbin_free(&newbin[newbin_cnt - 1]);
 							as_sindex_sbin_free(&oldbin[oldbin_cnt - 1]);
@@ -3931,7 +3933,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 								b, &newbin[newbin_cnt]);
 						if (sindex_ret == AS_SINDEX_OK)  newbin_cnt++;
 						else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-							GTRACE(CALLER, debug, "Failed to get sbin ");
+							GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 						}
 					}
 					rd.write_to_device = true;
@@ -3947,7 +3949,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 								b, &oldbin[oldbin_cnt]);
 						if (sindex_ret == AS_SINDEX_OK) oldbin_cnt++;
 						else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-							GTRACE(CALLER, debug, "Failed to get sbin ");
+							GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 						}
 					}
 					int modify_ret = as_particle_increment(b, AS_PARTICLE_TYPE_INTEGER, p_op_value, value_sz, op->op == AS_MSG_OP_MC_INCR);
@@ -3957,7 +3959,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 									b, &newbin[newbin_cnt]);
 							if(sindex_ret == AS_SINDEX_OK) newbin_cnt++;
 							else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-								GTRACE(CALLER, debug, "Failed to get sbin ");
+								GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 							}
 						}
 						rd.write_to_device = true;
@@ -3985,7 +3987,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 								b, &oldbin[oldbin_cnt]);
 						if (sindex_ret == AS_SINDEX_OK) oldbin_cnt++;
 						else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-							GTRACE(CALLER, debug, "Failed to get sbin ");
+							GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 						}
 					}
 
@@ -4003,7 +4005,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 									b, &newbin[newbin_cnt]);
 							if (sindex_ret == AS_SINDEX_OK) newbin_cnt++;
 							else if (sindex_ret != AS_SINDEX_ERR_NOTFOUND) {
-								GTRACE(CALLER, debug, "Failed to get sbin ");
+								GTRACE(CALLER, debug, "Failed to get sbin with error %d", sindex_ret);
 							}
 						}
 					} else {
