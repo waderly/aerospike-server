@@ -939,7 +939,7 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 		if ((g_config.self_node != tr->rsv.p->replica[0])
 				&& (as_paxos_get_cluster_key() == tr->rsv.cluster_key)
 				&& !(tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP)) { 
-				cf_warning(AS_RW, "internal_rw_start called from non-master "
+			cf_warning(AS_RW, "internal_rw_start called from non-master "
 					"node %"PRIx64", with TRANSACTION_FLAG_SHIPPED_OP not set and without any cluster key "
 					"mismatch too. Cluster key is %d", g_config.self_node, tr->rsv.cluster_key);
 		}
