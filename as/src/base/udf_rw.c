@@ -423,7 +423,7 @@ udf_call_destroy(udf_call * call)
  *				urecord_op (out) - Populated with the optype
  */
 void
-udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
+udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op, uint16_t set_id)
 {
 	as_storage_rd      *rd   = urecord->rd;
 	as_transaction     *tr   = urecord->tr;
@@ -434,6 +434,7 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 	urecord->pickled_sz      = 0;
 	urecord->pickled_void_time     = 0;
 	as_rec_props_clear(&urecord->pickled_rec_props);
+	bool udf_xdr_ship_op = false;
 
 	// TODO: optimize not to allocate buffer if it is single
 	// node cluster. No remote to send data to
@@ -442,12 +443,14 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 		// Check if the record is not deleted after an update
 		if ( urecord->flag & UDF_RECORD_FLAG_OPEN) {
 			*urecord_op = UDF_OPTYPE_WRITE;
+			udf_xdr_ship_op = true;
 		} 
 		else {
 			// If the record has updates and it is not open, 
 			// and if it pre-existed it's an update followed by a delete.
 			if ( urecord->flag & UDF_RECORD_FLAG_PREEXISTS) {
 				*urecord_op = UDF_OPTYPE_DELETE;
+				udf_xdr_ship_op = true;
 			} 
 			// If the record did not pre-exist and is updated
 			// and it is not open, then it is create followed by
@@ -459,6 +462,7 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 	} else if ((urecord->flag & UDF_RECORD_FLAG_PREEXISTS)
 			   && !(urecord->flag & UDF_RECORD_FLAG_OPEN)) {
 		*urecord_op  = UDF_OPTYPE_DELETE;
+		udf_xdr_ship_op = true;
 	} else {
 		*urecord_op  = UDF_OPTYPE_READ;
 	}
@@ -477,6 +481,7 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 		as_index_delete(tr->rsv.tree, &tr->keyd);
 		urecord->starting_memory_bytes = 0;
 		*urecord_op                    = UDF_OPTYPE_DELETE;
+		udf_xdr_ship_op = true;
 	} else if (*urecord_op == UDF_OPTYPE_WRITE)	{
 		cf_detail(AS_UDF, "Committing Changes %"PRIx64" n_bins %d", rd->keyd, as_bin_get_n_bins(r_ref->r, rd));
 
@@ -501,20 +506,11 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 		}
 	}
 
-	// get set-id and generation before record-close
-	as_generation generation = 0;
-	uint16_t set_id = INVALID_SET_ID;
-
-
 	// Collect the record information (for XDR) before closing the record
-	//
-	bool udf_xdr_ship_op = false;
-	if ( (urecord->flag & UDF_RECORD_FLAG_OPEN)
-			&& (tr->rsv.ns->ldt_enabled == false) &&
-			(UDF_OP_IS_LDT(*urecord_op) == false)) {
+	as_generation generation = 0;
+	if (urecord->flag & UDF_RECORD_FLAG_OPEN) {
 		generation = r_ref->r->generation;
 		set_id = as_index_get_set_id(r_ref->r);
-		udf_xdr_ship_op = true;
 	}
 	// Close the record for all the cases
 	udf_record_close(urecord, false);
@@ -601,11 +597,12 @@ udf_rw_update_stats(as_namespace *ns, udf_optype op, int ret, bool is_success)
  *  	lrecord : LDT record to operate on
  *  	pickled_* (out) to be populated is null if there was delete
  *		lrecord_op (out) is set properly for the entire ldt
+ *	set_id : Set id for record. Passed for delete operation.
  *
  *  Returns: true always
  */
 bool
-udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op)
+udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op, uint16_t set_id)
 {
 	// LDT: Commit all the changes being done to the all records.
 	// TODO: remove limit of 6 (note -- it's temporarily up to 20)
@@ -614,7 +611,7 @@ udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op)
 	udf_record *h_urecord = as_rec_source(lrecord->h_urec);
 	bool is_ldt           = false;
 
-	udf_rw_post_processing(h_urecord, &urecord_op);
+	udf_rw_post_processing(h_urecord, &urecord_op, set_id);
 
 	if (urecord_op == UDF_OPTYPE_DELETE) {
 		wr->pickled_buf      = NULL;
@@ -632,7 +629,7 @@ udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op)
 		FOR_EACH_SUBRECORD(i, lrecord) {
 			is_ldt = true;
 			udf_record *c_urecord = &lrecord->chunk[i].c_urecord;
-			udf_rw_post_processing(c_urecord, &urecord_op);
+			udf_rw_post_processing(c_urecord, &urecord_op, set_id);
 			if (urecord_op == UDF_OPTYPE_WRITE) {
 				*lrecord_op = UDF_OPTYPE_LDT_WRITE;
 			}
@@ -922,6 +919,11 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 							| UDF_RECORD_FLAG_PREEXISTS);
 	}
 
+	// Save the set-ID for XDR.
+	// In case of deletion, this information will not be available later.
+	// This information will be used only in case of xdr deletion ship.
+	uint16_t set_id = as_index_get_set_id(urecord.r_ref->r);
+
 	// entry point for all SMD-UDF's(LDT) calls, not called for other UDF's.
 	cf_detail(AS_UDF, "START working with LDT Record %p %p %p %p %d", &urecord,
 			urecord.tr, urecord.r_ref, urecord.rd,
@@ -937,7 +939,7 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 
 	if (ret_value == 0) {
 
-		udf_rw_finish(&lrecord, wr, op);
+		udf_rw_finish(&lrecord, wr, op, set_id);
 		if (UDF_OP_IS_READ(*op)) {
 			send_result(res, call, NULL);
 			as_result_destroy(res);
