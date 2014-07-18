@@ -28,11 +28,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <citrusleaf/cf_atomic.h>
-#include <citrusleaf/cf_clock.h>
-#include <citrusleaf/alloc.h>
+#include "citrusleaf/alloc.h"
+#include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_bits.h"
+#include "citrusleaf/cf_clock.h"
 
-#include "bits.h"
 #include "dynbuf.h"
 #include "fault.h"
 
@@ -110,7 +110,7 @@ void histogram_stop(histogram *h, histogram_measure *hm)
 	uint64_t now = (now_ts.tv_sec * 1000000000L) + now_ts.tv_nsec;
 	uint64_t delta = now - start;
 
-	int index = bits_find_last_set_64(delta);
+	int index = cf_bits_find_last_set_64(delta);
 	if (index < 0) index = 0;
 
 	cf_atomic_int_incr( &h->count[ index ] );
@@ -134,7 +134,7 @@ void histogram_stop(histogram *h, histogram_measure *hm)
 //	uint64_t delta = hist_getcycles() - hm->start;
 	uint64_t delta = cf_getms() - hm->start;
 
-	int index = bits_find_last_set_64(delta);
+	int index = cf_bits_find_last_set_64(delta);
 	if (index < 0) index = 0;
 
 	cf_atomic_int_incr( &h->count[ index ] );
@@ -145,7 +145,7 @@ void histogram_insert_delta( histogram *h, uint64_t delta)
 {
 	cf_atomic_int_incr(&h->n_counts);
 
-	int index = bits_find_last_set_64(delta);
+	int index = cf_bits_find_last_set_64(delta);
 	if (index < 0) index = 0;
 	cf_atomic_int_incr( &h->count[ index ] );
 
@@ -158,7 +158,7 @@ void histogram_insert_data_point( histogram *h, uint64_t start)
 	uint64_t end = cf_getms();
 	uint64_t delta = end - start;
 
-	int index = bits_find_last_set_64(delta);
+	int index = cf_bits_find_last_set_64(delta);
 	if (index < 0) index = 0;
 	if (start > end)
 	{
