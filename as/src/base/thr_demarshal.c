@@ -132,7 +132,7 @@ thr_demarshal_reaper_fn(void *arg)
 		uint64_t kill_ms = g_config.proto_fd_idle_ms;
 		bool refresh = false;
 
-		if (now - last > (uint64_t)(g_config.security_refresh * 1000)) {
+		if (now - last > (uint64_t)(g_config.sec_cfg.privilege_refresh_period * 1000)) {
 			refresh = true;
 			last = now;
 		}

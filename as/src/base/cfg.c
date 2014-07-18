@@ -137,7 +137,6 @@ cfg_set_defaults()
 	c->run_as_daemon = true; // set false only to run in debugger & see console output
 	c->scan_priority = 200; // # of rows between a quick context switch?
 	c->scan_sleep = 1; // amount of time scan thread will sleep between two context switch
-	c->security_refresh = 60 * 5; // refresh socket privileges every 5 minutes
 	c->storage_benchmarks = false;
 	c->ticker_interval = 10;
 	c->transaction_max_ms = 1000;
@@ -197,6 +196,8 @@ cfg_set_defaults()
 	// in the config file in order to change to the new mode.
 	c->cluster_mode = CL_MODE_NO_TOPOLOGY;
 
+	// TODO - security set default config API?
+	c->sec_cfg.privilege_refresh_period = 60 * 5; // refresh socket privileges every 5 minutes
 	c->sec_cfg.syslog_local = AS_SYSLOG_NONE;
 
 	// TODO - not sure why these are in configuration - just to be global?
@@ -294,7 +295,6 @@ typedef enum {
 	CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION,
 	CASE_SERVICE_RUN_AS_DAEMON,
 	CASE_SERVICE_SCAN_PRIORITY,
-	CASE_SERVICE_SECURITY_REFRESH,
 	CASE_SERVICE_SNUB_NODES,
 	CASE_SERVICE_STORAGE_BENCHMARKS,
 	CASE_SERVICE_TICKER_INTERVAL,
@@ -533,6 +533,7 @@ typedef enum {
 
 	// Security options:
 	CASE_SECURITY_ENABLE_SECURITY,
+	CASE_SECURITY_PRIVILEGE_REFRESH_PERIOD,
 	CASE_SECURITY_LOG_BEGIN,
 	CASE_SECURITY_SYSLOG_BEGIN,
 
@@ -630,7 +631,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "respond-client-on-master-completion", CASE_SERVICE_RESPOND_CLIENT_ON_MASTER_COMPLETION },
 		{ "run-as-daemon",					CASE_SERVICE_RUN_AS_DAEMON },
 		{ "scan-priority",					CASE_SERVICE_SCAN_PRIORITY },
-		{ "security-refresh",				CASE_SERVICE_SECURITY_REFRESH },
 		{ "snub-nodes",						CASE_SERVICE_SNUB_NODES },
 		{ "storage-benchmarks",				CASE_SERVICE_STORAGE_BENCHMARKS },
 		{ "ticker-interval",				CASE_SERVICE_TICKER_INTERVAL },
@@ -886,6 +886,7 @@ const cfg_opt CLUSTER_GROUP_OPTS[] = {
 
 const cfg_opt SECURITY_OPTS[] = {
 		{ "enable-security",				CASE_SECURITY_ENABLE_SECURITY },
+		{ "privilege-refresh-period",		CASE_SECURITY_PRIVILEGE_REFRESH_PERIOD },
 		{ "log",							CASE_SECURITY_LOG_BEGIN },
 		{ "syslog",							CASE_SECURITY_SYSLOG_BEGIN },
 		{ "}",								CASE_CONTEXT_END }
@@ -1808,9 +1809,6 @@ as_config_init(const char *config_file)
 			case CASE_SERVICE_SCAN_PRIORITY:
 				c->scan_priority = cfg_u32_no_checks(&line);
 				break;
-			case CASE_SERVICE_SECURITY_REFRESH:
-				c->security_refresh = cfg_u32(&line, 10, 60 * 60 * 24);
-				break;
 			case CASE_SERVICE_SNUB_NODES:
 				c->snub_nodes = cfg_bool(&line);
 				break;
@@ -2702,6 +2700,9 @@ as_config_init(const char *config_file)
 			switch(cfg_find_tok(line.name_tok, SECURITY_OPTS, NUM_SECURITY_OPTS)) {
 			case CASE_SECURITY_ENABLE_SECURITY:
 				c->sec_cfg.security_enabled = cfg_bool(&line);
+				break;
+			case CASE_SECURITY_PRIVILEGE_REFRESH_PERIOD:
+				c->sec_cfg.privilege_refresh_period = cfg_u32(&line, 10, 60 * 60 * 24);
 				break;
 			case CASE_SECURITY_LOG_BEGIN:
 				cfg_begin_context(&state, SECURITY_LOG);

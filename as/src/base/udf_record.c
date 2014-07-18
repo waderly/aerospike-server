@@ -164,7 +164,6 @@ udf_storage_record_close(udf_record *urecord)
 
 		if (r_ref) {
 			as_storage_record_close(r_ref->r, rd);
-			bzero(urecord->rd, sizeof(as_storage_rd));
 		} else {
 			// Should never happen.
 			cf_warning(AS_UDF, "Unexpected Internal Error (null r_ref)");
@@ -267,7 +266,6 @@ udf_record_close(udf_record *urecord, bool release_rsv)
 				  (urecord->flag & UDF_RECORD_FLAG_IS_SUBRECORD) ? "Sub" : "");
 		udf_storage_record_close(urecord);
 		as_record_done(r_ref, tr->rsv.ns);
-		bzero(urecord->r_ref, sizeof(as_index_ref));
 		urecord->flag &= ~UDF_RECORD_FLAG_OPEN;
 		cf_detail_digest(AS_UDF, &urecord->tr->keyd,
 			"Storage Close:: Rec(%p) Flag(%x) Digest:", urecord, urecord->flag );
@@ -736,9 +734,11 @@ udf_record_set_flags(const as_rec * rec, const char * name, uint8_t flags)
 	if (ret) {
 		return ret;
 	}
+
 	udf_record * urecord = (udf_record *) as_rec_source(rec);
-	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES))
+	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
 		return -1;
+	}
 
 	if ( urecord && name ) {
 		if (flags & LDT_FLAG_HIDDEN_BIN || flags & LDT_FLAG_LDT_BIN || flags & LDT_FLAG_CONTROL_BIN ) {
@@ -749,6 +749,9 @@ udf_record_set_flags(const as_rec * rec, const char * name, uint8_t flags)
 			return -2;
 		}
 	}
+
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
 	return 0;
 }
 
@@ -775,12 +778,35 @@ udf_record_set_type(const as_rec * rec,  uint8_t  ldt_rectype_bits)
 	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
 		return -1;
 	}
+
 	urecord->ldt_rectype_bits = ldt_rectype_bits;
 	cf_detail(AS_RW, "TO URECORD FROM LUA   Digest=%"PRIx64" bits %d",
 			  *(uint64_t *)&urecord->rd->keyd.digest[8], urecord->ldt_rectype_bits);
-	urecord->rd->write_to_device = true;
+
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
 	return 0;
 }
+
+static int
+udf_record_set_ttl(const as_rec * rec,  uint32_t  ttl)
+{
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
+	}
+
+	udf_record * urecord = (udf_record *) as_rec_source(rec);
+	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
+		return -1;
+	}
+
+	urecord->tr->msgp->msg.record_ttl = ttl;
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
+	return 0;
+}
+
 /* Keep this for reference.
  * typedef enum {
 	// The first two values -- do NOT used in single bin mode
@@ -931,5 +957,6 @@ const as_rec_hooks udf_record_hooks = {
 	.digest		= udf_record_digest,
 	.set_flags	= udf_record_set_flags,	// @LDT:: added for control over LDT Bins from Lua
 	.set_type	= udf_record_set_type,	// @LDT:: added for control over Rec Types from Lua
+	.set_ttl	= udf_record_set_ttl,
 	.numbins	= NULL,
 };

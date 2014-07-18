@@ -437,8 +437,25 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op)
 
 	// TODO: optimize not to allocate buffer if it is single
 	// node cluster. No remote to send data to
+	// Check if UDF has updates.
 	if (urecord->flag & UDF_RECORD_FLAG_HAS_UPDATES) {
-		*urecord_op  = UDF_OPTYPE_WRITE;
+		// Check if the record is not deleted after an update
+		if ( urecord->flag & UDF_RECORD_FLAG_OPEN) {
+			*urecord_op = UDF_OPTYPE_WRITE;
+		} 
+		else {
+			// If the record has updates and it is not open, 
+			// and if it pre-existed it's an update followed by a delete.
+			if ( urecord->flag & UDF_RECORD_FLAG_PREEXISTS) {
+				*urecord_op = UDF_OPTYPE_DELETE;
+			} 
+			// If the record did not pre-exist and is updated
+			// and it is not open, then it is create followed by
+			// delete essentially no_op.
+			else {
+				*urecord_op = UDF_OPTYPE_NONE;
+			}
+		}
 	} else if ((urecord->flag & UDF_RECORD_FLAG_PREEXISTS)
 			   && !(urecord->flag & UDF_RECORD_FLAG_OPEN)) {
 		*urecord_op  = UDF_OPTYPE_DELETE;
@@ -827,7 +844,6 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 	r_ref.skip_lock = false;
 
 	as_storage_rd  rd;
-	bzero(&rd, sizeof(as_storage_rd));
 
 	udf_record urecord;
 	udf_record_init(&urecord);
@@ -838,12 +854,20 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 	urecord.tr                 = tr;
 	urecord.r_ref              = &r_ref;
 	urecord.rd                 = &rd;
-	// TODO: replace bzero
-	bzero(&urecord.updates, sizeof(udf_record_bin) * UDF_RECORD_BIN_ULIMIT);
 	as_rec          urec;
 	as_rec_init(&urec, &urecord, &udf_record_hooks);
+
+	// NB: rec needs to be in the heap. Once passed in to the lua scope if
+	// this val get assigned it may get garbage collected post stack context
+	// is lost. In conjunction the destroy hook for this rec is set to NULL
+	// to avoid attempting any garbage collection. For ldt_record clean up
+	// and post processing has to be in process context under transactional
+	// protection.
+#if 0
 	as_rec          lrec;
 	as_rec_init(&lrec, &lrecord, &ldt_record_hooks);
+#endif
+	as_rec  *lrec = as_rec_new(&lrecord, &ldt_record_hooks);
 
 	// Link lrecord and urecord
 	lrecord.h_urec             = &urec;
@@ -868,7 +892,10 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 				// Necessary to complete transaction, but error string would be
 				// ignored by client, so don't bother sending one.
 				send_response(call, "FAILURE", 7, AS_PARTICLE_TYPE_NULL, NULL, 0);
-				as_rec_destroy(&lrec);
+				// free everything we created - the rec destroy with ldt_record hooks
+				// destroys the ldt components and the attached "base_rec"
+				ldt_record_destroy(lrec);
+				as_rec_destroy(lrec);
 				return 0;
 			}
 		}
@@ -902,7 +929,8 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 
 	// Step 3: Run UDF
 	as_result       *res = as_result_new();
-	int ret_value        = udf_apply_record(call, &lrec, res);
+	as_val_reserve(lrec);
+	int ret_value        = udf_apply_record(call, lrec, res);
 	as_namespace *  ns   = tr->rsv.ns;
 	// Capture the success of the Lua call to use below
 	bool success = res->is_success;
@@ -939,7 +967,8 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 
 	// free everything we created - the rec destroy with ldt_record hooks
 	// destroys the ldt components and the attached "base_rec"
-	as_rec_destroy(&lrec);
+	ldt_record_destroy(lrec);
+	as_rec_destroy(lrec);
 
 	return 0;
 }

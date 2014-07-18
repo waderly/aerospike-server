@@ -129,6 +129,23 @@ ldt_record_set_type(const as_rec * rec,  uint8_t rec_type )
 }
 
 static int
+ldt_record_set_ttl(const as_rec * rec,  uint32_t ttl)
+{
+	static const char * meth = "ldt_record_set_ttl()";
+	if (!rec) {
+		cf_warning(AS_UDF, "%s Invalid Paramters: record=%p", meth, rec);
+		return 2;
+	}
+
+	ldt_record *lrecord   = (ldt_record *)as_rec_source(rec);
+	if (!lrecord) {
+		return 2;
+	}
+	const as_rec *h_urec  = lrecord->h_urec;
+	return as_rec_set_ttl(h_urec, ttl);
+}
+
+static int
 ldt_record_remove(const as_rec * rec, const char * name)
 {
 	static const char * meth = "ldt_record_remove()";
@@ -197,44 +214,16 @@ ldt_record_digest(const as_rec * rec)
 	return as_rec_digest(h_urec);
 }
 
-static bool
-ldt_record_destroy(as_rec * rec)
-{
-	static const char * meth = "ldt_record_destroy()";
-	if (!rec) {
-		cf_warning(AS_UDF, "%s Invalid Paramters: record=%p", meth, rec);
-		return false;
-	}
-
-	ldt_record *lrecord = (ldt_record *)as_rec_source(rec);
-	if (!lrecord) {
-		return false;
-	}
-	as_rec *h_urec      = lrecord->h_urec;
-
-	// Note: destroy of udf_record today is no-op because all the closing
-	// of record happens after UDF has executed.
-	// TODO: validate chunk handling here.
-	FOR_EACH_SUBRECORD(i, lrecord) {
-		as_rec *c_urec = &lrecord->chunk[i].c_urec;
-		as_rec_destroy(c_urec);
-		lrecord->chunk[i].slot = -1;
-	}
-	// Dir destroy should release partition reservation and
-	// namespace reservation.
-	as_rec_destroy(h_urec);
-	return true;
-}
-
 const as_rec_hooks ldt_record_hooks = {
 	.get		= ldt_record_get,
 	.set		= ldt_record_set,
 	.remove		= ldt_record_remove,
 	.ttl		= ldt_record_ttl,
 	.gen		= ldt_record_gen,
-	.destroy	= ldt_record_destroy,
+	.destroy	= NULL,
 	.digest		= ldt_record_digest,
 	.set_flags	= ldt_record_set_flags,
 	.set_type	= ldt_record_set_type,
+	.set_ttl	= ldt_record_set_ttl,
 	.numbins	= NULL
 };

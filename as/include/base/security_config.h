@@ -58,6 +58,7 @@ typedef struct as_sec_report_s {
 // Security configuration.
 typedef struct as_sec_config_s {
 	bool				security_enabled;
-	as_sec_report		report;				// reporting sinks
-	as_sec_syslog_local	syslog_local;		// syslog local facility
+	uint32_t			privilege_refresh_period;	// (seconds)
+	as_sec_report		report;						// reporting sinks
+	as_sec_syslog_local	syslog_local;				// syslog local facility
 } as_sec_config;

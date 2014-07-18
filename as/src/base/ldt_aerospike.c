@@ -279,7 +279,7 @@ Out:
 //	udf_record *c_urecord = &lrecord->chunk[slot].c_urecord;
 //
 //	cf_detail(AS_LDT, "LSO CHUNK: slot = %d lchunk [%p,%p,%p,%p] ", slot,
-//				&lchunk->c_urecord, &lchunk->tr, &lchunk->rd, &lchunk->r_ref);
+//				lchunk->c_urecord, &lchunk->tr, &lchunk->rd, &lchunk->r_ref);
 //	cf_detail(AS_LDT, "LSO CHUNK: slot = %d urecord   [%p,%p,%p,%p] ", slot,
 //				c_urecord, c_urecord->tr, c_urecord->rd, c_urecord->r_ref);
 //	return 0;
@@ -376,7 +376,13 @@ ldt_chunk_init(ldt_chunk *lchunk, ldt_record *lrecord)
 	c_urecord->rd           = &lchunk->rd;
 	c_urecord->r_ref        = &lchunk->r_ref;
 	lchunk->r_ref.skip_lock = true;
-	as_rec_init(&lchunk->c_urec, c_urecord, &udf_record_hooks);
+	lchunk->c_urec_p = as_rec_new(c_urecord, &udf_record_hooks);
+}
+
+void ldt_chunk_destroy(ldt_chunk *lchunk)
+{
+	as_rec_destroy(lchunk->c_urec_p);
+	lchunk->slot = -1;
 }
 
 /*
@@ -432,7 +438,7 @@ ldt_chunk_setup(ldt_chunk *lchunk, as_rec *h_urec, cf_digest *keyd)
 	// Parent reservation cannot go away as long as Chunck needs reservation.
 	memcpy(&c_tr->rsv, &h_tr->rsv, sizeof(as_partition_reservation));
 	c_tr->keyd                 = *keyd;
-	udf_record *c_urecord      = (udf_record *)as_rec_source(&lchunk->c_urec);
+	udf_record *c_urecord      = (udf_record *)as_rec_source(lchunk->c_urec_p);
 	c_urecord->keyd            = *keyd;
 
 	// There are 4 place digest is
@@ -498,10 +504,10 @@ ldt_crec_open(ldt_record *lrecord, cf_digest *keyd, int *slotp)
 	//ldt_chunk_print(lrecord, slot);
 
 	// Open Record
-	int rv = udf_record_open((udf_record *)as_rec_source(&lchunk->c_urec));
+	int rv = udf_record_open((udf_record *)as_rec_source(lchunk->c_urec_p));
 	if (rv) {
 		// Open the slot for reuse
-		lrecord->chunk[slot].slot = -1;
+		ldt_chunk_destroy(&lrecord->chunk[slot]);
 		return -3;
 	}
 	*slotp = slot;
@@ -549,16 +555,46 @@ ldt_crec_create(ldt_record *lrecord)
 	ldt_chunk_setup(lchunk, lrecord->h_urec, &keyd);
 
 	// Create Record
-	int rv = as_aerospike_rec_create(lrecord->as, &lchunk->c_urec);
+	int rv = as_aerospike_rec_create(lrecord->as, lchunk->c_urec_p);
 	if (rv < 0) {
 		// Mark Slot as free
-		lrecord->chunk[slot].slot = -1;
+		ldt_chunk_destroy(&lrecord->chunk[slot]);
 		cf_warning(AS_LDT, "ldt_crec_create: Record Create Failed rv=%d ... ", rv);
 		return NULL;
 	}
 
-	return &lchunk->c_urec;
+	cf_debug_digest(AS_LDT, &(lchunk->c_urecord.keyd), "Crec Create:Ptr(%p) Digest: ", lchunk->c_urec_p);
+
+	return lchunk->c_urec_p;
 }
+
+bool
+ldt_record_destroy(as_rec * rec)
+{
+	static const char * meth = "ldt_record_destroy()";
+	if (!rec) {
+		cf_warning(AS_UDF, "%s Invalid Paramters: record=%p", meth, rec);
+		return false;
+	}
+
+	ldt_record *lrecord = (ldt_record *)as_rec_source(rec);
+	if (!lrecord) {
+		return false;
+	}
+	as_rec *h_urec      = lrecord->h_urec;
+
+	// Note: destroy of udf_record today is no-op because all the closing
+	// of record happens after UDF has executed.
+	// TODO: validate chunk handling here.
+	FOR_EACH_SUBRECORD(i, lrecord) {
+		ldt_chunk_destroy(&lrecord->chunk[i]);
+	}
+	// Dir destroy should release partition reservation and
+	// namespace reservation.
+	as_rec_destroy(h_urec);
+	return true;
+}
+
 
 /*********************************************************************
  * INTERFACE FUNCTIONS                                               *
@@ -669,18 +705,18 @@ ldt_aerospike_crec_update(const as_aerospike * as, const as_rec *crec)
 }
 
 int
-ldt_aerospike_crec_close(const as_aerospike * as, const as_rec *crec)
+ldt_aerospike_crec_close(const as_aerospike * as, const as_rec *crec_p)
 {
-	cf_detail(AS_LDT, "[ENTER] as(%p) subrec(%p)", as, crec );
-	if (!as || !crec) {
+	cf_detail(AS_LDT, "[ENTER] as(%p) subrec(%p)", as, crec_p );
+	if (!as || !crec_p) {
 		cf_warning(AS_LDT, " %s Invalid Paramters: as=%p, subrecord=%p",
-				"ldt_aerospike_crec_close", as, crec);
+				"ldt_aerospike_crec_close", as, crec_p);
 		return 2;
 	}
 
 	// Close of the record is only allowed if the user has not updated
 	// it. Other wise it is a group commit
-	udf_record *c_urecord = (udf_record *)as_rec_source(crec);
+	udf_record *c_urecord = (udf_record *)as_rec_source(crec_p);
 	if (!c_urecord) {
 		cf_warning(AS_LDT, "subrecord_close: Internal Error !! Malformed Sub Record !!... Fail");
 		return -1;
@@ -692,7 +728,7 @@ ldt_aerospike_crec_close(const as_aerospike * as, const as_rec *crec)
 	}
 	int slot              = -1;
 	for (int i = 0; i < s_max_open_subrecs; i++) {
-		if (&lrecord->chunk[i].c_urec == crec) {
+		if (lrecord->chunk[i].c_urec_p == crec_p) {
 			slot = i;
 		}
 	}
@@ -707,7 +743,7 @@ ldt_aerospike_crec_close(const as_aerospike * as, const as_rec *crec)
 	}
 	udf_record_close(c_urecord, false);
 	udf_record_cache_free(c_urecord);
-	lrecord->chunk[slot].slot = -1;
+	ldt_chunk_destroy(&lrecord->chunk[slot]);
 	c_urecord->flag &= ~UDF_RECORD_FLAG_ISVALID;
 	return 0;
 }
@@ -742,7 +778,7 @@ ldt_aerospike_crec_open(const as_aerospike * as, const as_rec *rec, const char *
 		cf_detail(AS_LDT, "Failed to open Sub Record rv=%d", rv);
 		return NULL;
 	} else {
-		return &lrecord->chunk[slot].c_urec;
+		return lrecord->chunk[slot].c_urec_p;
 	}
 }
 
@@ -817,8 +853,8 @@ ldt_aerospike_rec_remove(const as_aerospike * as, const as_rec * rec)
 	as_aerospike *las   = lrecord->as;
 
 	FOR_EACH_SUBRECORD(i, lrecord) {
-		as_aerospike_rec_remove(las, &lrecord->chunk[i].c_urec);
-		lrecord->chunk[i].slot = -1;
+		as_aerospike_rec_remove(las, lrecord->chunk[i].c_urec_p);
+		ldt_chunk_destroy(&lrecord->chunk[i]);
 	}
 	return as_aerospike_rec_remove(las, h_urec);
 }
@@ -837,7 +873,8 @@ ldt_aerospike_log(const as_aerospike * a, const char * file,
 static void
 ldt_aerospike_destroy(as_aerospike * as)
 {
-	// What does this destruction means .. semantics not clear
+	// Destruction flows back into udf_aerospike and implemented as NULL
+	// today
 	as_aerospike_destroy(as);
 }
 
