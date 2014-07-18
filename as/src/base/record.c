@@ -33,13 +33,13 @@
 #include <string.h>
 #include <time.h> // for as_record_void_time_get() - TODO - replace with clock function
 #include <netinet/in.h>
+#include <sys/param.h>
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
 #include "citrusleaf/cf_digest.h"
 
 #include "arenax.h"
-#include "bits.h"
 #include "fault.h"
 
 #include "base/cfg.h"
@@ -1149,10 +1149,10 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 				cf_debug(AS_RECORD, " wrote a record with vinfo set missing during migrate");
 				as_index_vinfo_mask_union( r, as_record_vinfo_mask_get(rsv->p, &rsv->p->version_info ), rd.ns->allow_versions);
 				if (c->generation) {
-					generation = cf_max_uint32(generation, c->generation);
+					generation = MAX(generation, c->generation);
 					n_generations++;
 				}
-				void_time = cf_max_uint32(void_time, c->void_time);
+				void_time = MAX(void_time, c->void_time);
 			}
 		}
 		// If the incoming record is a superset of the current, allow it to overwrite
@@ -1169,10 +1169,10 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 			as_index_vinfo_mask_union( r, as_record_vinfoset_mask_get( rsv->p, &c->vinfoset, 0), rd.ns->allow_versions);
 
 			if (c->generation) {
-				generation = cf_max_uint32(generation, c->generation);
+				generation = MAX(generation, c->generation);
 				n_generations++;
 			}
-			void_time = cf_max_uint32(void_time, c->void_time);
+			void_time = MAX(void_time, c->void_time);
 		}
 		// decide whether to merge in
 		else if (! as_partition_vinfoset_contains_vinfoset(&rsv->p->vinfoset,
@@ -1194,10 +1194,10 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 
 			// continue to calculate generation
 			if (c->generation) {
-				generation = cf_max_uint32(generation, c->generation);
+				generation = MAX(generation, c->generation);
 				n_generations++;
 			}
-			void_time = cf_max_uint32(void_time, c->void_time);
+			void_time = MAX(void_time, c->void_time);
 			cf_detail(AS_RECORD, "merge: updated vinfo mask %x %"PRIx64,
 					as_index_vinfo_mask_get(r, rd.ns->allow_versions), *(uint64_t *)keyd);
 		}
