@@ -704,7 +704,8 @@ udf_aerospike__execute_updates(udf_record * urecord)
 	as_storage_rd *rd    = urecord->rd;
 	as_index_ref * r_ref = urecord->r_ref;
 
-	if ( urecord->nupdates == 0 ) {
+	if ( urecord->nupdates == 0  &&
+			(urecord->flag & UDF_RECORD_FLAG_METADATA_UPDATED) == 0 ) {
 		cf_detail(AS_UDF, "No Update when execute update is called");
 		return 0;
 	}
