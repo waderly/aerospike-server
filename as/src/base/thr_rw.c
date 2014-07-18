@@ -933,10 +933,16 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 		// node is master node. Writes should never happen from non
 		// master node unless it is shipped op.
 
-		cf_assert(
-				(g_config.self_node == tr->rsv.p->replica[0]) || (tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP),
-				AS_RW, CF_CRITICAL, "internal_rw_start called "
-				"from non master node %"PRIx64"", g_config.self_node);
+		// TODO: We are allowing write to go to prole here. 
+		// At prole it will fail but it has already been written at master.
+		// Ideally we should roll back.
+		if ((g_config.self_node != tr->rsv.p->replica[0])
+				&& (as_paxos_get_cluster_key() == tr->rsv.cluster_key)
+				&& !(tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP)) { 
+				cf_warning(AS_RW, "internal_rw_start called from non-master "
+					"node %"PRIx64", with TRANSACTION_FLAG_SHIPPED_OP not set and without any cluster key "
+					"mismatch too. Cluster key is %d", g_config.self_node, tr->rsv.cluster_key);
+		}
 
 		if ((!qnode_found) && (tr->rsv.p->qnode != tr->rsv.p->replica[0])) {
 			nodes[node_sz] = tr->rsv.p->qnode;
@@ -1736,7 +1742,7 @@ void rw_process_ack(cf_node node, msg *m, bool is_write) {
 	}
 
 	if (wr->tid != tid) {
-		cf_info(AS_RW, "rw process ack: retransmit ack after we moved on");
+		cf_debug(AS_RW, "rw process ack: retransmit ack after we moved on");
 #ifdef DEBUG_MSG
 		msg_dump(m, "rw tid mismatch");
 #endif
