@@ -734,9 +734,11 @@ udf_record_set_flags(const as_rec * rec, const char * name, uint8_t flags)
 	if (ret) {
 		return ret;
 	}
+
 	udf_record * urecord = (udf_record *) as_rec_source(rec);
-	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES))
+	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
 		return -1;
+	}
 
 	if ( urecord && name ) {
 		if (flags & LDT_FLAG_HIDDEN_BIN || flags & LDT_FLAG_LDT_BIN || flags & LDT_FLAG_CONTROL_BIN ) {
@@ -747,6 +749,9 @@ udf_record_set_flags(const as_rec * rec, const char * name, uint8_t flags)
 			return -2;
 		}
 	}
+
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
 	return 0;
 }
 
@@ -773,10 +778,13 @@ udf_record_set_type(const as_rec * rec,  uint8_t  ldt_rectype_bits)
 	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
 		return -1;
 	}
+
 	urecord->ldt_rectype_bits = ldt_rectype_bits;
 	cf_detail(AS_RW, "TO URECORD FROM LUA   Digest=%"PRIx64" bits %d",
 			  *(uint64_t *)&urecord->rd->keyd.digest[8], urecord->ldt_rectype_bits);
-	urecord->rd->write_to_device = true;
+
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
 	return 0;
 }
 
