@@ -212,9 +212,6 @@ histogram_insert_raw(histogram *h, uint64_t value)
 	cf_atomic_int_incr(&h->counts[msb(value)]);
 }
 
-// TODO - remove this after common is merged:
-static uint64_t cf_getns() { cf_crash(AS_INFO, "replace me!"); return 0; }
-
 //------------------------------------------------
 // Insert a data point. The value is time elapsed
 // since start_ns, converted to milliseconds.
