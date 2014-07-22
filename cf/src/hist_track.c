@@ -146,8 +146,8 @@ cf_hist_track_create(const char* name)
 
 	// Base histogram setup, same as in histogram_create():
 	strcpy(this->hist.name, name);
-	this->hist.n_counts = 0;
-	memset((void*)this->hist.count, 0, sizeof(this->hist.count));
+	this->hist.total_count = 0;
+	memset((void*)this->hist.counts, 0, sizeof(this->hist.counts));
 
 	// Start with tracking off.
 	this->rows = NULL;
@@ -293,11 +293,11 @@ cf_hist_track_dump(cf_hist_track* this)
 
 	row* row_p = get_row(this, this->write_row_n);
 	uint64_t subtotal = 0;
-	uint64_t total_counts = cf_atomic_int_get(this->hist.n_counts);
+	uint64_t total_counts = cf_atomic_int_get(this->hist.total_count);
 
 	// b's "over" is total minus sum of values in all buckets 0 thru b.
 	for (int i = 0, b = 0; i < this->num_cols; b++) {
-		subtotal += cf_atomic_int_get(this->hist.count[b]);
+		subtotal += cf_atomic_int_get(this->hist.counts[b]);
 
 		if (this->buckets[i] == b) {
 			// Bucket counts may increment during this loop, so their sum can
@@ -321,6 +321,9 @@ cf_hist_track_dump(cf_hist_track* this)
 	pthread_mutex_unlock(&this->rows_lock);
 }
 
+//------------------------------------------------
+// Pass-through to base histogram.
+//
 void
 cf_hist_track_insert_delta(cf_hist_track* this, uint64_t delta)
 {
