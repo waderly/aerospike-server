@@ -146,7 +146,6 @@ cf_hist_track_create(const char* name)
 
 	// Base histogram setup, same as in histogram_create():
 	strcpy(this->hist.name, name);
-	this->hist.total_count = 0;
 	memset((void*)this->hist.counts, 0, sizeof(this->hist.counts));
 
 	// Start with tracking off.
@@ -292,23 +291,28 @@ cf_hist_track_dump(cf_hist_track* this)
 	}
 
 	row* row_p = get_row(this, this->write_row_n);
+
+	// "Freeze" the histogram for consistency of total.
+	uint64_t counts[N_BUCKETS];
+	uint64_t total_count = 0;
+
+	for (int j = 0; j < N_BUCKETS; j++) {
+		counts[j] = cf_atomic64_get(this->hist.counts[j]);
+		total_count += counts[j];
+	}
+
 	uint64_t subtotal = 0;
-	uint64_t total_counts = cf_atomic_int_get(this->hist.total_count);
 
 	// b's "over" is total minus sum of values in all buckets 0 thru b.
 	for (int i = 0, b = 0; i < this->num_cols; b++) {
-		subtotal += cf_atomic_int_get(this->hist.counts[b]);
+		subtotal += counts[b];
 
 		if (this->buckets[i] == b) {
-			// Bucket counts may increment during this loop, so their sum can
-			// exceed total_counts. (This also means a bucket's "over" can be
-			// smaller than at previous dump, so we have to check that too.)
-			row_p->overs[i++] = total_counts > subtotal ?
-					total_counts - subtotal : 0;
+			row_p->overs[i++] = total_count - subtotal;
 		}
 	}
 
-	row_p->total = total_counts;
+	row_p->total = total_count;
 	row_p->timestamp = now_ts;
 
 	// Increment the current and oldest row indexes.
@@ -638,11 +642,10 @@ output_slice(cf_hist_track* this, row* prev_row_p, row* row_p,
 	write_p += snprintf(write_p, end_p - write_p, rate_fmt, ops_per_sec);
 
 	for (int i = 0; i < num_cols; i++) {
-		// It's possible for an "over" to be smaller than the one in the
-		// previous row - see comment in cf_hist_track_dump().
-		uint64_t diff_overs = row_p->overs[i] > prev_row_p->overs[i] ?
-				row_p->overs[i] - prev_row_p->overs[i] : 0;
-		double pcts_over_i = diff_total > 0 ?
+		// We "freeze" the histogram to calculate "overs", so it shouldn't be
+		// possible for an "over" to be less than the one in the previous row.
+		uint64_t diff_overs = row_p->overs[i] - prev_row_p->overs[i];
+		double pcts_over_i = diff_total != 0 ?
 				(double)(diff_overs * 100) / diff_total : 0;
 
 		write_p += snprintf(write_p, end_p - write_p, pcts_fmt, pcts_over_i);

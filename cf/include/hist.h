@@ -41,8 +41,7 @@
 // (Except for cf_hist_track, for which histogram is a base class.)
 typedef struct histogram_s {
 	char name[HISTOGRAM_NAME_SIZE];
-	cf_atomic_int total_count;
-	cf_atomic_int counts[N_BUCKETS];
+	cf_atomic64 counts[N_BUCKETS];
 } histogram;
 
 extern histogram *histogram_create(const char *name);
@@ -74,8 +73,7 @@ typedef struct linear_histogram_s {
 	int num_buckets;
 	uint64_t start;
 	uint64_t bucket_width;
-	cf_atomic_int total_count;
-	cf_atomic_int counts[MAX_LINEAR_BUCKETS];
+	cf_atomic64 counts[MAX_LINEAR_BUCKETS];
 	pthread_mutex_t info_lock;
 	char info_snapshot[INFO_SNAPSHOT_SIZE];
 } linear_histogram;
@@ -90,8 +88,6 @@ extern void linear_histogram_dump(linear_histogram *h);
 extern uint64_t linear_histogram_get_total(linear_histogram *h);
 extern void linear_histogram_insert_data_point(linear_histogram *h,
 		uint64_t point);
-extern size_t linear_histogram_get_index_for_pct(linear_histogram *h,
-		size_t pct);
 extern bool linear_histogram_get_thresholds_for_fraction(linear_histogram *h,
 		uint32_t tenths_pct, uint64_t *p_low, uint64_t *p_high,
 		uint32_t *p_mid_tenths_pct); // Note: not thread-safe!
