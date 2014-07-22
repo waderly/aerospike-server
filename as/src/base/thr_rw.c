@@ -2705,7 +2705,7 @@ write_delete_local(as_transaction *tr, bool journal, cf_node masternode)
 				GTRACE(CALLER, debug,
 						"Delete @ %s %d digest %ld", __FILE__, __LINE__, *(uint64_t *)&rd.keyd);
 				sindex_ret = as_sindex_delete_by_sbin(ns, set_name,
-						rd.n_bins, oldbin, &rd);
+						oldbin_cnt, oldbin, &rd);
 				if (sindex_ret != AS_SINDEX_OK)
 					GTRACE(CALLER, debug,
 							"Failed: %d", as_sindex_err_str(sindex_ret));
