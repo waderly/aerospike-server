@@ -231,8 +231,6 @@ histogram_insert_raw(histogram *h, uint64_t value)
 void
 histogram_insert_ms_since(histogram *h, uint64_t start_ns)
 {
-	cf_atomic_int_incr(&h->total_count);
-
 	uint64_t end_ns = cf_getns();
 	uint64_t delta_ms = (end_ns - start_ns) / 1000000;
 
@@ -250,6 +248,7 @@ histogram_insert_ms_since(histogram *h, uint64_t start_ns)
 		}
 	}
 
+	cf_atomic_int_incr(&h->total_count);
 	cf_atomic_int_incr(&h->counts[index]);
 }
 
@@ -272,8 +271,6 @@ histogram_insert_ms_since(histogram *h, uint64_t start_ns)
 void
 histogram_insert_us_since(histogram *h, uint64_t start_ns)
 {
-	cf_atomic_int_incr(&h->total_count);
-
 	uint64_t end_ns = cf_getns();
 	uint64_t delta_us = (end_ns - start_ns) / 1000;
 
@@ -291,6 +288,7 @@ histogram_insert_us_since(histogram *h, uint64_t start_ns)
 		}
 	}
 
+	cf_atomic_int_incr(&h->total_count);
 	cf_atomic_int_incr(&h->counts[index]);
 }
 
