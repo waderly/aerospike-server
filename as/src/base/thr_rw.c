@@ -189,7 +189,7 @@ write_request_create(void) {
 	wr->replication_fire_and_forget = false;
 	// Set the initial limit on wr lifetime to guarantee finite life-span.
 	// (Will be reset relative to the transaction end time if/when the wr goes ready.)
-	cf_atomic64_set(&(wr->end_time), cf_getms() + g_config.transaction_max_ms);
+	cf_atomic64_set(&(wr->end_time), cf_getns() + g_config.transaction_max_ns);
 
 	// initialize waiting transaction queue
 	wr->wait_queue_head = NULL;
@@ -620,11 +620,11 @@ int rw_cleanup(write_request *wr, as_transaction *tr, bool first_time,
 			tr->rsv.ns->name, tr->rsv.pid, *(uint64_t *) & (wr->keyd), wr->is_read ? "READ" : "WRITE", tr->result_code);
 
 	if (wr->is_read) {
-		cf_hist_track_insert_data_point(g_config.rt_hist, tr->start_time);
+		cf_hist_track_insert_ms_since(g_config.rt_hist, tr->start_time);
 	} else {
 		// Update Write Stats. Don't count Deletes or UDF calls.
 		if ((tr->msgp->msg.info2 & AS_MSG_INFO2_DELETE) == 0 && ! wr->has_udf) {
-			cf_hist_track_insert_data_point(g_config.wt_hist, tr->start_time);
+			cf_hist_track_insert_ms_since(g_config.wt_hist, tr->start_time);
 		}
 	}
 	if (first_time) {
@@ -1058,7 +1058,7 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 		wr->retry_interval_ms = g_config.transaction_retry_ms;
 		wr->start_time = tr->start_time;
 		cf_atomic64_set(&(wr->end_time),
-				(tr->end_time > 0) ? (tr->end_time) : (g_config.transaction_max_ms + wr->start_time));
+				(tr->end_time != 0) ? tr->end_time : wr->start_time + g_config.transaction_max_ns);
 		wr->ready = true;
 		WR_TRACK_INFO(wr, "internal_rw_start: first time - tr->wr ");
 	}
@@ -1068,7 +1068,7 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 	msg_dump(wr->dest_msg, "rw start outoing msg");
 #endif
 
-	wr->microbenchmark_time = cf_getms();
+	wr->microbenchmark_time = cf_getns();
 
 	if (tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP)
 		cf_detail(AS_RW, "[Digest %"PRIx64" Shipped OP] Replication Initiated",
@@ -1357,7 +1357,7 @@ int as_read_start(as_transaction *tr) {
 		// This code does task of rw_cleanup ... like releasing
 		// reservation cleaning up msgp etc ...
 		// (Todo) consolidate duplicate code
-		cf_hist_track_insert_data_point(g_config.rt_hist, tr->start_time);
+		cf_hist_track_insert_ms_since(g_config.rt_hist, tr->start_time);
 		as_partition_release(&tr->rsv);
 		cf_atomic_int_decr(&g_config.rw_tree_count);
 		if (tr->msgp) {
@@ -4794,7 +4794,7 @@ rw_retransmit_reduce_fn(void *key, uint32_t keylen, void *data, void *udata)
 		cf_atomic_int_incr(&g_config.stat_rw_timeout);
 		if (wr->ready) {
 			if ( ! wr->has_udf ) {
-				cf_hist_track_insert_data_point(g_config.wt_hist, wr->start_time);
+				cf_hist_track_insert_ms_since(g_config.wt_hist, wr->start_time);
 			}
 		}
 
@@ -4869,7 +4869,7 @@ rw_retransmit_fn(void *gcc_is_ass)
 
 		usleep(130 * 1000);
 
-		cf_clock now = cf_getms();
+		cf_clock now = cf_getns();
 
 		rchash_reduce_delete(g_write_hash, rw_retransmit_reduce_fn, &now);
 
@@ -5202,7 +5202,8 @@ dump_rw_reduce_fn(void *key, uint32_t keylen, void *data,
 	pthread_mutex_lock(&wr->lock);
 	cf_info(AS_RW,
 			"gwh[%d]: wr %p rc %d ready %d et %ld xm %ld (delta %ld) ri %d pb %p |wq| %d",
-			*counter, wr, cf_rc_count(wr), wr->ready, cf_atomic64_get(wr->end_time), wr->xmit_ms, wr->xmit_ms - g_now, wr->retry_interval_ms, wr->pickled_buf, wq_len(wr->wait_queue_head));
+			*counter, wr, cf_rc_count(wr), wr->ready, cf_atomic64_get(wr->end_time) / 1000000,
+			wr->xmit_ms, wr->xmit_ms - g_now, wr->retry_interval_ms, wr->pickled_buf, wq_len(wr->wait_queue_head));
 	pthread_mutex_unlock(&wr->lock);
 
 	*counter += 1;
@@ -5461,7 +5462,7 @@ thr_tsvc_read(as_transaction *tr, as_record_lock *rl, int record_get_rv)
 						"tsvc read: can't send short reply, fd %d rc %d",
 						tr->proto_fd_h->fd, tr->result_code);
 			}
-			cf_hist_track_insert_data_point(g_config.wt_reply_hist,
+			cf_hist_track_insert_ms_since(g_config.wt_reply_hist,
 					tr->start_time);
 			tr->proto_fd_h = 0;
 		} else if (tr->proxy_msg) {

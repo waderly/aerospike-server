@@ -52,9 +52,6 @@ extern void histogram_insert_raw(histogram *h, uint64_t value);
 extern void histogram_insert_ms_since(histogram *h, uint64_t start_ns);
 extern void histogram_insert_us_since(histogram *h, uint64_t start_ns);
 
-// Deprecate these:
-extern void histogram_insert_data_point(histogram *h, uint64_t start);
-
 
 //==========================================================
 // Histogram with linear buckets, used by the eviction

@@ -154,7 +154,7 @@ typedef int (* as_query_ioreq_cb)
 #define QTR_FAILED(qtr) \
 	((qtr)->abort || (qtr)->err)
 
-#define AS_QUERY_UNTRACKED_TIME       1000  // (milli second) 1 sec  
+#define AS_QUERY_UNTRACKED_TIME       1000 * 1000 * 1000 // (nanosecond) 1 sec
 typedef enum {
 	AS_QUERY_LOOKUP = 0,
 	AS_QUERY_UDF    = 1,
@@ -208,9 +208,9 @@ struct as_query_transaction_s {
 												// including record read
 	uint64_t          net_io_bytes;
 	uint64_t          read_success;
-	uint64_t          waiting_time_us;          // Time spent waiting by query in query_queue
-	uint64_t          querying_ai_time_us;      // Time spent by query to run lookup secondary index trees.
-	uint64_t          queued_time_us;
+	uint64_t          waiting_time_ns;          // Time spent waiting by query in query_queue
+	uint64_t          querying_ai_time_ns;      // Time spent by query to run lookup secondary index trees.
+	uint64_t          queued_time_ns;
 	
 	// PRIORITY PARAMETERS
 	uint32_t          yield_count;              // Number of loops
@@ -398,19 +398,19 @@ as_query__update_stats(as_query_transaction *qtr)
 		cf_atomic64_add(&g_config.lookup_num_records, qtr->num_records);
 	}
 	cf_hist_track_insert_raw(g_config.q_rcnt_hist, rows);
-	cf_hist_track_insert_ms_since(g_config.q_hist, qtr->start_time * 1000);
-	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_hist, qtr->start_time * 1000);
+	cf_hist_track_insert_ms_since(g_config.q_hist, qtr->start_time);
+	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_hist, qtr->start_time);
 	SINDEX_HIST_INSERT_RAW(qtr->si, query_rcnt_hist, qtr->n_digests);
 	SINDEX_HIST_INSERT_RAW(qtr->si, query_diff_hist, qtr->n_digests - qtr->num_records);
 
-	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_hist, qtr->querying_ai_time_us * 1000);
-	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_q_wait_hist, qtr->waiting_time_us * 1000);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_hist, qtr->querying_ai_time_ns);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_q_wait_hist, qtr->waiting_time_ns);
 	
-	uint64_t query_stop_time = cf_getus();
+	uint64_t query_stop_time = cf_getns();
+	uint64_t elapsed_us = (query_stop_time - qtr->start_time) / 1000;
 	cf_detail(AS_QUERY,
 			"Total time elapsed %"PRIu64" us, %d of %d read operations avg latency %"PRIu64" us",
-			(query_stop_time - qtr->start_time), rows, qtr->n_digests,
-			rows > 0 ? (query_stop_time - qtr->start_time) / rows : 0);
+			elapsed_us, rows, qtr->n_digests, rows > 0 ? elapsed_us / rows : 0);
 }
 
 #define AS_QUERY_PROCESS_INLINE(qtr) \
@@ -715,7 +715,7 @@ as_query__push_qreq(as_query_request *qreq)
 	cf_detail(AS_QUERY, "Pushed I/O request [%p,%p]", qreq, qreq->qtr);
 	cf_atomic32_incr(&qreq->qtr->qreq_in_flight);
 	if (g_config.query_enable_histogram) {
-		qreq->qtr->queued_time_us = cf_getus();
+		qreq->qtr->queued_time_ns = cf_getns();
 	}
 	return cf_queue_push(g_query_request_queue, &qreq);
 }
@@ -1069,8 +1069,8 @@ as_query__send_response(as_query_transaction *qtr)
 do {                                 \
 	if ((qtr)                        \
         && ((qtr)->end_time != 0)    \
-		&& (cf_getms() > (qtr)->end_time)) { \
-		cf_debug(AS_QUERY, "Query Timedout %ld %ld", cf_getms(), (qtr)->end_time); \
+		&& (cf_getns() > (qtr)->end_time)) { \
+		cf_debug(AS_QUERY, "Query Timedout %lu %lu", cf_getns(), (qtr)->end_time); \
         (qtr)->result_code  =  AS_PROTO_RESULT_FAIL_QUERY_TIMEOUT; \
         (qtr)->abort        =  true;           \
 		cf_debug(AS_QUERY, "Query %p Aborted at %s:%d", (qtr), __FILE__, __LINE__); \
@@ -1313,7 +1313,7 @@ as_query_udf_tr_complete( as_transaction *tr, int retcode )
 		return -1;
 	}
 	uint64_t start_time = tr->start_time;
-	uint64_t processing_time = cf_getms() - start_time;
+	uint64_t processing_time = (cf_getns() - start_time) / 1000000;
 	uint64_t completed  = cf_atomic64_incr(&qtr->uit_completed);
 	uint64_t queued     = cf_atomic_int_decr(&qtr->uit_queued);
 
@@ -1357,7 +1357,7 @@ as_internal_query_udf_txn_setup(tr_create_data * d)
 
 	as_qtr__reserve(qtr, __FILE__, __LINE__);
 	// Reset start time
-	tr.start_time = cf_getms();
+	tr.start_time = cf_getns();
 	if (0 != thr_tsvc_enqueue(&tr)) {
 		cf_warning(AS_QUERY, "UDF: Failed to queue transaction for digest %"PRIx64", "
 				"number of transactions enqueued [%d] .. dropping current "
@@ -1445,7 +1445,7 @@ as_query__process_ioreq(as_query_request *qio)
 	}
 
 	int ret               = AS_QUERY_ERR;
-	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_q_wait_hist, qtr->queued_time_us * 1000);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_q_wait_hist, qtr->queued_time_ns);
 	
 	cf_ll_element * ele   = NULL;
 	cf_ll_iterator * iter = NULL;
@@ -1591,9 +1591,9 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 	int              ret     = AS_QUERY_OK;
 	as_sindex       *si      = qtr->si;
 	as_sindex_qctx  *qctx    = &qtr->qctx;
-	uint64_t         time_us = 0;
+	uint64_t         time_ns = 0;
 	if (g_config.query_enable_histogram) {
-		time_us = cf_getus();
+		time_ns = cf_getns();
 	}
 
 	if (qctx->pimd_idx == -1) {
@@ -1641,8 +1641,8 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 		goto batchout;
 	}
 
-	if (time_us) {
-		qtr->querying_ai_time_us += cf_getus() - time_us;
+	if (time_ns) {
+		qtr->querying_ai_time_ns += cf_getns() - time_ns;
 	}
 	if (qctx->n_bdigs < qctx->bsize) {
 		qctx->first          = 1;
@@ -1666,7 +1666,7 @@ as_query__setup_qreq(as_query_request *qreqp, as_query_transaction *qtr)
 {
 	qreqp->qtr               = qtr;
 	qreqp->recl              = qtr->qctx.recl;
-	qtr->queued_time_us      = 0;
+	qtr->queued_time_ns      = 0;
 	qtr->qctx.recl           = NULL;
 	qtr->n_digests          += qtr->qctx.n_bdigs;
 	qtr->qctx.n_bdigs        = 0;
@@ -1750,7 +1750,7 @@ as_query__generator(as_query_transaction *qtr)
 		// 		we are going to track it
 		// else no.
 		if (!qtr->track) {
-			if ((cf_getus() - qtr->start_time) > g_config.query_untracked_time * 1000) {
+			if ((cf_getns() - qtr->start_time) > g_config.query_untracked_time) {
 				qtr->track = true;
 				if (as_query__put_qtr(qtr)) {
 					(qtr)->err       =  true;
@@ -1890,8 +1890,8 @@ as_query__th(void* q_to_wait_on)
 			cf_atomic64_incr(&g_config.query_long_running);
 			cf_atomic64_decr(&g_config.query_short_running);
 		}
-		if (qtr->queued_time_us != 0) {
-			qtr->waiting_time_us += (cf_getus() - qtr->queued_time_us);
+		if (qtr->queued_time_ns != 0) {
+			qtr->waiting_time_ns += (cf_getns() - qtr->queued_time_ns);
 		}
 		as_query__generator(qtr);
 	}
@@ -2137,7 +2137,7 @@ as_query__queue(as_query_transaction *qtr)
 		cf_detail(AS_QUERY, "Logged query ");
 	}
 	if (g_config.query_enable_histogram) {
-		qtr->queued_time_us = cf_getus();
+		qtr->queued_time_ns = cf_getns();
 	}
 	return 0;
 }
@@ -2163,9 +2163,9 @@ int
 as_query(as_transaction *tr)
 {
 	if (tr) {
-		QUERY_HIST_INSERT_DATA_POINT_US(query_txn_q_wait_hist, (tr->start_time * 1000 * 1000));
+		QUERY_HIST_INSERT_DATA_POINT_US(query_txn_q_wait_hist, tr->start_time);
 	}
-	uint64_t start_time     = cf_getus();
+	uint64_t start_time     = cf_getns();
 	as_sindex *si           = NULL;
 	cf_vector *binlist      = 0;
 	as_sindex_range *srange = 0;
@@ -2285,9 +2285,9 @@ as_query(as_transaction *tr)
 	qtr->err                 = false;
 	qtr->abort               = false;
 	qtr->track               = false;
-	qtr->queued_time_us      = 0;   
-	qtr->querying_ai_time_us = 0;
-	qtr->waiting_time_us     = 0;
+	qtr->queued_time_ns      = 0;   
+	qtr->querying_ai_time_ns = 0;
+	qtr->waiting_time_ns     = 0;
 
 	if (as_query__agg_call_init(&qtr->agg_call, tr, qtr) == AS_QUERY_OK) {
 		// There is no io call back, record is worked on from inside stream
@@ -2498,7 +2498,7 @@ as_query_list_job_reduce_fn (void *key, uint32_t keylen, void *object, void *uda
 	cf_dyn_buf_append_string(db, ":num_records=");
 	cf_dyn_buf_append_uint64(db, cf_atomic_int_get(qtr->num_records));
 	cf_dyn_buf_append_string(db, ":run_time=");
-	cf_dyn_buf_append_uint64(db, cf_getus() - qtr->start_time);
+	cf_dyn_buf_append_uint64(db, (cf_getns() - qtr->start_time) / 1000);
 	cf_dyn_buf_append_string(db, ":state=");
 	if(qtr->abort) {
 		cf_dyn_buf_append_string(db, "ABORTED");
@@ -3019,7 +3019,7 @@ as_query__fill_jobstat(as_query_transaction *qtr, as_mon_jobstat *stat)
 	stat->trid          = qtr->trid;
 	stat->cpu           = 0;                               // not implemented
 	stat->mem           = (float)qtr->buf_reserved;
-	stat->run_time      = (cf_getus() - qtr->start_time) / 1000;
+	stat->run_time      = (cf_getns() - qtr->start_time) / 1000000;
 	stat->recs_read     = qtr->read_success;
 	stat->net_io_bytes  = qtr->net_io_bytes;
 	stat->priority      = qtr->priority;

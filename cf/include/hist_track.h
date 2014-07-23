@@ -72,9 +72,6 @@ void cf_hist_track_insert_raw(cf_hist_track* this, uint64_t value);
 void cf_hist_track_insert_ms_since(cf_hist_track* this, uint64_t start_ns);
 void cf_hist_track_insert_us_since(cf_hist_track* this, uint64_t start_ns);
 
-// Deprecate:
-void cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_time);
-
 //------------------------------------------------
 // Get Statistics from Cached Data
 //

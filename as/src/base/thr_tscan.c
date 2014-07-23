@@ -197,7 +197,7 @@ as_tscan_udf_tr_complete( as_transaction *tr, int retcode )
 		return -1;
 	}
 	uint64_t start_time = tr->start_time;
-	uint64_t processing_time = cf_getms() - start_time;
+	uint64_t processing_time = (cf_getns() - start_time) / 1000000;
 	uint64_t completed  = cf_atomic64_incr(&job->uit_completed);
 	uint64_t queued     = cf_atomic_int_decr(&job->uit_queued);
 
@@ -887,7 +887,7 @@ as_internal_scan_udf_txn_setup(tr_create_data * d)
 	cf_rc_reserve(job);
 
 	// Reset start time.
-	tr.start_time = cf_getms();
+	tr.start_time = cf_getns();
 	if (0 != thr_tsvc_enqueue(&tr)) {
 		// TODO: should you drop or requeue?. What is the implication of a drop?
 		cf_warning(AS_SCAN, "UDF: Failed to queue transaction for digest %"PRIx64", "

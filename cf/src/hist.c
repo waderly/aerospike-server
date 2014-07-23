@@ -30,7 +30,6 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
-#include "citrusleaf/cf_bits.h"
 #include "citrusleaf/cf_clock.h"
 
 #include "dynbuf.h"
@@ -293,27 +292,6 @@ histogram_insert_us_since(histogram *h, uint64_t start_ns)
 					start_ns, end_ns);
 			index = 0;
 		}
-	}
-
-	cf_atomic64_incr(&h->counts[index]);
-}
-
-// Deprecate:
-void
-histogram_insert_data_point(histogram *h, uint64_t start)
-{
-	uint64_t end = cf_getms();
-	uint64_t delta = end - start;
-
-	int index = cf_bits_find_last_set_64(delta);
-
-	if (index < 0) {
-		index = 0;
-	}
-
-	if (start > end) {
-		// Legend has it this can happen...
-		index = 0;
 	}
 
 	cf_atomic64_incr(&h->counts[index]);

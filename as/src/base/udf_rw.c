@@ -673,7 +673,7 @@ as_udf__end_time(time_tracker *tt)
 	// side
 	return (r->tr->end_time)
 		   ? r->tr->end_time
-		   : r->tr->start_time + g_config.transaction_max_ms;
+		   : r->tr->start_time + g_config.transaction_max_ns;
 }
 
 /*

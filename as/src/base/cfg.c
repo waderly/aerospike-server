@@ -139,7 +139,7 @@ cfg_set_defaults()
 	c->scan_sleep = 1; // amount of time scan thread will sleep between two context switch
 	c->storage_benchmarks = false;
 	c->ticker_interval = 10;
-	c->transaction_max_ms = 1000;
+	c->transaction_max_ns = 1000 * 1000 * 1000; // 1 second
 	c->transaction_pending_limit = 20;
 	c->transaction_repeatable_read = false;
 	c->transaction_retry_ms = 1000;
@@ -1822,7 +1822,7 @@ as_config_init(const char *config_file)
 				c->n_transaction_duplicate_threads = cfg_int_no_checks(&line);
 				break;
 			case CASE_SERVICE_TRANSACTION_MAX_MS:
-				c->transaction_max_ms = cfg_u32_no_checks(&line);
+				c->transaction_max_ns = cfg_u64_no_checks(&line) * 1000000;
 				break;
 			case CASE_SERVICE_TRANSACTION_PENDING_LIMIT:
 				c->transaction_pending_limit = cfg_u32_no_checks(&line);

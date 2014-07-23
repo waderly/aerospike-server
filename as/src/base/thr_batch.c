@@ -301,7 +301,7 @@ batch_process_queue(void* q_to_wait_on)
 		}
 
 		// Check for timeouts.
-		if (btr.end_time != 0 && cf_getms() > btr.end_time) {
+		if (btr.end_time != 0 && cf_getns() > btr.end_time) {
 			cf_atomic_int_incr(&g_config.batch_timeout);
 
 			if (btr.fd_h) {

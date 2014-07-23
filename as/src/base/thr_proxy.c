@@ -139,7 +139,7 @@ as_proxy_msg_compare(msg *m1, msg *m2)
 }
 
 
-void as_proxy_set_stat_counters(int rv, uint64_t start_time) {
+void as_proxy_set_stat_counters(int rv) {
 	if (rv == 0) {
 		cf_atomic_int_incr(&g_config.stat_proxy_success);
 	}
@@ -193,7 +193,7 @@ as_proxy_divert(cf_node dst, as_transaction *tr, as_namespace *ns, uint64_t clus
 	msg_incr_ref(m);
 	proxy_request pr;
 	pr.start_time = tr->start_time;
-	pr.end_time = (tr->end_time > 0) ? (tr->end_time) : (pr.start_time + g_config.transaction_max_ms);
+	pr.end_time = (tr->end_time != 0) ? tr->end_time : pr.start_time + g_config.transaction_max_ns;
 	pr.fd_h = tr->proto_fd_h;
 	tr->proto_fd_h = 0;
 	pr.fab_msg = m;
@@ -259,7 +259,7 @@ as_proxy_shipop(cf_node dst, write_request *wr)
 	msg_incr_ref(m);
 	proxy_request pr;
 	pr.start_time  = wr->start_time;
-	pr.end_time    = (wr->end_time > 0) ? (wr->end_time) : (pr.start_time + g_config.transaction_max_ms);
+	pr.end_time    = (wr->end_time != 0) ? wr->end_time : pr.start_time + g_config.transaction_max_ns;
 	cf_rc_reserve(wr);
 	pr.wr          = wr;
 	pr.fab_msg     = m;
@@ -491,7 +491,7 @@ proxy_msg_fn(cf_node id, msg *m, void *udata)
 			as_transaction tr;
 			as_transaction_init(&tr, key, msgp);
 			tr.incoming_cluster_key = cluster_key;
-			tr.end_time             = (timeout_ms > 0) ? timeout_ms + tr.start_time : 0;
+			tr.end_time             = (timeout_ms != 0) ? ((uint64_t)timeout_ms * 1000000) + tr.start_time : 0;
 			tr.proxy_node           = id;
 			tr.proxy_msg            = m;
 
@@ -575,7 +575,7 @@ proxy_msg_fn(cf_node id, msg *m, void *udata)
 									// Common message when a client aborts.
 									cf_debug(AS_PROTO, "protocol proxy write fail: fd %d sz %d pos %d rv %d errno %d", pr.fd_h->fd, proto_sz, pos, rv, errno);
 									shutdown(pr.fd_h->fd, SHUT_RDWR);
-									as_proxy_set_stat_counters(-1, pr.start_time);
+									as_proxy_set_stat_counters(-1);
 									goto SendFin;
 								}
 								usleep(1); // yield
@@ -583,14 +583,14 @@ proxy_msg_fn(cf_node id, msg *m, void *udata)
 							else {
 								cf_info(AS_PROTO, "protocol write fail zero return: fd %d sz %d pos %d ", pr.fd_h->fd, proto_sz, pos);
 								shutdown(pr.fd_h->fd, SHUT_RDWR);
-								as_proxy_set_stat_counters(-1, pr.start_time);
+								as_proxy_set_stat_counters(-1);
 								goto SendFin;
 							}
 						}
-						as_proxy_set_stat_counters(0, pr.start_time);
+						as_proxy_set_stat_counters(0);
 					}
 SendFin:
-					cf_hist_track_insert_data_point(g_config.px_hist, pr.start_time);
+					cf_hist_track_insert_ms_since(g_config.px_hist, pr.start_time);
 
 					// Return the fabric message or the direct file descriptor -
 					// after write and complete.
@@ -603,7 +603,7 @@ SendFin:
 			}
 			else {
 				cf_debug(AS_PROXY, "proxy: received result but no transaction, tid %d", transaction_id);
-				as_proxy_set_stat_counters(-1, cf_getms());
+				as_proxy_set_stat_counters(-1);
 			}
 
 			if (free_msg) {
@@ -780,7 +780,7 @@ proxy_retransmit_reduce_fn(void *key, void *data, void *udata)
 
 			// Can get very verbose, when another server is slow.
 			cf_debug(AS_PROXY, "proxy_retransmit: too old request %d ms: terminating (dest %"PRIx64" {%s:%d}",
-					*now - pr->start_time, pr->dest, pr->ns->name, pr->pid);
+					(*now - pr->start_time) / 1000000, pr->dest, pr->ns->name, pr->pid);
 
 			// TODO: make sure the op is not applied twice?
 			if (pr->wr) {
@@ -870,7 +870,7 @@ Retry:
 				// INIT_TR
 				as_transaction tr;
 				as_transaction_init(&tr, keyp, NULL);
-				tr.start_time = cf_getms(); // TODO - why not pr.start_time?
+				// TODO - why not pr.start_time?
 				tr.end_time   = pr->end_time;
 				tr.proto_fd_h = pr->fd_h;
 
@@ -926,7 +926,7 @@ proxy_retransmit_fn(void *gcc_is_ass)
 
 		cf_detail(AS_PROXY, "proxy retransmit: size %d", shash_get_size(g_proxy_hash));
 
-		cf_clock	now = cf_getms();
+		cf_clock	now = cf_getns();
 
 		shash_reduce_delete(g_proxy_hash, proxy_retransmit_reduce_fn, (void *) &now);
 	}

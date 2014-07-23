@@ -487,7 +487,7 @@ process_transaction(as_transaction *tr)
 	// We'd like to check the timeout of the transaction further up, so it
 	// applies to scan, batch, etc. However, the field hasn't been swapped in
 	// until now (during the transaction prepare) so here is ok for now.
-	if ((tr->end_time != 0) && (cf_getms() > tr->end_time)) {
+	if (tr->end_time != 0 && cf_getns() > tr->end_time) {
 		cf_debug(AS_TSVC, "thr_tsvc: found expired transaction in queue, aborting");
 		if (tr->proto_fd_h) {
 			as_msg_send_reply(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_TIMEOUT,

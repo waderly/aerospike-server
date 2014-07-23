@@ -353,15 +353,6 @@ cf_hist_track_insert_us_since(cf_hist_track* this, uint64_t start_ns)
 }
 
 //------------------------------------------------
-// Pass-through to base histogram.
-//
-void
-cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_time)
-{
-	histogram_insert_data_point((histogram*)this, start_time);
-}
-
-//------------------------------------------------
 // Get time-sliced info from cache.
 //
 void
@@ -730,9 +721,3 @@ thresholds_to_buckets(const char* thresholds, uint32_t buckets[])
 
 	return i;
 }
-
-
-
-
-
-
