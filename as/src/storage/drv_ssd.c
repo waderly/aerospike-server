@@ -615,15 +615,15 @@ ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
 
 			rd.write_to_device = true;
 
-			uint64_t start_ms = 0;
+			uint64_t start_ns = 0;
 			if (g_config.microbenchmarks) {
-				start_ms = cf_getms();
+				start_ns = cf_getns();
 			}
 
 			as_storage_record_close(r, &rd);
 
-			if (g_config.microbenchmarks && start_ms) {
-				histogram_insert_data_point(g_config.defrag_storage_close_hist, start_ms);
+			if (g_config.microbenchmarks && start_ns) {
+				histogram_insert_ms_since(g_config.defrag_storage_close_hist, start_ns);
 			}
 
 			rv = 0; // record was in index tree and current - moved it
@@ -677,7 +677,7 @@ ssd_defrag_wblock(drv_ssds *ssds, drv_ssd *ssd, uint32_t wblock_id)
 	uint64_t start_time = 0;
 
 	if (g_config.storage_benchmarks) {
-		start_time = cf_getms();
+		start_time = cf_getns();
 	}
 
 	off_t file_offset = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, wblock_id), SEEK_SET);
@@ -709,7 +709,7 @@ ssd_defrag_wblock(drv_ssds *ssds, drv_ssd *ssd, uint32_t wblock_id)
 	}
 
 	if (g_config.storage_benchmarks && start_time) {
-		histogram_insert_data_point(ssd->hist_large_block_read, start_time);
+		histogram_insert_ms_since(ssd->hist_large_block_read, start_time);
 	}
 
 	size_t wblock_offset = 0; // current offset within the wblock, in bytes
@@ -1149,7 +1149,7 @@ as_storage_record_read_ssd(as_storage_rd *rd)
 
 		// Measure the latency of device reads.
 		if (g_config.storage_benchmarks) {
-			start_time = cf_getms();
+			start_time = cf_getns();
 		}
 
 		lseek(fd, read_offset, SEEK_SET);
@@ -1157,7 +1157,7 @@ as_storage_record_read_ssd(as_storage_rd *rd)
 		ssize_t rv = read(fd, read_buf, read_size);
 
 		if (g_config.storage_benchmarks && start_time) {
-			histogram_insert_data_point(ssd->hist_read, start_time);
+			histogram_insert_ms_since(ssd->hist_read, start_time);
 		}
 
 		if (rv != read_size) {
@@ -1635,7 +1635,7 @@ ssd_write_worker(void *arg)
 		uint64_t start_time = 0;
 
 		if (g_config.storage_benchmarks) {
-			start_time = cf_getms();
+			start_time = cf_getns();
 		}
 
 		off_t rv_o = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id), SEEK_SET);
@@ -1645,7 +1645,7 @@ ssd_write_worker(void *arg)
 					ssd->name, errno);
 
 			if (g_config.storage_benchmarks && start_time) {
-				histogram_insert_data_point(ssd->hist_write, start_time);
+				histogram_insert_ms_since(ssd->hist_write, start_time);
 			}
 
 			close(fd);
@@ -1655,7 +1655,7 @@ ssd_write_worker(void *arg)
 		ssize_t rv_s = write(fd, swb->buf, ssd->write_block_size);
 
 		if (g_config.storage_benchmarks && start_time) {
-			histogram_insert_data_point(ssd->hist_write, start_time);
+			histogram_insert_ms_since(ssd->hist_write, start_time);
 		}
 
 		if (rv_s != ssd->write_block_size) {

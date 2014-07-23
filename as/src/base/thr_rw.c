@@ -2560,14 +2560,14 @@ Out:
 	msg_set_uint32(m, RW_FIELD_RESULT, result_code);
 
 	if (respond) {
-		uint64_t start_ms = 0;
+		uint64_t start_ns = 0;
 		if (g_config.microbenchmarks) {
-			start_ms = cf_getms();
+			start_ns = cf_getns();
 		}
 		int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
-		if (g_config.microbenchmarks && start_ms) {
-			histogram_insert_data_point(g_config.prole_fabric_send_hist,
-					start_ms);
+		if (g_config.microbenchmarks && start_ns) {
+			histogram_insert_ms_since(g_config.prole_fabric_send_hist,
+					start_ns);
 		}
 
 		if (rv2 != 0) {
@@ -4055,9 +4055,9 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	//			 look for UDF_OP_IS_LDT is checked that is used for if it is LDT MULTI_OP
 	//			 packet.
 
-	uint64_t start_ms = 0;
+	uint64_t start_ns = 0;
 	if (g_config.microbenchmarks) {
-		start_ms = cf_getms();
+		start_ns = cf_getns();
 	}
 	if (has_sindex) {
 		if (oldbin_cnt || newbin_cnt) {
@@ -4077,18 +4077,18 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 		}
 	}
 
-	if (g_config.microbenchmarks && start_ms) {
-		histogram_insert_data_point(g_config.write_sindex_hist, start_ms);
+	if (g_config.microbenchmarks && start_ns) {
+		histogram_insert_ms_since(g_config.write_sindex_hist, start_ns);
 	}
 
 	if (g_config.microbenchmarks) {
-		start_ms = cf_getms();
+		start_ns = cf_getns();
 	}
 	// write record to device
 	as_storage_record_close(r, &rd);
 
-	if (g_config.microbenchmarks && start_ms) {
-		histogram_insert_data_point(g_config.write_storage_close_hist, start_ms);
+	if (g_config.microbenchmarks && start_ns) {
+		histogram_insert_ms_since(g_config.write_storage_close_hist, start_ns);
 	}
 
 #ifdef EXTRA_CHECKS
@@ -4659,14 +4659,14 @@ Out:
 	msg_set_uint32(m, RW_FIELD_RESULT, result_code);
 
 	if (f_respond) {
-		uint64_t start_ms = 0;
+		uint64_t start_ns = 0;
 		if (g_config.microbenchmarks) {
-			start_ms = cf_getms();
+			start_ns = cf_getns();
 		}
 		int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
-		if (g_config.microbenchmarks && start_ms) {
-			histogram_insert_data_point(g_config.prole_fabric_send_hist,
-					start_ms);
+		if (g_config.microbenchmarks && start_ns) {
+			histogram_insert_ms_since(g_config.prole_fabric_send_hist,
+					start_ns);
 		}
 
 		if (rv2 != 0) {
@@ -4698,18 +4698,18 @@ write_msg_fn(cf_node id, msg *m, void *udata)
 	switch (op) {
 
 	case RW_OP_WRITE: {
-		uint64_t start_ms = 0;
+		uint64_t start_ns = 0;
 
 		if (g_config.microbenchmarks) {
-			start_ms = cf_getms();
+			start_ns = cf_getns();
 		}
 
 		cf_atomic_int_incr(&g_config.write_prole);
 
 		write_process(id, m, true);
 
-		if (g_config.microbenchmarks && start_ms) {
-			histogram_insert_data_point(g_config.wt_prole_hist, start_ms);
+		if (g_config.microbenchmarks && start_ns) {
+			histogram_insert_ms_since(g_config.wt_prole_hist, start_ns);
 		}
 
 		break;
@@ -5662,13 +5662,13 @@ Out:
 	msg_set_uint32(m, RW_FIELD_OP, RW_OP_MULTI_ACK);
 	msg_set_uint32(m, RW_FIELD_RESULT, result_code);
 
-	uint64_t start_ms = 0;
+	uint64_t start_ns = 0;
 	if (g_config.microbenchmarks) {
-		start_ms = cf_getms();
+		start_ns = cf_getns();
 	}
 	int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
-	if (g_config.microbenchmarks && start_ms) {
-		histogram_insert_data_point(g_config.prole_fabric_send_hist, start_ms);
+	if (g_config.microbenchmarks && start_ns) {
+		histogram_insert_ms_since(g_config.prole_fabric_send_hist, start_ns);
 	}
 
 	if (rv2 != 0) {

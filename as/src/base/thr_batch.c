@@ -314,9 +314,9 @@ batch_process_queue(void* q_to_wait_on)
 		}
 
 		// Process batch request.
-		start = cf_getms();
+		start = cf_getns();
 		batch_process_request(&btr);
-		histogram_insert_data_point(g_config.batch_q_process_hist, start);
+		histogram_insert_ms_since(g_config.batch_q_process_hist, start);
 	}
 
 	return 0;

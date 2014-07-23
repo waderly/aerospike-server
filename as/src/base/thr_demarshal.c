@@ -273,7 +273,8 @@ thr_demarshal(void *arg)
 
 		cf_detail(AS_DEMARSHAL, "epoll event received: nevents %d", nevents);
 
-		uint64_t now = cf_getms();
+		uint64_t now_ns = cf_getns();
+		uint64_t now = now_ns / 1000000;
 
 		// Iterate over all events.
 		for (i = 0; i < nevents; i++) {
@@ -582,8 +583,8 @@ thr_demarshal(void *arg)
 					tr.preprocessed = false;
 
 					if (g_config.microbenchmarks) {
-						histogram_insert_data_point(g_config.demarshal_hist, now);
-						tr.microbenchmark_time = cf_getms();
+						histogram_insert_ms_since(g_config.demarshal_hist, now_ns);
+						tr.microbenchmark_time = cf_getns();
 					}
 
 					// Check if it's compressed.
