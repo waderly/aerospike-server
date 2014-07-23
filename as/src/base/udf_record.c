@@ -482,6 +482,7 @@ udf_record_cache_set(udf_record * urecord, const char * name, as_val * value,
 				bin->value = (as_val *) value;
 			}
 			bin->dirty = dirty;
+			bin->ishidden = false;
 			cf_detail(AS_UDF, "udf_record_set: %s set for %p:%p", name,
 					urecord, bin->value);
 
@@ -496,6 +497,7 @@ udf_record_cache_set(udf_record * urecord, const char * name, as_val * value,
 		strncpy(bin->name, name, BIN_NAME_MAX_SZ);
 		bin->value = (as_val *) value;
 		bin->dirty = dirty;
+		bin->ishidden = false;
 		urecord->nupdates++;
 		cf_detail(AS_UDF, "udf_record_set: %s not modified, add for %p:%p",
 				name, urecord, bin->value);
