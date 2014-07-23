@@ -287,11 +287,11 @@ do {                                                                   \
 	}                                                                  \
 } while(0);
 
-#define QUERY_HIST_INSERT_DATA_POINT_US(type, start_time_us)           \
+#define QUERY_HIST_INSERT_DATA_POINT_US(type, start_time_ns)           \
 do {                                                                   \
-	if (g_config.query_enable_histogram && start_time_us != 0) {       \
+	if (g_config.query_enable_histogram && start_time_ns != 0) {       \
 		if (type) {                                                    \
-			histogram_insert_delta(type, cf_getus() - start_time_us);  \
+			histogram_insert_us_since(type, start_time_ns);            \
 		}                                                              \
 	}                                                                  \
 } while(0);
@@ -397,14 +397,14 @@ as_query__update_stats(as_query_transaction *qtr)
 		cf_atomic64_add(&g_config.lookup_response_size, qtr->buf_reserved);
 		cf_atomic64_add(&g_config.lookup_num_records, qtr->num_records);
 	}
-	cf_hist_track_insert_delta(g_config.q_rcnt_hist, rows);
-	cf_hist_track_insert_data_point(g_config.q_hist, qtr->start_time / 1000);
-	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_hist, qtr->start_time / 1000);
-	SINDEX_HIST_INSERT_DELTA(qtr->si, query_rcnt_hist, qtr->n_digests);
-	SINDEX_HIST_INSERT_DELTA(qtr->si, query_diff_hist, qtr->n_digests - qtr->num_records);
+	cf_hist_track_insert_raw(g_config.q_rcnt_hist, rows);
+	cf_hist_track_insert_ms_since(g_config.q_hist, qtr->start_time * 1000);
+	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_hist, qtr->start_time * 1000);
+	SINDEX_HIST_INSERT_RAW(qtr->si, query_rcnt_hist, qtr->n_digests);
+	SINDEX_HIST_INSERT_RAW(qtr->si, query_diff_hist, qtr->n_digests - qtr->num_records);
 
-	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_hist, qtr->querying_ai_time_us);
-	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_q_wait_hist, qtr->waiting_time_us);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_hist, qtr->querying_ai_time_us * 1000);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_q_wait_hist, qtr->waiting_time_us * 1000);
 	
 	uint64_t query_stop_time = cf_getus();
 	cf_detail(AS_QUERY,
@@ -757,15 +757,15 @@ as_query__transaction_done(as_query_transaction *qtr)
 	// Send out the final data back
 	if (qtr->fd_h) {
 		as_query__add_fin(qtr);
-		uint64_t time_us        = 0;
+		uint64_t time_ns        = 0;
 		
 		if (g_config.query_enable_histogram) {
-			time_us = cf_getus();
+			time_ns = cf_getns();
 		}
 
 		int brv = as_query__send_response(qtr);
 		
-		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_us);
+		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_ns);
 
 		if (brv != AS_QUERY_OK) {
 			cf_detail( AS_QUERY,
@@ -872,10 +872,10 @@ as_query__add_val_response(void *void_qtr, const as_val *val, bool success)
 		return AS_QUERY_ERR;
 	}
 	if (msg_sz > (bb_r->alloc_sz - bb_r->used_sz)) {
-		uint64_t time_us        = 0;
+		uint64_t time_ns        = 0;
 
 		if (g_config.query_enable_histogram) {
-			time_us = cf_getus();
+			time_ns = cf_getns();
 		}
 
 		int ret     = as_query__send_response(qtr);
@@ -884,7 +884,7 @@ as_query__add_val_response(void *void_qtr, const as_val *val, bool success)
 			return ret;
 		}
 
-		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_us);
+		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_ns);
 
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
@@ -940,10 +940,10 @@ as_query__add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 		return AS_QUERY_ERR;
 	}
 	if (msg_sz > (bb_r->alloc_sz - bb_r->used_sz)) {
-		uint64_t time_us        = 0;
+		uint64_t time_ns        = 0;
 
 		if (g_config.query_enable_histogram) {
-			time_us = cf_getus();
+			time_ns = cf_getns();
 		}
 
 		int ret     = as_query__send_response(qtr);
@@ -952,7 +952,7 @@ as_query__add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 			return ret;
 		}
 
-		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_us);
+		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_ns);
 	
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
@@ -1445,15 +1445,15 @@ as_query__process_ioreq(as_query_request *qio)
 	}
 
 	int ret               = AS_QUERY_ERR;
-	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_q_wait_hist, qtr->queued_time_us);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_q_wait_hist, qtr->queued_time_us * 1000);
 	
 	cf_ll_element * ele   = NULL;
 	cf_ll_iterator * iter = NULL;
 	
 	cf_detail(AS_QUERY, "Performing IO");
-	uint64_t time_us      = 0;
+	uint64_t time_ns      = 0;
 	if (g_config.query_enable_histogram || qtr->si->enable_histogram) {
-		time_us = cf_getus();
+		time_ns = cf_getns();
 	}	
 	iter                  = cf_ll_getIterator(qio->recl, true /*forward*/);
 	if (!iter) {
@@ -1503,8 +1503,8 @@ Cleanup:
 		qio->recl = NULL;
 	}
 
-	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_hist, time_us);
-	SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_io, time_us);
+	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_hist, time_ns);
+	SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_io, time_ns);
 
 	return 0;
 }
@@ -1734,9 +1734,9 @@ as_query__generator(as_query_transaction *qtr)
 		qtr->inited               = true;
 	}
 	
-	uint64_t time_us              = 0;
+	uint64_t time_ns              = 0;
 	if (qtr->si->enable_histogram) {
-		time_us                   = cf_getus();
+		time_ns                   = cf_getns();
 	}
 	
 	while (true) {
@@ -1802,9 +1802,9 @@ as_query__generator(as_query_transaction *qtr)
 				continue;
 		}
 
-		SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_lookup, time_us);
+		SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_lookup, time_ns);
 		if (qtr->si->enable_histogram) {
-			time_us = cf_getus();
+			time_ns = cf_getns();
 		}
 	
 		// Step 4: Prepare Query Request either to process inline or for
@@ -2163,7 +2163,7 @@ int
 as_query(as_transaction *tr)
 {
 	if (tr) {
-		QUERY_HIST_INSERT_DATA_POINT_US(query_txn_q_wait_hist, (tr->start_time * 1000));
+		QUERY_HIST_INSERT_DATA_POINT_US(query_txn_q_wait_hist, (tr->start_time * 1000 * 1000));
 	}
 	uint64_t start_time     = cf_getus();
 	as_sindex *si           = NULL;

@@ -329,9 +329,27 @@ cf_hist_track_dump(cf_hist_track* this)
 // Pass-through to base histogram.
 //
 void
-cf_hist_track_insert_delta(cf_hist_track* this, uint64_t delta)
+cf_hist_track_insert_raw(cf_hist_track* this, uint64_t value)
 {
-	histogram_insert_delta((histogram*)this, delta);
+	histogram_insert_raw((histogram*)this, value);
+}
+
+//------------------------------------------------
+// Pass-through to base histogram.
+//
+void
+cf_hist_track_insert_ms_since(cf_hist_track* this, uint64_t start_ns)
+{
+	histogram_insert_ms_since((histogram*)this, start_ns);
+}
+
+//------------------------------------------------
+// Pass-through to base histogram.
+//
+void
+cf_hist_track_insert_us_since(cf_hist_track* this, uint64_t start_ns)
+{
+	histogram_insert_us_since((histogram*)this, start_ns);
 }
 
 //------------------------------------------------

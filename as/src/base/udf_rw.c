@@ -760,10 +760,10 @@ udf_apply_record(udf_call * call, as_rec *rec, as_result *res)
 		.memtracker = NULL
 	};
 
-	uint64_t now = cf_getms();
+	uint64_t now = cf_getns();
 	int ret_value = as_module_apply_record(&mod_lua, &ctx,
 			call->filename, call->function, rec, &arglist, res);
-	cf_hist_track_insert_data_point(g_config.ut_hist, now);
+	cf_hist_track_insert_ms_since(g_config.ut_hist, now);
 	udf_memtracker_cleanup();
 	udf_timer_cleanup();
 	as_list_destroy(&arglist);

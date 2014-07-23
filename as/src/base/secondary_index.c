@@ -630,7 +630,7 @@ as_sindex__op_by_skey(as_sindex   *si, as_sindex_key *skey,
 	uint64_t starttime = 0;
 	if (op == AS_SINDEX_OP_DELETE) {
 		if (si->enable_histogram) {
-			starttime = cf_getus();
+			starttime = cf_getns();
 		}
 		SINDEX_WLOCK(&pimd->slock);
 		ret       = ai_btree_delete(imd, pimd, skey,(void *)&rd->keyd);
@@ -640,7 +640,7 @@ as_sindex__op_by_skey(as_sindex   *si, as_sindex_key *skey,
 		}
 	} else if (op == AS_SINDEX_OP_INSERT) {
 		if (si->enable_histogram) {
-			starttime = cf_getus();
+			starttime = cf_getns();
 		}
 		SINDEX_WLOCK(&pimd->slock);
 		ret       = ai_btree_put(imd, pimd, skey, (void *)&rd->keyd);
@@ -1378,7 +1378,7 @@ as_sindex_put_rd(as_sindex *si, as_storage_rd *rd)
 		return ret;
 	}
 
-	uint64_t starttime = cf_getus();
+	uint64_t starttime = cf_getns();
 	if (AS_SINDEX_OK == as_sindex__skey_from_rd(imd, &skey, rd)) {
 		as_sindex_pmetadata *pimd = &imd->pimd[ai_btree_key_hash(imd, &skey.b[0])];
 		SINDEX_WLOCK(&pimd->slock);

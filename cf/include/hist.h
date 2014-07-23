@@ -48,14 +48,11 @@ extern histogram *histogram_create(const char *name);
 extern void histogram_clear(histogram *h);
 extern void histogram_dump(histogram *h );
 
-// TODO - do we need this?
 extern void histogram_insert_raw(histogram *h, uint64_t value);
-
 extern void histogram_insert_ms_since(histogram *h, uint64_t start_ns);
 extern void histogram_insert_us_since(histogram *h, uint64_t start_ns);
 
 // Deprecate these:
-extern void histogram_insert_delta(histogram *h, uint64_t delta);
 extern void histogram_insert_data_point(histogram *h, uint64_t start);
 
 

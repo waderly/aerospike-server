@@ -300,19 +300,6 @@ histogram_insert_us_since(histogram *h, uint64_t start_ns)
 
 // Deprecate:
 void
-histogram_insert_delta(histogram *h, uint64_t delta)
-{
-	int index = cf_bits_find_last_set_64(delta);
-
-	if (index < 0) {
-		index = 0;
-	}
-
-	cf_atomic64_incr(&h->counts[index]);
-}
-
-// Deprecate:
-void
 histogram_insert_data_point(histogram *h, uint64_t start)
 {
 	uint64_t end = cf_getms();

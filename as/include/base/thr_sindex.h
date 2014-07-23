@@ -37,28 +37,21 @@
 #define SET_TIME_FOR_SINDEX_GC_HIST(start_time)                                           \
 do {                                                                                      \
 	if (g_config.sindex_gc_enable_histogram) {                                            \
-		start_time = cf_getms();                                                          \
+		start_time = cf_getns();                                                          \
 	}                                                                                     \
 } while(0);
 
-#define SINDEX_GC_HIST_INSERT_DATA_POINT(type, start_time_ms)                             \
+#define SINDEX_GC_HIST_INSERT_DATA_POINT(type, start_time_ns)                             \
 do {                                                                                      \
-	if (start_time_ms != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
-		histogram_insert_data_point(g_config._ ##type, start_time_ms);                    \
+	if (start_time_ns != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
+		histogram_insert_ms_since(g_config._ ##type, start_time_ns);                      \
 	}                                                                                     \
 } while(0);
 
-#define SINDEX_GC_HIST_INSERT_DATA_POINT_US(type, start_time_us)                          \
+#define SINDEX_GC_HIST_INSERT_DATA_POINT_US(type, start_time_ns)                          \
 do {                                                                                      \
-	if (start_time_us != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
-		histogram_insert_delta(g_config._ ##type, cf_getus() - start_time_us);            \
-	}                                                                                     \
-} while(0);
-
-#define SINDEX_GC_HIST_INSERT_DELTA(type, delta)                                          \
-do {                                                                                      \
-	if (g_config.sindex_gc_enable_histogram && g_config._ ##type) {                       \
-		histogram_insert_delta(g_config._ ##type, delta);                                 \
+	if (start_time_ns != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
+		histogram_insert_us_since(g_config._ ##type, start_time_ns);                      \
 	}                                                                                     \
 } while(0);
 
