@@ -33,6 +33,11 @@
 // UDF Types
 #define AS_UDF_TYPE_LUA 0
 
+typedef struct udf_list_cb_data_s {
+        bool		is_complete;
+	cf_dyn_buf 	*out;
+} udf_list_cb_data;
+
 extern char *as_udf_type_name[];
 
 //------------------------------------------------
