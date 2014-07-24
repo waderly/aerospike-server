@@ -923,7 +923,8 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 	}
 
 	// entry point for all SMD-UDF's(LDT) calls, not called for other UDF's.
-	cf_detail(AS_UDF, "START working with LDT Record %p %p %p %p %d", &urecord,
+	// At this point, we wont know if its a regular record or a LDT UDF.
+	cf_detail(AS_UDF, "START working with LDT/Regular Record UDF operation %p %p %p %p %d", &urecord,
 			urecord.tr, urecord.r_ref, urecord.rd,
 			(urecord.flag & UDF_RECORD_FLAG_STORAGE_OPEN));
 
