@@ -191,73 +191,65 @@ static int udf_type_getid(char *type) {
 	return(-1);
 }
 
-int udf_cask_info_list(char *name, cf_dyn_buf * out) {
+/*
+ *  *  Callback used to receive System Metadata items requested via the Info SMD "get" command.
+ *   */
+static int as_smd_get_metadata_cb(char *module, as_smd_item_list_t *items, void *udata)
+{
+	udf_list_cb_data * list_cb_data = (udf_list_cb_data *) udata;
+	cf_rc_reserve(list_cb_data);
+	cf_dyn_buf * out = list_cb_data->out;
 
-	DIR 		  * dir	             = NULL;
-	bool 		    not_empty        = false;
-	struct dirent * entry            = NULL;
-	int 		    count 	         = 0;
-	uint8_t       * content          = NULL;
-	size_t          content_len      = 0;
-	unsigned char   content_gen[256] = {0};
 	unsigned char   hash[SHA_DIGEST_LENGTH];
 	// hex string to be returned to the client
 	unsigned char   sha1_hex_buff[CF_SHA_HEX_BUFF_LEN];
+	// Currently just return directly for LUA	
+	uint8_t	udf_type	= AS_UDF_TYPE_LUA;
 
-	cf_debug(AS_INFO, "UDF CASK INFO LIST");
-
-	// Currently just return directly for LUA
-	uint8_t 		udf_type 	    = AS_UDF_TYPE_LUA;
-	dir = opendir(g_config.mod_lua.user_path);
-	if ( dir == 0 ) {
-		cf_warning(AS_UDF, "could not open udf directory %s: %s", g_config.mod_lua.user_path, cf_strerror(errno));
-		return -1;
-	}
-
-	while ( (entry = readdir(dir)) && entry->d_name ) {
-
-		char * name = entry->d_name;
-		size_t len = strlen(name);
-
-		// if ( len < 4 ) continue;
-
-		if ( name[0] == '.' ) continue;
-
-		if ( not_empty ) {
-			cf_dyn_buf_append_char(out, ';');
-		}
-		else {
-			not_empty = true;
-		}
-
+	for (int index = 0; index < items->num_items; index++) {
+		as_smd_item_t *item = items->item[index];
+		cf_debug(AS_UDF, "SMD Info get metadata item[%d]:  module \"%s\" ; key \"%s\" ; value \"%s\" ; generation %u ; timestamp %lu",
+                	index, item->module_name, item->key, item->value, item->generation, item->timestamp);
 		cf_dyn_buf_append_string(out, "filename=");
-		cf_dyn_buf_append_buf(out, (uint8_t *) name, len);
+		cf_dyn_buf_append_buf(out, (uint8_t *)item->key, strlen(item->key));
 		cf_dyn_buf_append_string(out, ",");
-		mod_lua_rdlock(&mod_lua);
-		if (file_read(name, &content, &content_len, content_gen) != 0) {
-			cf_info(AS_UDF, "UDF-list : file not readable");
-			cf_dyn_buf_append_string(out, "error=file_not_readable");
-			mod_lua_unlock(&mod_lua);
-			return 0;
-		}
-		mod_lua_unlock(&mod_lua);
-		SHA1(content, content_len, hash);
+		SHA1((uint8_t *)item->value, strlen(item->value), hash);
+
 		// Convert to a hexadecimal string
 		cf_convert_sha1_to_hex(hash, sha1_hex_buff);
 		cf_dyn_buf_append_string(out, "hash=");
 		cf_dyn_buf_append_buf(out, sha1_hex_buff, CF_SHA_HEX_BUFF_LEN);
 		cf_dyn_buf_append_string(out, ",type=");
 		cf_dyn_buf_append_string(out, as_udf_type_name[udf_type]);
-		count ++;
-	}
-	if (not_empty)
-	{
 		cf_dyn_buf_append_string(out, ";");
 	}
-
-	closedir(dir);
+	list_cb_data->is_complete = true;
+	cf_rc_release(list_cb_data);
 
 	return 0;
+}
+
+int udf_cask_info_list(char *name, cf_dyn_buf * out) {
+	int ret_val = 0;
+	int sleep_time = 0;
+	cf_debug(AS_UDF, "UDF CASK INFO LIST");
+	udf_list_cb_data * list_cb_data = (udf_list_cb_data *) cf_rc_alloc(sizeof(udf_list_cb_data));
+	list_cb_data->is_complete = false;
+	list_cb_data->out = out;
+	ret_val = as_smd_get_metadata(udf_smd_module_name, "", as_smd_get_metadata_cb, list_cb_data);
+	if( ret_val == 0){
+		while(!list_cb_data->is_complete && sleep_time < 3000) { 
+			usleep(100);
+			sleep_time += 100;
+		}
+	} 
+
+	if (sleep_time > 3000) {
+		// sleep for 3 seconds only to get info
+		cf_info(AS_INFO, "UDF list took more than 3 seconds");
+	}
+	cf_rc_release(list_cb_data);
+	return ret_val;
 }
 
 int udf_cask_info_get(char *name, char * params, cf_dyn_buf * out) {
