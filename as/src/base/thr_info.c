@@ -2151,7 +2151,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 void
 info_network_info_config_get(cf_dyn_buf *db)
 {
-	cf_dyn_buf_append_string(db, ";service-address=");
+	cf_dyn_buf_append_string(db, "service-address=");
 	cf_dyn_buf_append_string(db, g_config.socket.addr);
 	cf_dyn_buf_append_string(db, ";service-port=");
 	cf_dyn_buf_append_int(db, g_config.socket.port);
@@ -2191,10 +2191,13 @@ void
 info_network_heartbeat_config_get(cf_dyn_buf *db)
 {
 	if (g_config.hb_mode == AS_HB_MODE_MCAST) {
-		cf_dyn_buf_append_string(db, ";heartbeat-mode=multicast");
+		cf_dyn_buf_append_string(db, "heartbeat-mode=multicast");
 	}
 	else if (g_config.hb_mode == AS_HB_MODE_MESH) {
-		cf_dyn_buf_append_string(db, ";heartbeat-mode=mesh");
+		cf_dyn_buf_append_string(db, "heartbeat-mode=mesh");
+	}
+	else {
+		cf_dyn_buf_append_string(db, "heartbeat-mode=UNKNOWN");
 	}
 
 	if (g_config.hb_tx_addr) {
@@ -2221,7 +2224,7 @@ info_network_heartbeat_config_get(cf_dyn_buf *db)
 void
 info_security_config_get(cf_dyn_buf *db)
 {
-	cf_dyn_buf_append_string(db, ";enable-security=");
+	cf_dyn_buf_append_string(db, "enable-security=");
 	cf_dyn_buf_append_string(db, g_config.sec_cfg.security_enabled ? "true" : "false");
 	cf_dyn_buf_append_string(db, ";privilege-refresh-period=");
 	cf_dyn_buf_append_uint32(db, g_config.sec_cfg.privilege_refresh_period);
@@ -2240,7 +2243,7 @@ info_security_config_get(cf_dyn_buf *db)
 void
 info_xdr_config_get(cf_dyn_buf *db)
 {
-	cf_dyn_buf_append_string(db, ";xdr-delete-shipping-enabled=");
+	cf_dyn_buf_append_string(db, "xdr-delete-shipping-enabled=");
 	cf_dyn_buf_append_string(db, g_config.xdr_cfg.xdr_delete_shipping_enabled ? "true" : "false");
 	cf_dyn_buf_append_string(db, ";xdr-nsup-deletes-enabled=");
 	cf_dyn_buf_append_string(db, g_config.xdr_cfg.xdr_nsup_deletes_enabled ? "true" : "false");
@@ -2302,9 +2305,13 @@ info_command_config_get(char *name, char *params, cf_dyn_buf *db)
 	// We come here when context is not mentioned.
 	// In that case we want to print everything.
 	info_service_config_get(db);
+	cf_dyn_buf_append_char(db, ';');
 	info_network_info_config_get(db);
+	cf_dyn_buf_append_char(db, ';');
 	info_network_heartbeat_config_get(db);
+	cf_dyn_buf_append_char(db, ';');
 	info_security_config_get(db);
+	cf_dyn_buf_append_char(db, ';');
 	info_xdr_config_get(db);
 
 	// Add the current histogram tracking settings.
