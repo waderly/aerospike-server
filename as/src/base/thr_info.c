@@ -4464,7 +4464,6 @@ info_debug_ticker_fn(void *gcc_is_ass)
 
 				total_ns_memory_inuse += ns_memory_inuse;
 				as_sindex_histogram_dumpall(ns);
-				as_sindex_gc_histogram_dumpall();
 			}
 
 			as_partition_states ps;
@@ -4488,6 +4487,7 @@ info_debug_ticker_fn(void *gcc_is_ass)
 				cf_hist_track_dump(g_config.q_rcnt_hist);
 
 			as_query_histogram_dumpall();
+			as_sindex_gc_histogram_dumpall();
 
 			if (g_config.microbenchmarks) {
 				if (g_config.rt_cleanup_hist)
