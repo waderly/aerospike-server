@@ -179,6 +179,8 @@ as_namespaces_init(bool cold_start_cmd, uint32_t instance)
 	// Sanity-check the persistent memory scheme. TODO - compile-time assert.
 	as_xmem_scheme_check();
 
+	uint32_t stage_capacity = as_mem_check();
+
 	if (cold_start_cmd) {
 		cf_info(AS_NAMESPACE, "got cold-start command");
 	}
@@ -186,18 +188,10 @@ as_namespaces_init(bool cold_start_cmd, uint32_t instance)
 	for (int i = 0; i < g_config.namespaces; i++) {
 		as_namespace *ns = g_config.namespace[i];
 
-		if (instance > 0xF) {
-			cf_crash(AS_NAMESPACE, "max allowed asd instance id is 15");
-		}
-
-		if ((uint32_t)ns->id > 0xFF) {
-			cf_crash(AS_NAMESPACE, "max allowed namespace id is 255");
-		}
-
 		// Cold start if manually forced.
 		ns->cold_start = cold_start_cmd;
 
-		as_namespace_setup(ns, instance);
+		as_namespace_setup(ns, instance, stage_capacity);
 
 		// Done with temporary sets configuration array.
 		if (ns->sets_cfg_array) {
