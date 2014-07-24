@@ -1068,7 +1068,7 @@ struct as_msg_field_s;
 /* Namespace function declarations */
 extern as_namespace *as_namespace_create(char *name, uint16_t replication_factor);
 extern void as_namespaces_init(bool cold_start_cmd, uint32_t instance);
-extern void as_namespace_setup(as_namespace* ns, uint32_t instance);
+extern void as_namespace_setup(as_namespace* ns, uint32_t instance, uint32_t stage_capacity);
 extern bool as_namespace_configure_sets(as_namespace *ns);
 extern as_namespace *as_namespace_get_byname(char *name);
 extern as_namespace *as_namespace_get_byid(uint id);
@@ -1105,8 +1105,9 @@ struct as_treex_s {
 void as_namespace_xmem_trusted(as_namespace *ns);
 void as_namespace_xmem_release(as_namespace* ns);
 
-// Not a namespace class function, but lives in namespace.c:
+// Not namespace class functions, but they live in namespace.c:
 void as_xmem_scheme_check();
+uint32_t as_mem_check();
 
 /* Cluster Key */
 // Set the cluster key

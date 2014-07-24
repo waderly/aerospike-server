@@ -20,6 +20,7 @@
  * along with this program.  If not, see http://www.gnu.org/licenses/
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "citrusleaf/alloc.h"
@@ -28,6 +29,7 @@
 #include "fault.h"
 #include "vmapx.h"
 
+#include "base/cfg.h"
 #include "base/datamodel.h"
 #include "base/index.h"
 
@@ -36,8 +38,62 @@ as_xmem_scheme_check() {
 	// For enterprise version only.
 }
 
+#define NS_OVERHEAD_SIZE (1024 * 1024 * 128)
+#define MIN_CAPACITY (MAX_STAGE_CAPACITY / 8)
+#define NS_MIN_MB (((sizeof(as_index) * MIN_CAPACITY) + NS_OVERHEAD_SIZE) / (1024 * 1024))
+
+static bool
+check_capacity(uint32_t capacity)
+{
+	uint8_t* test_overhead_blocks[g_config.namespaces];
+	uint8_t* test_stages[g_config.namespaces];
+	uint32_t i;
+
+	for (i = 0; i < g_config.namespaces; i++) {
+		as_namespace *ns = g_config.namespace[i];
+
+		if ((test_overhead_blocks[i] = cf_malloc(NS_OVERHEAD_SIZE)) == NULL) {
+			break;
+		}
+
+		if ((test_stages[i] = cf_malloc((uint64_t)as_index_size_get(ns) * capacity)) == NULL) {
+			cf_free(test_overhead_blocks[i]);
+			break;
+		}
+	}
+
+	for (uint32_t j = 0; j < i; j++) {
+		cf_free(test_overhead_blocks[j]);
+		cf_free(test_stages[j]);
+	}
+
+	return i == g_config.namespaces;
+}
+
+uint32_t
+as_mem_check()
+{
+	uint32_t capacity;
+
+	for (capacity = MAX_STAGE_CAPACITY; capacity >= MIN_CAPACITY; capacity /= 2) {
+		if (check_capacity(capacity)) {
+			break;
+		}
+	}
+
+	if (capacity < MIN_CAPACITY) {
+		cf_crash_nostack(AS_NAMESPACE, "Aerospike requires at least %lu Mb of memory per namespace", NS_MIN_MB);
+	}
+
+	if (capacity < MAX_STAGE_CAPACITY) {
+		cf_info(AS_NAMESPACE, "detected small memory profile - will size arena stages 1/%u max", MAX_STAGE_CAPACITY / capacity);
+	}
+
+	return capacity;
+}
+
 void
-as_namespace_setup(as_namespace* ns, uint32_t instance)
+as_namespace_setup(as_namespace* ns, uint32_t instance, uint32_t stage_capacity)
 {
 	ns->cold_start = true;
 
@@ -92,7 +148,7 @@ as_namespace_setup(as_namespace* ns, uint32_t instance)
 		cf_crash(AS_NAMESPACE, "ns %s can't allocate index arena", ns->name);
 	}
 
-	cf_arenax_err arena_result = cf_arenax_create(ns->arena, 0, as_index_size_get(ns), 0, 0, CF_ARENAX_BIGLOCK);
+	cf_arenax_err arena_result = cf_arenax_create(ns->arena, 0, as_index_size_get(ns), stage_capacity, 0, CF_ARENAX_BIGLOCK);
 
 	if (arena_result != CF_ARENAX_OK) {
 		cf_crash(AS_NAMESPACE, "ns %s can't create arena: %s", ns->name, cf_arenax_errstr(arena_result));
