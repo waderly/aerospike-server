@@ -38,50 +38,51 @@ as_xmem_scheme_check() {
 	// For enterprise version only.
 }
 
-#define NS_OVERHEAD_SIZE (1024 * 1024 * 128)
-#define MIN_CAPACITY (MAX_STAGE_CAPACITY / 8)
-#define NS_MIN_MB (((sizeof(as_index) * MIN_CAPACITY) + NS_OVERHEAD_SIZE) / (1024 * 1024))
-
 static bool
 check_capacity(uint32_t capacity)
 {
-	uint8_t* test_overhead_blocks[g_config.namespaces];
-	uint8_t* test_stages[g_config.namespaces];
+	uint8_t* test_index_stages[g_config.namespaces];
+	uint8_t* test_data_blocks[g_config.namespaces];
 	uint32_t i;
 
 	for (i = 0; i < g_config.namespaces; i++) {
 		as_namespace *ns = g_config.namespace[i];
+		uint64_t stage_size = (uint64_t)as_index_size_get(ns) * capacity;
 
-		if ((test_overhead_blocks[i] = cf_malloc(NS_OVERHEAD_SIZE)) == NULL) {
+		if ((test_index_stages[i] = cf_malloc(stage_size)) == NULL) {
 			break;
 		}
 
-		if ((test_stages[i] = cf_malloc((uint64_t)as_index_size_get(ns) * capacity)) == NULL) {
-			cf_free(test_overhead_blocks[i]);
+		// Memory for overhead and data, proportional to (= to) stage size.
+		if ((test_data_blocks[i] = cf_malloc(stage_size)) == NULL) {
+			cf_free(test_index_stages[i]);
 			break;
 		}
 	}
 
 	for (uint32_t j = 0; j < i; j++) {
-		cf_free(test_overhead_blocks[j]);
-		cf_free(test_stages[j]);
+		cf_free(test_index_stages[j]);
+		cf_free(test_data_blocks[j]);
 	}
 
 	return i == g_config.namespaces;
 }
+
+#define MIN_STAGE_CAPACITY (MAX_STAGE_CAPACITY / 8)
+#define NS_MIN_MB (((sizeof(as_index) * MIN_STAGE_CAPACITY) * 2) / (1024 * 1024))
 
 uint32_t
 as_mem_check()
 {
 	uint32_t capacity;
 
-	for (capacity = MAX_STAGE_CAPACITY; capacity >= MIN_CAPACITY; capacity /= 2) {
+	for (capacity = MAX_STAGE_CAPACITY; capacity >= MIN_STAGE_CAPACITY; capacity /= 2) {
 		if (check_capacity(capacity)) {
 			break;
 		}
 	}
 
-	if (capacity < MIN_CAPACITY) {
+	if (capacity < MIN_STAGE_CAPACITY) {
 		cf_crash_nostack(AS_NAMESPACE, "Aerospike requires at least %lu Mb of memory per namespace", NS_MIN_MB);
 	}
 
