@@ -96,15 +96,13 @@ histogram_dump(histogram *h)
 	uint64_t total_count = 0;
 
 	for (b = 0; b < N_BUCKETS; b++) {
-		uint64_t count = counts[b];
-
-		if (count != 0) {
+		if (counts[b] != 0) {
 			if (i > b) {
 				i = b;
 			}
 
 			j = b;
-			total_count += count;
+			total_count += counts[b];
 		}
 	}
 
@@ -397,15 +395,13 @@ linear_histogram_dump(linear_histogram *h)
 	uint64_t total_count = 0;
 
 	for (b = 0; b < h->num_buckets; b++) {
-		uint64_t count = counts[b];
-
-		if (count != 0) {
+		if (counts[b] != 0) {
 			if (i > b) {
 				i = b;
 			}
 
 			j = b;
-			total_count += count;
+			total_count += counts[b];
 		}
 	}
 
@@ -420,11 +416,11 @@ linear_histogram_dump(linear_histogram *h)
 			h->bucket_width, total_count);
 
 	for ( ; i <= j; i++) {
-		if (h->counts[i] != 0) { // print only non-zero columns
+		if (counts[i] == 0) { // print only non-zero columns
 			continue;
 		}
 
-		int bytes = sprintf(buf + pos, " (%02d: %010zu) ", i, h->counts[i]);
+		int bytes = sprintf(buf + pos, " (%02d: %010zu) ", i, counts[i]);
 
 		if (bytes <= 0) {
 			cf_debug(AS_NSUP, "linear histogram dump error");

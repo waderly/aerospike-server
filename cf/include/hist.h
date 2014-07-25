@@ -30,8 +30,8 @@
 
 
 //==========================================================
-// Histogram with logarithmic buckets, used for all our
-// timing metrics.
+// Histogram with logarithmic buckets, used for all the
+// latency metrics.
 //
 
 #define N_BUCKETS 64
@@ -55,7 +55,8 @@ extern void histogram_insert_us_since(histogram *h, uint64_t start_ns);
 
 //==========================================================
 // Histogram with linear buckets, used by the eviction
-// algorithm, and for various statistics, e.g. record sizes.
+// algorithm, and for statistics such as the record storage
+// size histogram.
 //
 
 #define MAX_LINEAR_BUCKETS 100
