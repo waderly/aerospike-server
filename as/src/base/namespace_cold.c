@@ -83,7 +83,7 @@ as_mem_check()
 	}
 
 	if (capacity < MIN_STAGE_CAPACITY) {
-		cf_crash_nostack(AS_NAMESPACE, "Aerospike requires at least %lu Mb of memory per namespace", NS_MIN_MB);
+		cf_crash_nostack(AS_NAMESPACE, "server requires at least %luMb of memory per namespace", NS_MIN_MB);
 	}
 
 	if (capacity < MAX_STAGE_CAPACITY) {
