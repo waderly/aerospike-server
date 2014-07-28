@@ -282,6 +282,13 @@ extern void as_paxos_set_cluster_integrity(as_paxos *p, bool state);
 void as_paxos_dump(bool verbose);
 
 /*
+ * Get the Paxos succession list and log it to the given "cf_dyn_buf *".
+ * The first element of the list will become the Paxos principal.
+ * Returns 0 if successful, -1 otherwise.
+ */
+int as_paxos_get_succession_list(cf_dyn_buf *db);
+
+/*
  * Set the Paxos succession list from list of node IDs.
  * The first element of the list will become the Paxos principal.
  * Returns 0 if successful, -1 otherwise.

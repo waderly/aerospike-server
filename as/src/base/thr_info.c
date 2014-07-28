@@ -835,6 +835,26 @@ info_command_undun(char *name, char *params, cf_dyn_buf *db)
 }
 
 int
+info_command_get_sl(char *name, char *params, cf_dyn_buf *db)
+{
+	char *result = "error";
+
+	/*
+	 *  Get the Paxos Succession List:
+	 *
+	 *  Command Format:  "get-sl:"
+	 */
+
+	if (!as_paxos_get_succession_list(db)) {
+		result = "ok";
+	}
+
+	cf_dyn_buf_append_string(db, result);
+
+	return 0;
+}
+
+int
 info_command_set_sl(char *name, char *params, cf_dyn_buf *db)
 {
 	char nodes_str[AS_CLUSTER_SZ * 17];
@@ -6727,6 +6747,7 @@ as_info_init()
 	as_info_set_command("dump-wr", info_command_dump_wr, PRIV_LOGGING_CTRL);                  // Print debug information about transaction hash table to the log file.
 	as_info_set_command("dun", info_command_dun, PRIV_SERVICE_CTRL);                          // Instruct this server to ignore another node.
 	as_info_set_command("get-config", info_command_config_get, PRIV_NONE);                    // Returns running config for all or a particular context.
+	as_info_set_command("get-sl", info_command_get_sl, PRIV_LOGGING_CTRL);                    // Get the Paxos succession list.
 	as_info_set_command("hist-dump", info_command_hist_dump, PRIV_NONE);                      // Returns a histogram snapshot for a particular histogram.
 	as_info_set_command("hist-track-start", info_command_hist_track, PRIV_SERVICE_CTRL);      // Start or Restart histogram tracking.
 	as_info_set_command("hist-track-stop", info_command_hist_track, PRIV_SERVICE_CTRL);       // Stop histogram tracking.

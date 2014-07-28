@@ -3157,6 +3157,37 @@ as_paxos_dump(bool verbose)
 	}
 }
 
+/* as_paxos_get_succession_list
+ * Get the Paxos succession list and log it to the given "cf_dyn_buf *".
+ * The first element of the list will become the Paxos principal.
+ * Returns 0 if successful, -1 otherwise.
+ */
+int as_paxos_get_succession_list(cf_dyn_buf *db)
+{
+	as_paxos *p = g_config.paxos;
+	char hex_node_id[18];
+	bool need_comma = false;
+	char line[AS_CLUSTER_SZ * 17];
+	int pos = 0;
+
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		cf_node node = p->succession[i];
+
+		if ((cf_node) 0 == node)
+			continue;
+
+		snprintf(hex_node_id, 17 + (need_comma ? 1 : 0), "%s%"PRIx64"", (need_comma ? "," : ""), node);
+		pos += snprintf(&line[pos], 17 + (need_comma ? 1 : 0), "%s%"PRIx64"", (need_comma ? "," : ""), node);
+		cf_dyn_buf_append_string(db, hex_node_id);
+
+		need_comma = true;
+	}
+	cf_dyn_buf_append_string(db, "\n");
+	cf_info(AS_PAXOS, "Paxos Succession List: %s", line);
+
+	return 0;
+}
+
 /* as_paxos_set_succession_list
  * Set the Paxos succession list from list of node IDs.
  * The first element of the list will become the Paxos principal.
