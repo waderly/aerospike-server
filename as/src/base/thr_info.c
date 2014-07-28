@@ -835,6 +835,37 @@ info_command_undun(char *name, char *params, cf_dyn_buf *db)
 }
 
 int
+info_command_set_sl(char *name, char *params, cf_dyn_buf *db)
+{
+	char nodes_str[AS_CLUSTER_SZ * 17];
+	int  nodes_str_len = sizeof(nodes_str);
+	char *result = "error";
+
+	/*
+	 *  Set the Paxos Succession List:
+	 *
+	 *  Command Format:  "set-sl:nodes=<PrincipalNodeID>{,<NodeID>}*"
+	 *
+	 *  where <PrincipalNodeID> is to become the Paxos principal, and the <NodeID>s
+	 *  are the other members of the cluster.
+	 */
+	nodes_str[0] = '\0';
+	if (as_info_parameter_get(params, "nodes", nodes_str, &nodes_str_len)) {
+		cf_info(AS_INFO, "The \"%s:\" command requires a \"nodes\" list containing at least one node ID to be the new Paxos principal", name);
+		cf_dyn_buf_append_string(db, result);
+		return 0;
+	}
+
+	if (!as_paxos_set_succession_list(nodes_str, nodes_str_len)) {
+		result = "ok";
+	}
+
+	cf_dyn_buf_append_string(db, result);
+
+	return 0;
+}
+
+int
 info_command_snub(char *name, char *params, cf_dyn_buf *db)
 {
 	cf_debug(AS_INFO, "snub command received: params %s", params);
@@ -868,7 +899,7 @@ info_command_snub(char *name, char *params, cf_dyn_buf *db)
 		}
 	}
 
-	as_hb_snub( node , snub_time);
+	as_hb_snub(node , snub_time);
 	cf_info(AS_INFO, "snub command executed: params %s", params);
 
 	return(0);
@@ -897,12 +928,12 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 	}
 
 	int port = 0;
-	if (0 != cf_str_atoi(port_str, &port) ) {
+	if (0 != cf_str_atoi(port_str, &port)) {
 		cf_info(AS_INFO, "tip command: port must be an integer, is: %s", port_str);
 		return(0);
 	}
 
-	as_hb_tip( host_str, port);
+	as_hb_tip(host_str, port);
 	cf_info(AS_INFO, "tip command executed: params %s", params);
 
 	return(0);
@@ -913,7 +944,7 @@ info_command_tip_clear(char *name, char *params, cf_dyn_buf *db)
 {
 	cf_debug(AS_INFO, "tip clear command received: params %s", params);
 
-	as_hb_tip_clear( );
+	as_hb_tip_clear();
 
 	cf_info(AS_INFO, "tip clear command executed: params %s", params);
 
@@ -1008,6 +1039,35 @@ info_command_dump_fabric(char *name, char *params, cf_dyn_buf *db)
 		}
 	}
 	as_fabric_dump(verbose);
+	cf_dyn_buf_append_string(db, "ok");
+	return(0);
+}
+
+int
+info_command_dump_hb(char *name, char *params, cf_dyn_buf *db)
+{
+	bool verbose = false;
+	char param_str[100];
+	int param_str_len = sizeof(param_str);
+
+	/*
+	 *  Command Format:  "dump-hb:{verbose=<opt>}" [the "verbose" argument is optional]
+	 *
+	 *  where <opt> is one of:  {"true" | "false"} and defaults to "false".
+	 */
+	param_str[0] = '\0';
+	if (!as_info_parameter_get(params, "verbose", param_str, &param_str_len)) {
+		if (!strncmp(param_str, "true", 5)) {
+			verbose = true;
+		} else if (!strncmp(param_str, "false", 6)) {
+			verbose = false;
+		} else {
+			cf_warning(AS_INFO, "The \"%s:\" command argument \"verbose\" value must be one of {\"true\", \"false\"}, not \"%s\"", name, param_str);
+			cf_dyn_buf_append_string(db, "error");
+			return 0;
+		}
+	}
+	as_hb_dump(verbose);
 	cf_dyn_buf_append_string(db, "ok");
 	return(0);
 }
@@ -4414,12 +4474,14 @@ info_debug_ticker_fn(void *gcc_is_ass)
 					cf_atomic_int_get(g_config.err_sync_copy_null_master)
 					);
 
-			cf_info(AS_INFO, "   trans_in_progress: wr %d prox %d wait %d ::: q %d ::: bq %d ::: iq %d ::: dq %d : fds - proto (%d, %"PRIu64", %"PRIu64") : hb %d : fab %d",
+			cf_info(AS_INFO, "   trans_in_progress: wr %d prox %d wait %d ::: q %d ::: bq %d ::: iq %d ::: dq %d : fds - proto (%d, %"PRIu64", %"PRIu64") : hb (%d, %"PRIu64", %"PRIu64") : fab (%d, %"PRIu64", %"PRIu64")",
 					as_write_inprogress(), as_proxy_inprogress(), g_config.n_waiting_transactions, thr_tsvc_queue_get_size(), as_batch_queue_size(), as_info_queue_get_size(), as_nsup_queue_get_size(),
 					g_config.proto_connections_opened - g_config.proto_connections_closed,
 					g_config.proto_connections_opened, g_config.proto_connections_closed,
 					g_config.heartbeat_connections_opened - g_config.heartbeat_connections_closed,
-					g_config.fabric_connections_opened - g_config.fabric_connections_closed
+					g_config.heartbeat_connections_opened, g_config.heartbeat_connections_closed,
+					g_config.fabric_connections_opened - g_config.fabric_connections_closed,
+					g_config.fabric_connections_opened, g_config.fabric_connections_closed
 					);
 
 			cf_info(AS_INFO, "   heartbeat_received: self %lu : foreign %lu", g_config.heartbeat_received_self, g_config.heartbeat_received_foreign);
@@ -4650,6 +4712,9 @@ info_debug_ticker_fn(void *gcc_is_ass)
 			if (g_config.fabric_dump_msgs) {
 				as_fabric_msg_queue_dump();
 			}
+
+			as_hb_log_errors();
+
 		}
 
 	} while(1);
@@ -6596,12 +6661,12 @@ as_info_init()
 	}
 
 	// All commands accepted by asinfo/telnet
-	as_info_set("help", "build;bins;config-get;config-set;digests;dump-fabric;"
-				"dump-migrates;dump-msgs;dump-paxos;dump-smd;dump-wb;"
-				"dump-wb-summary;dump-wr;dun;get-config;hist-dump;"
-				"hist-track-start;hist-track-stop;jobs;latency;log;log-set;"
+	as_info_set("help", "alloc-info;asm;build;bins;config-get;config-set;digests;"
+				"dump-fabric;dump-hb;dump-migrates;dump-msgs;dump-paxos;dump-smd;"
+				"dump-wb;dump-wb-summary;dump-wr;dun;get-config;hist-dump;"
+				"hist-track-start;hist-track-stop;jem-stats;jobs;latency;log;log-set;"
 				"logs;mcast;mem;mesh;mstats;mtrace;name;namespace;namespaces;"
-				"node;service;services;services-alumni;set-config;set-log;sets;"
+				"node;service;services;services-alumni;set-config;set-log;sets;set-sl;"
 				"show-devices;sindex;sindex-create;sindex-delete;sindex-dump;"
 				"sindex-histogram;sindex-qnodemap;sindex-repair;"
 				"smd;snub;statistics;status;tip;tip-clear;undun;version;"
@@ -6609,7 +6674,7 @@ as_info_init()
 				false);
 	/*
 	 * help intentionally does not include the following:
-	 * alloc-info;asm;cluster-generation;features;jem-stats;objects;
+	 * cluster-generation;features;objects;
 	 * partition-generation;partition-info;partitions;replicas-master;
 	 * replicas-prole;replicas-read;replicas-write;throughput
 	 */
@@ -6645,16 +6710,18 @@ as_info_init()
 	as_info_set_tree("namespace", info_get_tree_namespace); // Returns health and usage stats for a particular namespace.
 	as_info_set_tree("sets", info_get_tree_sets);           // Returns set statistics for all or a particular set.
 
-	// set up the first command
+	// Define commands
 	as_info_set_command("alloc-info", info_command_alloc_info, PRIV_NONE);                    // Lookup a memory allocation by program location.
 	as_info_set_command("asm", info_command_asm, PRIV_SERVICE_CTRL);                          // Control the operation of the ASMalloc library.
 	as_info_set_command("config-get", info_command_config_get, PRIV_NONE);                    // Returns running config for specified context.
 	as_info_set_command("config-set", info_command_config_set, PRIV_SET_CONFIG);              // Set a configuration parameter at run time, configuration parameter must be dynamic.
 	as_info_set_command("dump-fabric", info_command_dump_fabric, PRIV_LOGGING_CTRL);          // Print debug information about fabric to the log file.
+	as_info_set_command("dump-hb", info_command_dump_hb, PRIV_LOGGING_CTRL);                  // Print debug information about heartbeat state to the log file.
 	as_info_set_command("dump-migrates", info_command_dump_migrates, PRIV_LOGGING_CTRL);      // Print debug information about migration.
 	as_info_set_command("dump-msgs", info_command_dump_msgs, PRIV_LOGGING_CTRL);              // Print debug information about existing 'msg' objects and queues to the log file.
-	as_info_set_command("dump-paxos", info_command_dump_paxos, PRIV_LOGGING_CTRL);            // Print debug information about Paxos stat to the log file.
+	as_info_set_command("dump-paxos", info_command_dump_paxos, PRIV_LOGGING_CTRL);            // Print debug information about Paxos state to the log file.
 	as_info_set_command("dump-ra", info_command_dump_ra, PRIV_LOGGING_CTRL);                  // Print debug information about Rack Aware state.
+	as_info_set_command("dump-smd", info_command_dump_smd, PRIV_LOGGING_CTRL);                // Print information about System Metadata (SMD) to the log file.
 	as_info_set_command("dump-wb", info_command_dump_wb, PRIV_LOGGING_CTRL);                  // Print debug information about Write Bocks (WB) to the log file.
 	as_info_set_command("dump-wb-summary", info_command_dump_wb_summary, PRIV_LOGGING_CTRL);  // Print summary information about all Write Blocks (WB) on a device to the log file.
 	as_info_set_command("dump-wr", info_command_dump_wr, PRIV_LOGGING_CTRL);                  // Print debug information about transaction hash table to the log file.
@@ -6671,7 +6738,9 @@ as_info_init()
 	as_info_set_command("mtrace", info_command_mtrace, PRIV_SERVICE_CTRL);                    // Control GLibC-level memory tracing.
 	as_info_set_command("set-config", info_command_config_set, PRIV_SET_CONFIG);              // Set config values.
 	as_info_set_command("set-log", info_command_log_set, PRIV_LOGGING_CTRL);                  // Set values in the log system.
+	as_info_set_command("set-sl", info_command_set_sl, PRIV_LOGGING_CTRL);                    // Set the Paxos succession list.
 	as_info_set_command("show-devices", info_command_show_devices, PRIV_LOGGING_CTRL);        // Print snapshot of wblocks to the log file.
+	as_info_set_command("smd", info_command_smd_cmd, PRIV_SERVICE_CTRL);                      // Manipulate the System Metadata.
 	as_info_set_command("snub", info_command_snub, PRIV_SERVICE_CTRL);                        // Ignore heartbeats from a node for a specified amount of time.
 	as_info_set_command("throughput", info_command_hist_track, PRIV_NONE);                    // Returns throughput info.
 	as_info_set_command("tip", info_command_tip, PRIV_SERVICE_CTRL);                          // Add external IP to mesh-mode heartbeats.
@@ -6695,12 +6764,10 @@ as_info_init()
 	as_info_set_command("jobs", info_command_mon_cmd, PRIV_SERVICE_CTRL);  // Manipulate the multi-key lookup monitoring infrastructure.
 
 	// Undocumented Secondary Index Command
-	as_info_set_command("dump-smd", info_command_dump_smd, PRIV_LOGGING_CTRL);        // Print information about System Meta Data (SMD) to the log file.
 	as_info_set_command("sindex-histogram", info_command_sindex_histogram, PRIV_SERVICE_CTRL);
 	as_info_set_command("sindex-repair", info_command_sindex_repair, PRIV_SERVICE_CTRL);
 	as_info_set_command("sindex-dump", info_command_sindex_dump, PRIV_SERVICE_CTRL);  // Dumps to a file, not log.
 	as_info_set_command("sindex-qnodemap", info_command_sindex_qnodemap, PRIV_NONE);
-	as_info_set_command("smd", info_command_smd_cmd, PRIV_SERVICE_CTRL);              // Manipulate the System Meta data.
 
 	as_info_set_dynamic("query-list", as_query_list, false);
 	as_info_set_command("query-kill", info_command_query_kill, PRIV_SERVICE_CTRL);

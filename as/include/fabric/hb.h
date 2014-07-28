@@ -76,3 +76,25 @@ extern int as_hb_tip_clear();
 
 // Set the heartbeat protocol version.
 extern int as_hb_set_protocol(hb_protocol_enum protocol);
+
+/*
+ *  as_hb_nodes_str_to_cf_nodes
+ *  Parse a string of comma-separated hexadecimal node IDs into a list
+ *  If successful, return the parsed, 64-bit numeric node IDs is the caller-supplied
+ *  "nodes" array, which must be at least "AS_CLUSTER_SZ" in length.
+ *  Return the number of nodes in "num_nodes" (if non-NULL.)
+ *  Return 0 if successful, -1 otherwise.
+ */
+int as_hb_nodes_str_to_cf_nodes(char *nodes_str, int nodes_str_len, cf_node *nodes, int *num_nodes);
+
+/*
+ *  as_hb_log_error
+ *  Log the number of heartbeat-related errors of each type.
+ */
+void as_hb_log_errors();
+
+/*
+ *  as_dump_hb
+ *  Log the state of the heartbeat module.
+ */
+void as_hb_dump(bool verbose);

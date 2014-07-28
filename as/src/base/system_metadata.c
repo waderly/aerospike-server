@@ -1738,7 +1738,7 @@ static as_smd_module_t *as_smd_module_get(as_smd_t *smd, as_smd_item_t *item, as
 		cf_debug(AS_SMD, "asmg():  Name of module from item_list: \"%s\"", module_name);
 	} else {
 		// If the message, item, and item_list are NULL, we cannot do anything.
-		cf_warning(AS_SMD, "asmg():  No module name found!");
+		cf_debug(AS_SMD, "asmg():  No module name found!");
 		return NULL;
 	}
 

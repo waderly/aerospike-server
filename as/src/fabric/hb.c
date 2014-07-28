@@ -36,6 +36,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <sys/param.h>  // For MAX().
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
@@ -56,11 +57,29 @@
 
 
 /* SYNOPSIS
- * Heartbeats
- *
- * Ought to write this....
+ * Heartbeat Module:
+ * System for detecting arrival and departure of cluster nodes and
+ * maintaining a node's presence in a cluster via sending periodic
+ * network messages to all other known nodes.
+ * Heartbeat transport modes are: 1). Multicast (UDP) and 2). Mesh (TCP.)
  */
-#define EPOLL_SZ	1024
+
+
+/*
+ *  If defined, log verbosely.
+ */
+//#define VERBOSE 1
+
+/*
+ *  If defined, certain error conditions will cause a "cf_crash()".
+ */
+#define FAIL_FAST 1
+
+/*
+ *  Size of the epoll descriptor events set.
+ */
+#define EPOLL_SZ (1024)
+
 // Workaround for platforms that don't have EPOLLRDHUP yet
 #ifndef EPOLLRDHUP
 #define EPOLLRDHUP EPOLLHUP
@@ -90,19 +109,23 @@
  * Return the size of an as_hb_pulse structure relative to the current maximum cluster size. */
 #define AS_HB_PULSE_SIZE() (sizeof(as_hb_pulse) + sizeof(cf_node) * g_config.paxos_max_cluster_size)
 
+/*
+ * AS_HB_MIN_INTERVAL
+ * Minimum allowable heartbeat interval in milliseconds. */
+#define AS_HB_MIN_INTERVAL (4)
+
 typedef struct {
-	cf_node 	node;
+	cf_node     node;
 	cf_clock    expiration;
 } snub_list_element;
 
-
 typedef struct mesh_host_list_element_s {
 	struct mesh_host_list_element_s *next;
-	char		host[128];
-	int 		port;
-	cf_clock	next_try;
-	int			try_interval;
-	int			fd;     // -1 if inactive, allows nodes to come and go and be retried
+	char        host[128];
+	int         port;
+	cf_clock    next_try;
+	int         try_interval;
+	int         fd;     // -1 if inactive, allows nodes to come and go and be retried
 } mesh_host_list_element;
 
 #define MH_OP_REMOVE_ALL 1
@@ -110,10 +133,10 @@ typedef struct mesh_host_list_element_s {
 #define MH_OP_REMOVE_FD  3
 
 typedef struct mesh_host_queue_element_s {
-	int			op;
-	char		host[128];
-	int			port;
-	int			remove_fd;
+	int         op;
+	char        host[128];
+	int         port;
+	int         remove_fd;
 } mesh_host_queue_element;
 
 /* as_hb
@@ -142,11 +165,11 @@ typedef struct as_hb_s {
 	void *cb_udata[AS_HB_MAX_CALLBACKS];
 
 	/* snub list + lock */
-	pthread_mutex_t   snub_lock;
-	snub_list_element	*snub_list; // array with 0 node terminating
+	pthread_mutex_t snub_lock;
+	snub_list_element *snub_list; // array with 0 node terminating
 
 	/* mesh host list + insert/delete queue */
-	mesh_host_list_element	*mesh_host_list; // single linked list with null terminate
+	mesh_host_list_element *mesh_host_list; // single linked list with null terminate
 	cf_queue *mesh_host_queue;
 
 } as_hb;
@@ -191,31 +214,31 @@ static const msg_template as_hb_msg_template[] = {
  */
 typedef struct {
 	uint64_t last;
-	cf_sockaddr socket;  		// if mcast, the socket we heard about the node
-	uint32_t addr, port; 		// if mesh, filled with the address and port
-	int fd;              		// last fd we heard a pulse from, so as to avoid multiple fds between nodes
-	bool new;            		// note if this is a new node
-	bool updated;				// used by paxos and fabric health to detect when a node has just been dunned or undunned
-	bool dunned;				// if true, node is "dunned". this will remove it from the paxos succession list, but not from the fabric's node list.
-	uint64_t last_detected;		// use this for detecting nodes repeatedly until they are truly joined with the cluster
-	cf_node principal;			// store the principal of the succession list that came with the pulse for this node
-	cf_node anv[];				// store the succession list that came with the pulse for this node
+	cf_sockaddr socket;         // if mcast, the socket we heard about the node
+	uint32_t addr, port;        // if mesh, filled with the address and port
+	int fd;                     // last fd we heard a pulse from, so as to avoid multiple fds between nodes
+	bool new;                   // note if this is a new node
+	bool updated;               // used by paxos and fabric health to detect when a node has just been dunned or undunned
+	bool dunned;                // if true, node is "dunned". this will remove it from the paxos succession list, but not from the fabric's node list.
+	uint64_t last_detected;     // use this for detecting nodes repeatedly until they are truly joined with the cluster
+	cf_node principal;          // store the principal of the succession list that came with the pulse for this node
+	cf_node anv[];              // store the succession list that came with the pulse for this node
 } as_hb_pulse;
 
 
 /* as_hb_monitor_reduce_udata
  * */
 typedef struct {
-	uint n_delete;
-	cf_node delete[AS_CLUSTER_SZ];
-	uint n_insert;
-	cf_node insert[AS_CLUSTER_SZ];
-	cf_node insert_p_node[AS_CLUSTER_SZ];
-	uint n_dun;
-	cf_node dun[AS_CLUSTER_SZ];
-	uint n_undun;
-	cf_node undun[AS_CLUSTER_SZ];
-	cf_node undun_p_node[AS_CLUSTER_SZ];
+	uint      n_delete;
+	cf_node   delete[AS_CLUSTER_SZ];
+	uint      n_insert;
+	cf_node   insert[AS_CLUSTER_SZ];
+	cf_node   insert_p_node[AS_CLUSTER_SZ];
+	uint      n_dun;
+	cf_node   dun[AS_CLUSTER_SZ];
+	uint      n_undun;
+	cf_node   undun[AS_CLUSTER_SZ];
+	cf_node   undun_p_node[AS_CLUSTER_SZ];
 } as_hb_monitor_reduce_udata;
 
 
@@ -227,6 +250,95 @@ static void as_hb_init_socket();
 static void as_hb_reinit(int socket, bool isudp);
 static int as_hb_endpoint_add(int socket, bool isudp);
 
+typedef enum as_hb_err_type_e
+{
+	AS_HB_ERR_BAD_TYPE = 0,
+	AS_HB_ERR_BAD_PULSE_FD,
+	AS_HB_ERR_NO_TYPE,
+	AS_HB_ERR_NO_ID,
+	AS_HB_ERR_NO_NODE_PULSE,
+	AS_HB_ERR_NO_NODE_REQ,
+	AS_HB_ERR_NO_ANV_LENGTH,
+	AS_HB_ERR_SENDTO_FAIL_1,
+	AS_HB_ERR_SENDTO_FAIL_2,
+	AS_HB_ERR_SENDTO_FAIL_3,
+	AS_HB_ERR_SENDTO_FAIL_4,
+	AS_HB_ERR_SENDTO_FAIL_5,
+	AS_HB_ERR_SENDTO_FAIL_6,
+	AS_HB_ERR_MISSING_FIELD,
+	AS_HB_ERR_EXPIRE_HB,
+	AS_HB_ERR_EXPIRE_FAB_DEAD,
+	AS_HB_ERR_EXPIRE_FAB_ALIVE,
+	AS_HB_ERR_UNPARSABLE_MSG,
+	AS_HB_ERR_MAX_TYPE
+} as_hb_err_type;
+
+// NOTE:  Must match the number and order of "as_hb_err_type".
+static char *as_hb_error_msg[AS_HB_ERR_MAX_TYPE] =
+{
+	"bad type",
+	"bad pulse fd",
+	"no type",
+	"no id",
+	"no node in pulse",
+	"no node in info request",
+	"no anv length",
+	"sendto fail 1",
+	"sendto fail 2",
+	"sendto fail 3",
+	"sendto fail 4",
+	"sendto fail 5",
+	"sendto fail 6",
+	"missing required field",
+	"expire hb",
+	"expire fab dead",
+	"expire fab alive",
+	"unparsable msg"
+};
+
+static uint64_t as_hb_error_count[AS_HB_ERR_MAX_TYPE] = { 0 };
+
+// Maxiumum line length.
+#define MAX_LINE_LEN  (512)
+
+/*
+ *  as_hb_error
+ *  Report a heartbeat-related error of the given type.
+ */
+static void
+as_hb_error(as_hb_err_type type)
+{
+	if ((0 <= type) && (type <= AS_HB_ERR_MAX_TYPE)) {
+		as_hb_error_count[type]++;
+	}
+}
+
+/*
+ *  Control HB Error Log Spew:
+ *    0 means aggregate HB error log messages as counts.
+ *    1 means print (spewing) original log messages.
+ */
+#define HB_LOG_SPEW 0
+
+/*
+ *  as_hb_log_error
+ *  Log the number of heartbeat-related errors of each type.
+ */
+void
+as_hb_log_errors()
+{
+	char line[MAX_LINE_LEN], msg[MAX_LINE_LEN];
+	int pos = 0;
+	line[pos] = '\0';
+
+	for (int i = 0; i < AS_HB_ERR_MAX_TYPE; i++) {
+		msg[0] = '\0';
+		snprintf(msg, sizeof(msg), "%s = %lu ; ", as_hb_error_msg[i], as_hb_error_count[i]);
+		strncat(line, msg, sizeof(line) - pos);
+	}
+
+	cf_warning(AS_HB, "HB Error Stats: %s", line);
+}
 
 /* as_hb_register
  * Register a heartbeat callback */
@@ -244,7 +356,6 @@ as_hb_register(as_hb_event_fn cb, void *udata)
 
 	return(0);
 }
-
 
 /* as_hb_getaddr
  * Get the socket address for a node - stashed in the adjacency hash */
@@ -293,7 +404,7 @@ as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_
 	if (!(a_p_pulse = (as_hb_pulse *) alloca(AS_HB_PULSE_SIZE())))
 		cf_crash(AS_HB, "failed to alloca() a heartbeat pulse of size %d", AS_HB_PULSE_SIZE());
 
-	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.adjacencies, &node, (void **)&p_pulse, &vlock)) {
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.adjacencies, &node, (void **) &p_pulse, &vlock)) {
 		p_pulse = a_p_pulse;
 		memset(p_pulse, 0, AS_HB_PULSE_SIZE());
 		vlock = 0;
@@ -301,9 +412,11 @@ as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_
 	}
 
 	p_pulse->last = cf_getms();
-	cf_debug(AS_HB, "HB fabric (%"PRIx64"+%"PRIu64")", node, p_pulse->last);
+	// DEBUG -- ***PSI***  20-Jul-2014
+	cf_info(AS_HB, "HB fabric (%"PRIx64"+%"PRIu64"): addr %08x port %d", node, p_pulse->last, addr, port);
 
-	p_pulse->fd = fd;
+	// Mark Fabric-initiated heartbeat connections with a negative FD.  ***PSI***  20-Jul-2014
+	p_pulse->fd = - fd;
 
 	memset(&p_pulse->socket, 0, sizeof(cf_sockaddr));
 
@@ -320,13 +433,11 @@ as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_
 
 	if (vlock) {
 		pthread_mutex_unlock(vlock);
-	}
-	else {
+	} else {
 		int rv = shash_put_unique(g_hb.adjacencies, &node, p_pulse);
 		if (rv == SHASH_ERR_FOUND) {
 			as_hb_process_fabric_heartbeat(node, fd, socket, addr, port, buf, bufsz);
-		}
-		else if (rv != 0) {
+		} else if (rv != 0) {
 			cf_warning(AS_FABRIC, "unable to update adjacencies hash");
 		}
 	}
@@ -369,11 +480,10 @@ as_hb_set_is_node_dunned(cf_node node, bool is_dunned, char *context)
 	as_hb_pulse *p_pulse;
 	pthread_mutex_t *vlock;
 
-	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.adjacencies, &node, (void **)&p_pulse, &vlock)) {
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.adjacencies, &node, (void **) &p_pulse, &vlock)) {
 		if (is_dunned) {
 			cf_info(AS_HB, "could not dun node - node not found in node list");
-		}
-		else {
+		} else {
 			cf_info(AS_HB, "could not undun node - node not found in node list");
 		}
 
@@ -383,8 +493,7 @@ as_hb_set_is_node_dunned(cf_node node, bool is_dunned, char *context)
 	if (! p_pulse->new && p_pulse->dunned != is_dunned) {
 		if (is_dunned) {
 			cf_info(AS_HB, "%s dunning node %"PRIx64, context, node);
-		}
-		else {
+		} else {
 			cf_info(AS_HB, "%s un-dunning node %"PRIx64, context, node);
 		}
 
@@ -405,9 +514,10 @@ typedef struct {
 	cf_dyn_buf *db;
 } nodes_to_dun_udata;
 
-int get_nodes_to_dun(void *key, void *data, void *udata) {
-	cf_node *node = (cf_node *)key;
-	cf_node *node_list = (cf_node *)udata;
+static int
+get_nodes_to_dun(void *key, void *data, void *udata) {
+	cf_node *node = (cf_node *) key;
+	cf_node *node_list = (cf_node *) udata;
 
 	int i;
 	for (i = 0; node_list[i] != 0 && i < g_config.paxos_max_cluster_size; i++) {
@@ -420,7 +530,7 @@ int get_nodes_to_dun(void *key, void *data, void *udata) {
 		return (0);
 	}
 
-	nodes_to_dun_udata *u = (nodes_to_dun_udata *)udata;
+	nodes_to_dun_udata *u = (nodes_to_dun_udata *) udata;
 	u->nodes_to_dun[u->n_nodes] = *node;
 
 	if (u->n_nodes) {
@@ -433,40 +543,73 @@ int get_nodes_to_dun(void *key, void *data, void *udata) {
 	return (0);
 }
 
+/*
+ *  as_hb_nodes_str_to_cf_nodes
+ *  Parse a string of comma-separated hexadecimal node IDs into a list
+ *  If successful, return the parsed, 64-bit numeric node IDs is the caller-supplied
+ *  "nodes" array, which must be at least "AS_CLUSTER_SZ" in length.
+ *  Return the number of nodes in "num_nodes" (if non-NULL.)
+ *  Return 0 if successful, -1 otherwise.
+ */
 int
-as_hb_set_are_nodes_dunned(char *nodes_str, int nodes_str_len, bool is_dunned)
+as_hb_nodes_str_to_cf_nodes(char *nodes_str, int nodes_str_len, cf_node *nodes, int *num_nodes)
 {
 	char *next_node = nodes_str, c;
-	cf_node nodes[AS_CLUSTER_SZ];
-	bool self_in_list = false;
 	int n;
 
-	for (n = 0; nodes_str_len > 0; n++) {
-
+	for (n = 0; (nodes_str_len > 0) && (n < AS_CLUSTER_SZ - 1); n++) {
 		int len = 0;
 		while ('\0' != (c = next_node[len]) && isxdigit(c) && (len++ < 16))
 			;
 
 		if ('\0' != c) {
 			if ((',' != c) || (0 == len)) {
-				cf_info(AS_HB, "%sdun command: not a valid format, must be a comma-separated list of 64-bit hex numbers", (is_dunned ? "" : "un"));
-				return(-1);
+				cf_info(CF_MISC, "node list not a valid format, must be a comma-separated list of 64-bit hex numbers");
+				return -1;
 			} else
 				next_node[len++] = '\0';
 		}
 
 		if (0 != cf_str_atoi_u64_x(next_node, &nodes[n], 16)) {
-			cf_info(AS_HB, "%sdun command: not a valid format, expected 64-bit hex number, found %s", next_node, (is_dunned ? "" : "un"));
-			return(-1);
+			cf_info(CF_MISC, "node list not a valid format, expected 64-bit hex number, found %s", next_node);
+			return -1;
 		} else {
 			nodes_str_len -= len;
 			if (nodes_str_len > 0)
 				next_node[len - 1] = ',';
 			next_node += len;
 		}
+	}
 
-		if (nodes[n] == g_config.self_node)
+	// Terminate the list.
+	// Note: Maximum list length is AS_CLUSTER_SZ - 1.
+	nodes[n + 1] = 0;
+
+	if (num_nodes) {
+		*num_nodes = n;
+	}
+
+	return 0;
+}
+
+int
+as_hb_set_are_nodes_dunned(char *nodes_str, int nodes_str_len, bool is_dunned)
+{
+	cf_node nodes[AS_CLUSTER_SZ];
+	int num_nodes = 0;
+
+	if (as_hb_nodes_str_to_cf_nodes(nodes_str, nodes_str_len, nodes, &num_nodes)) {
+		cf_warning(AS_HB, "%sdun command: failed to parse node list string (\"%s\") to nodes", (is_dunned ? "" : "un"), nodes_str);
+		return -1;
+	}
+
+	cf_node *nodes_p = nodes;
+	bool self_in_list = false;
+	while (*nodes_p) {
+		if (*nodes_p++ == g_config.self_node) {
 			self_in_list = true;
+			break;
+		}
 	}
 
 	if (self_in_list) {
@@ -479,7 +622,7 @@ as_hb_set_are_nodes_dunned(char *nodes_str, int nodes_str_len, bool is_dunned)
 
 		if (!g_hb.adjacencies) {
 			cf_warning(AS_HB, "no adjacencies list ~~ not (un)dunning nodes");
-			return(-1);
+			return -1;
 		}
 
 		shash_reduce(g_hb.adjacencies, get_nodes_to_dun, &u);
@@ -495,16 +638,16 @@ as_hb_set_are_nodes_dunned(char *nodes_str, int nodes_str_len, bool is_dunned)
 		} else
 			cf_info(AS_HB, "[self in list] no nodes to %sdun", (is_dunned ? "" : "un-"), nodes_str);
 	} else {
-		if (n > 0) {
+		if (num_nodes > 0) {
 			cf_info(AS_HB, "%sdunning nodes: %s", (is_dunned ? "" : "un-"), nodes_str);
 
-			for (int i = 0; i < n; i++)
+			for (int i = 0; i < num_nodes; i++)
 				as_hb_set_is_node_dunned(nodes[i], is_dunned, "info command");
 		} else
 			cf_info(AS_HB, "no nodes to %sdun", (is_dunned ? "" : "un-"), nodes_str);
 	}
 
-	return (0);
+	return 0;
 }
 
 int
@@ -540,7 +683,9 @@ as_hb_snub_remove(int i)
 	// find length
 	snub_list_element *e = g_hb.snub_list;
 	int ll = 0;
-	while ( e[ll].node ) ll++;
+	while (e[ll].node) {
+		ll++;
+	}
 
 	// validate length
 	if (i >= ll) {
@@ -562,7 +707,7 @@ as_hb_snub_remove(int i)
 	// this looks a little weird but is right. ll is the length minus 1 (not including
 	// the null element), but you need to copy down the null element
 	cf_detail(AS_HB, " snub size: ll %d i %d", ll, i);
-	memmove(&e[i], &e[i + 1], sizeof(snub_list_element) * ((ll + 1) - i) );
+	memmove(&e[i], &e[i + 1], sizeof(snub_list_element) * ((ll + 1) - i));
 	g_hb.snub_list = cf_realloc(e, sizeof(snub_list_element) * ll);
 
 }
@@ -571,7 +716,9 @@ bool
 as_hb_is_snubbed(cf_node node)
 {
 	// quick cut-through for 99% of cases
-	if (g_hb.snub_list == 0)	return(false);
+	if (g_hb.snub_list == 0) {
+		return(false);
+	}
 
 	bool rv = false;
 
@@ -584,7 +731,7 @@ as_hb_is_snubbed(cf_node node)
 			// side effect of snub-remove is possibly freeing the list,
 			// so don't touch e after removal
 			if (e[i].expiration < cf_getms()) {
-				as_hb_snub_remove( i );
+				as_hb_snub_remove(i);
 				goto Out;
 			}
 			rv = true;
@@ -612,27 +759,25 @@ as_hb_snub(cf_node node, cf_clock ms)
 
 		snub_list_element *l = g_hb.snub_list;
 
-		if ( l == 0) {
-			l = g_hb.snub_list = cf_malloc( sizeof( snub_list_element ) * 2 );
+		if (l == 0) {
+			l = g_hb.snub_list = cf_malloc(sizeof(snub_list_element) * 2);
 			l[0].node = node;
 			l[0].expiration = ms + cf_getms();
 			l[1].node = 0;
 			l[1].expiration = 0;
 
 			cf_detail(AS_HB, "snub : added first node %"PRIx64" for %"PRIu64" ms", node, ms);
-
-		}
-		else {
+		} else {
 			// check dups + find length
 			int ll = 0;
-			while ( l[ll].node ) {
+			while (l[ll].node) {
 				if (l[ll].node == node) {
 					l[ll].expiration = ms + cf_getms();
 					goto Out;
 				}
 				ll++;
 			}
-			l = g_hb.snub_list = cf_realloc( g_hb.snub_list, sizeof(snub_list_element) * (ll + 2) );
+			l = g_hb.snub_list = cf_realloc(g_hb.snub_list, sizeof(snub_list_element) * (ll + 2));
 			l[ll].node = node;
 			l[ll].expiration = ms + cf_getms();
 			l[ll + 1].node = 0;
@@ -640,9 +785,7 @@ as_hb_snub(cf_node node, cf_clock ms)
 			cf_detail(AS_HB, "snub : added node %"PRIx64" for %"PRIu64" ms", node, ms);
 			goto Out;
 		}
-	}
-	// removing from list
-	else {
+	} else { // removing from list
 		for (int i = 0; l[i].node; i++) {
 			if (l[i].node == node) {
 				as_hb_snub_remove(i);
@@ -677,7 +820,7 @@ Out:
 #define MESH_RETRY_INTERVAL (2 * 1000)
 
 void *
-mesh_list_service_fn(void *arg )
+mesh_list_service_fn(void *arg)
 {
 	cf_debug(AS_HB, "starting mesh list service");
 
@@ -689,29 +832,33 @@ mesh_list_service_fn(void *arg )
 
 		// Get all elements off work queue and do them
 		mesh_host_queue_element mhqe;
-		while (CF_QUEUE_OK == cf_queue_pop( g_hb.mesh_host_queue, &mhqe, CF_QUEUE_NOWAIT) ) {
+		while (CF_QUEUE_OK == cf_queue_pop(g_hb.mesh_host_queue, &mhqe, CF_QUEUE_NOWAIT)) {
 
 			if (mhqe.op == MH_OP_REMOVE_ALL) {
-				while ( g_hb.mesh_host_list ) {
+
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "removing all hosts from mesh list");
+
+				while (g_hb.mesh_host_list) {
 					e = g_hb.mesh_host_list;
 					g_hb.mesh_host_list = e->next;
 					if (e->fd) shutdown(e->fd, SHUT_RDWR);
 					cf_free(e);
 				}
-			}
-			else if (mhqe.op == MH_OP_ADD) {
+			} else if (mhqe.op == MH_OP_ADD) {
 
 				// check uniqueness
 				e = g_hb.mesh_host_list;
 				while (e) {
-					if ( (0 == strcmp(mhqe.host, e->host)) && (mhqe.port == e->port)) {
+					if ((0 == strcmp(mhqe.host, e->host)) && (mhqe.port == e->port)) {
 						cf_debug(AS_HB, "attempt to add duplicate host to mesh host list, ignored");
 						goto NextQueueElement;
 					}
 					e = e->next;
 				}
 
-				cf_debug(AS_HB, "adding %s:%d to mesh host list", mhqe.host, mhqe.port);
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "adding %s:%d to mesh host list", mhqe.host, mhqe.port);
 
 				// add to list
 				e = cf_malloc(sizeof(mesh_host_list_element));
@@ -721,18 +868,28 @@ mesh_list_service_fn(void *arg )
 				strcpy(e->host, mhqe.host);
 				e->port = mhqe.port;
 				e->fd = -1;
-			}
-			else if (mhqe.op == MH_OP_REMOVE_FD) {
+			} else if (mhqe.op == MH_OP_REMOVE_FD) {
+
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "removing fd %d from mesh host list", mhqe.remove_fd);
+
 				e = g_hb.mesh_host_list;
 				while (e) {
-					if ( e->fd == mhqe.remove_fd ) {
+					if (e->fd == mhqe.remove_fd) {
+
+						// DEBUG -- ***PSI***  17-Jul-2014
+						cf_info(AS_HB, "actually removing fd %d",  mhqe.remove_fd);
+
 						e->fd = -1;
 						goto NextQueueElement;
 					}
 					e = e->next;
 				}
-			}
-			else {
+
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "did NOT find fd %d in mesh host list",  mhqe.remove_fd);
+
+			} else {
 				cf_warning(AS_HB, "recieved bad op service queue message: %d internal error", mhqe.op);
 			}
 
@@ -744,7 +901,10 @@ NextQueueElement:
 		// Try any connections that might be a good idea
 
 		e = g_hb.mesh_host_list;
-		if (e) cf_debug(AS_HB, "mesh list service: attempting connections");
+		if (e) {
+			// DEBUG -- ***PSI***  17-Jul-2014
+			cf_debug(AS_HB, "mesh list service: attempting connections");
+		}
 		while (e) {
 			if (e->fd == -1) {
 
@@ -754,15 +914,32 @@ NextQueueElement:
 				s.port = e->port;
 				s.proto = SOCK_STREAM;
 
-				cf_debug(AS_HB, "tip: attempting to connect mesh host at %s:%d", e->host, e->port);
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "tip: attempting to connect mesh host at %s:%d", e->host, e->port);
 
 				if (0 != cf_socket_init_client(&s)) {
-					cf_debug(AS_HB, "tip: Could not create heartbeat connection to node %s:%d", e->host, e->port);
+					// DEBUG -- ***PSI***  17-Jul-2014
+					cf_info(AS_HB, "tip: Could not create heartbeat connection to node %s:%d", e->host, e->port);
 					e = e->next;
 					continue;
 				}
 
-				cf_debug(AS_HB, "tip: connected to mesh host at %s:%d socket %d", e->host, e->port, s.sock);
+				struct sockaddr_in addr_in;
+				socklen_t addr_len = sizeof(addr_in);
+
+				char some_addr[24];
+				some_addr[0] = 0;
+
+				// Try to get the client details for better logging.
+				// Otherwise, fall back to generic log message.
+				//getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len);
+				//inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr))
+				if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
+						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
+					cf_info(AS_HB, "mesh_list_service_fn: initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+				} else {
+					cf_warning(AS_HB, "failed - mesh_list_service_fn: initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+				}
 
 				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
 
@@ -770,8 +947,7 @@ NextQueueElement:
 				// if this call fails, sock has been eaten
 				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/)) {
 					close(s.sock);
-				}
-				else {
+				} else {
 					e->fd = s.sock;
 				}
 
@@ -779,7 +955,7 @@ NextQueueElement:
 			e = e->next;
 		}
 
-		usleep ( MESH_RETRY_INTERVAL * 1000);
+		usleep (MESH_RETRY_INTERVAL * 1000);
 
 	} while (1);
 
@@ -799,7 +975,7 @@ mesh_host_list_remove_fd(int fd)
 }
 
 int
-mesh_host_list_add(char *host, int port )
+mesh_host_list_add(char *host, int port)
 {
 	// validate input
 	if (port > (1 << 16)) {
@@ -830,7 +1006,7 @@ mesh_host_list_add(char *host, int port )
 	strcpy(mhqe.host, host);
 	mhqe.port = port;
 	mhqe.remove_fd = -1;
-	cf_queue_push(g_hb.mesh_host_queue, (void *) &mhqe );
+	cf_queue_push(g_hb.mesh_host_queue, (void *) &mhqe);
 
 	return(0);
 }
@@ -843,7 +1019,7 @@ mesh_host_list_add(char *host, int port )
 // and the call doesn't do the connect inline (?)
 
 int
-as_hb_tip(char *host, int port )
+as_hb_tip(char *host, int port)
 {
 	cf_debug(AS_HB, " Heartbeat: tipped about server at %s:%d", host, port);
 
@@ -868,7 +1044,7 @@ static int
 as_hb_adjacencies_create()
 {
 	/* Create the adjacency hash and zero the tx list */
-	if (SHASH_OK != shash_create(&g_hb.adjacencies, cf_nodeid_shash_fn, sizeof(cf_node), AS_HB_PULSE_SIZE(), 100, SHASH_CR_MT_MANYLOCK))
+	if (SHASH_OK != shash_create(&g_hb.adjacencies, cf_nodeid_shash_fn, sizeof(cf_node), AS_HB_PULSE_SIZE(), 127, SHASH_CR_MT_MANYLOCK))
 		cf_crash(AS_HB, "could not create adjacency hash table");
 	memset(g_hb.endpoint_txlist, 0, sizeof(g_hb.endpoint_txlist));
 	memset(g_hb.endpoint_txlist_isudp, 0, sizeof(g_hb.endpoint_txlist_isudp));
@@ -889,7 +1065,10 @@ as_hb_adjacencies_destroy()
 static int
 as_hb_start_receiving(int socket, int was_udp)
 {
-	cf_debug(AS_HB, " Heartbeat: starting packet receive on socket", socket);
+	// DEBUG -- ***PSI***  17-Jul-2014
+#ifdef VERBOSE
+	cf_info(AS_HB, "Heartbeat: starting packet receive on socket fd %d", socket);
+#endif
 
 	if (!g_hb.adjacencies)
 		as_hb_adjacencies_create();
@@ -908,7 +1087,8 @@ as_hb_stop_receiving()
 {
 	int socket = g_hb.socket_mcast.s.sock;
 
-	cf_debug(AS_HB, " Heartbeat: stopping packet receive on socket", socket);
+	// DEBUG -- ***PSI***  17-Jul-2014
+	cf_info(AS_HB, "Heartbeat: stopping packet receive on socket fd %d", socket);
 
 	if (0 > epoll_ctl(g_hb.efd, EPOLL_CTL_DEL, socket, &g_hb.ev))
 		cf_crash(AS_HB,  "unable to remove socket %d from epoll fd list: %s", socket, cf_strerror(errno));
@@ -999,12 +1179,14 @@ static int
 as_hb_endpoint_add(int socket, bool isudp)
 {
 	if (socket >= AS_HB_TXLIST_SZ) {
+		// DEBUG -- ***PSI***  17-Jul-2014
 		cf_info(AS_HB, "attempting to add heartbeat: socket fd %d too large", socket);
 		return(-1);
 	}
 
 	/* Make the socket nonblocking */
 	if (-1 == cf_socket_set_nonblocking(socket)) {
+		// DEBUG -- ***PSI***  17-Jul-2014
 		cf_info(AS_HB, "unable to set client socket %d to nonblocking mode: %s", socket, cf_strerror(errno));
 		cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
 		return(-1);
@@ -1040,17 +1222,25 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 		cf_crash(AS_HB, "failed to alloca() a heartbeat pulse of size %d", AS_HB_PULSE_SIZE());
 
 	if (0 > msg_get_uint32(m, AS_HB_MSG_TYPE, &type)) {
+#if HB_LOG_SPEW
 		cf_warning(AS_HB, "unable to get type field");
+#else
+		as_hb_error(AS_HB_ERR_NO_TYPE);
+#endif
 		return;
 	}
 
 	cf_detail(AS_HB, "received message type %d", type);
 
-	switch(type) {
+	switch (type) {
 		case AS_HB_MSG_TYPE_PULSE:
 			/* Ignore messages from ourselves */
 			if (0 > msg_get_uint64(m, AS_HB_MSG_NODE, &node)) {
+#if HB_LOG_SPEW
 				cf_warning(AS_HB, "unable to get node ID");
+#else
+				as_hb_error(AS_HB_ERR_NO_NODE_PULSE);
+#endif
 				return;
 			}
 
@@ -1074,7 +1264,11 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			/* Make sure this is actually a heartbeat message. */
 			uint32_t c;
 			if (0 > msg_get_uint32(m, AS_HB_MSG_ID, &c)) {
+#if HB_LOG_SPEW
 				cf_warning(AS_HB, "received heartbeat message without a valid ID");
+#else
+				as_hb_error(AS_HB_ERR_NO_ID);
+#endif
 				return;
 			}
 
@@ -1088,7 +1282,11 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			   If the adjacent node vector (ANV) of the incoming message does not agree with our maximum cluster size, simply ignore it. */
 			if (AS_HB_MSG_V1_IDENTIFIER != c) {
 				if (0 > msg_get_uint32(m, AS_HB_MSG_ANV_LENGTH, &c)) {
+#if HB_LOG_SPEW
 					cf_warning(AS_HB, "Received heartbeat protocol v%d message without ANV length ~~ Ignoring message!", AS_HB_PROTOCOL_VERSION_NUMBER(c));
+#else
+					as_hb_error(AS_HB_ERR_NO_ANV_LENGTH);
+#endif
 					return;
 				}
 				if (c != g_config.paxos_max_cluster_size) {
@@ -1100,23 +1298,38 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			cf_atomic_int_incr(&g_config.heartbeat_received_foreign);
 
 			/* Update the node's entry in the adjacencies hash */
-			/* COPY the data into p */
+			/* COPY the data into p_pulse */
 
 			as_hb_pulse *p_pulse;
-			pthread_mutex_t *vlock;
+			pthread_mutex_t *vlock = NULL;
 
-			int rv = shash_get_vlock(g_hb.adjacencies, &node, (void **)&p_pulse, &vlock);
+			int rv = shash_get_vlock(g_hb.adjacencies, &node, (void **) &p_pulse, &vlock);
 			if (rv == SHASH_ERR_NOTFOUND) {
 				memset(a_p_pulse, 0, AS_HB_PULSE_SIZE());
 				p_pulse = a_p_pulse;
 				vlock = 0;
 				p_pulse->new = true;
-			}
-			else if (rv == SHASH_OK) {
+			} else if (rv == SHASH_OK) {
 				if (p_pulse->fd != fd) {
-					cf_debug(AS_HB, "received same pulse from other fd, surprising");
-					// shutdown(fd, SHUT_RDWR);
-					// return;
+#if HB_LOG_SPEW
+					cf_warning(AS_HB, "received same pulse from other fd, surprising");
+#else
+					if (0 > p_pulse->fd) {
+						cf_info(AS_HB, "Re-setting Fabric-opened HB fd %d to the current fd %d", - p_pulse->fd, fd);
+						p_pulse->fd = fd;
+					} else {
+#ifdef VERBOSE
+						cf_warning(AS_HB, "Bad Pulse FD: pulse says %d ; received on %d", p_pulse->fd, fd);
+#endif
+						as_hb_error(AS_HB_ERR_BAD_PULSE_FD);
+					}
+#endif
+#if 0 // XXX -- This sucks!!  (Does not work as expected.)  ***PSI***  18-Jul-2014
+					// DEBUG -- ***PSI***  18-Jul-2014
+					cf_warning(AS_HB, "closing redundant HB socket fd %d (same as addr 0x%08x port %d fd %d)", fd, p_pulse->addr, p_pulse->port, p_pulse->fd);
+					shutdown(fd, SHUT_RDWR);
+					return;
+#endif
 				}
 			}
 
@@ -1127,8 +1340,7 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			if (AS_HB_MODE_MCAST == g_config.hb_mode) {
 				p_pulse->socket = so;
 				p_pulse->port = p_pulse->addr = 0;
-			}
-			else {
+			} else {
 				msg_get_uint32(m, AS_HB_MSG_ADDR, &p_pulse->addr);
 				msg_get_uint32(m, AS_HB_MSG_PORT, &p_pulse->port);
 				if (p_pulse->addr) {
@@ -1141,7 +1353,7 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			}
 
 			/* Get the succession list from the pulse message */
-			int retval = msg_get_buf(m, AS_HB_MSG_ANV, (byte **)&buf, &bufsz, MSG_GET_DIRECT);
+			int retval = msg_get_buf(m, AS_HB_MSG_ANV, (byte **) &buf, &bufsz, MSG_GET_DIRECT);
 
 			if (bufsz != (g_config.paxos_max_cluster_size * sizeof(cf_node)))
 				cf_warning(AS_HB, "Corrupted data? The size of anv is inaccurate. Received: %d ; Expected: %d", bufsz, (g_config.paxos_max_cluster_size * sizeof(cf_node)));
@@ -1160,14 +1372,16 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 
 			if (vlock) {
 				pthread_mutex_unlock(vlock);
-			}
-			else {
+			} else {
 				int rv = shash_put_unique(g_hb.adjacencies, &node, p_pulse);
 				if (rv == SHASH_ERR_FOUND) {
+					cf_warning(AS_HB, "reprocessing HB msg, ppaddr %08x ppport %d ppfd %d fd %d", p_pulse->addr, p_pulse->port, p_pulse->fd, fd);
+#ifdef FAIL_FAST
+					cf_crash(AS_HB, "declining to recurse");
+#endif
 					as_hb_rx_process(m, so, fd);
 					break;
-				}
-				else if (rv != 0) {
+				} else if (rv != 0) {
 					cf_warning(AS_HB, "unable to update adjacencies hash");
 				}
 			}
@@ -1202,14 +1416,26 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 					size_t n = sizeof(bufm);
 					if (0 == msg_fillbuf(mt, bufm, &n)) {
 						if (AS_HB_MODE_MCAST == g_config.hb_mode) {
-							if (0 > cf_socket_sendto(fd, bufm, n, 0, so))
+							if (0 > cf_socket_sendto(fd, bufm, n, 0, so)) {
+#if HB_LOG_SPEW
 								cf_warning(AS_HB, "cf_socket_sendto() failed 1");
+#else
+								as_hb_error(AS_HB_ERR_SENDTO_FAIL_1);
+#endif
+							}
 						} else {
-							if (0 > cf_socket_sendto(fd, bufm, n, 0, 0))
-								cf_warning(AS_HB, "cf_socket_sendto() failed 2");
+							if (0 > cf_socket_sendto(fd, bufm, n, 0, 0)) {
+#if HB_LOG_SPEW
+								cf_warning(AS_HB, "cf_socket_sendto() fd %d failed 2", fd);
+#else
+								as_hb_error(AS_HB_ERR_SENDTO_FAIL_2);
+#endif
+#if 0 // DEBUG -- ***PSI***  2-Jun-2014
+								close(fd);
+#endif
+							}
 						}
-					}
-					else {
+					} else {
 						cf_warning(AS_HB, "could not create heartbeat message for transmission");
 					}
 					as_fabric_msg_put(mt);
@@ -1222,7 +1448,11 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 //            fprintf(stderr, "got an info request\n");
 //            msg_dump(m);
 			if (0 > msg_get_uint64(m, AS_HB_MSG_NODE, &node)) {
+#if HB_LOG_SPEW
 				cf_warning(AS_HB, "unable to get node ID");
+#else
+				as_hb_error(AS_HB_ERR_NO_NODE_REQ);
+#endif
 				return;
 			} else {
 				msg *mt = as_fabric_msg_get(M_TYPE_HEARTBEAT);
@@ -1250,14 +1480,23 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 				size_t n = sizeof(bufm);
 				if (0 == msg_fillbuf(mt, bufm, &n)) {
 					if (AS_HB_MODE_MCAST == g_config.hb_mode) {
-						if (0 > cf_socket_sendto(fd, bufm, n, 0, so))
+						if (0 > cf_socket_sendto(fd, bufm, n, 0, so)) {
+#if HB_LOG_SPEW
 							cf_warning(AS_HB, "cf_socket_sendto() failed 3");
+#else
+							as_hb_error(AS_HB_ERR_SENDTO_FAIL_3);
+#endif
+						}
 					} else {
-						if (0 > cf_socket_sendto(fd, bufm, n, 0, 0))
-							cf_warning(AS_HB, "cf_socket_sendto() failed 4");
+						if (0 > cf_socket_sendto(fd, bufm, n, 0, 0)) {
+#if HB_LOG_SPEW
+							cf_warning(AS_HB, "cf_socket_sendto() fd %d failed 4", fd);
+#else
+							as_hb_error(AS_HB_ERR_SENDTO_FAIL_4);
+#endif
+						}
 					}
-				}
-				else {
+				} else {
 					cf_warning(AS_HB, "unable to create message for transmission");
 				}
 				as_fabric_msg_put(mt);
@@ -1270,13 +1509,24 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			if ((0 > msg_get_uint64(m, AS_HB_MSG_NODE, &node)) ||
 					(0 > msg_get_uint32(m, AS_HB_MSG_ADDR, &addr)) ||
 					(0 > msg_get_uint32(m, AS_HB_MSG_PORT, &port))) {
+#if HB_LOG_SPEW
 				cf_warning(AS_HB, "unable to get required field");
+#else
+				as_hb_error(AS_HB_ERR_MISSING_FIELD);
+#endif
 				return;
 			}
 
+#if 1
 			// If it's already known, we don't need to connect again
 			if (SHASH_OK == shash_get(g_hb.adjacencies, &node, a_p_pulse))
 				return;
+#else
+			if (SHASH_OK != (rv = shash_put_unique(g_hb.adjacencies, &node, a_p_pulse))) {
+				cf_warning(AS_HB, "Skipping HB info. reply for already-existing node %016lx addr %08x port %d", node, addr, port);
+				return;
+			}
+#endif
 
 			/* If the address or port are zero, just wait; we'll try again
 			 * when the next heartbeat is received */
@@ -1286,11 +1536,12 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			{
 				// unwind the address
 				char cpaddr[24];
-				if (NULL == inet_ntop(AF_INET, &addr, (char *)cpaddr, sizeof(cpaddr))) {
+				if (NULL == inet_ntop(AF_INET, &addr, (char *) cpaddr, sizeof(cpaddr))) {
 					cf_info(AS_HB, "heartbeat: received suspicious address %s : %s", cpaddr, cf_strerror(errno));
 					return;
 				}
-				cf_debug(AS_HB, "connecting to remote heartbeat service: %s:%d", cpaddr, port);
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "connecting to remote heartbeat service: %s:%d", cpaddr, port);
 
 				// This call does a blocking TCP connect inline
 				cf_socket_cfg s;
@@ -1308,11 +1559,30 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 					cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
 					close(s.sock);
 				}
+				struct sockaddr_in addr_in;
+				socklen_t addr_len = sizeof(addr_in);
+
+				char some_addr[24];
+				some_addr[0] = 0;
+
+				// Try to get the client details for better logging.
+				// Otherwise, fall back to generic log message.
+				if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
+						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
+					// DEBUG -- ***PSI***  17-Jul-2014
+					cf_info(AS_HB, "info reply: initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
+				} else {
+					cf_warning(AS_HB, "info reply: failed initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
+				}
 			}
 			break;
 
 		default:
+#if HB_LOG_SPEW
 			cf_warning(AS_HB, "incomprehensible message type %d", type);
+#else
+			as_hb_error(AS_HB_ERR_BAD_TYPE);
+#endif
 			return;
 	}
 
@@ -1325,6 +1595,9 @@ void *
 as_hb_thr(void *arg)
 {
 	byte buft[2048], bufr[2048];
+//	size_t bufr_pos[64 * 1024] = { 0 }; // Indexed by fd.
+//	int bufr_pos[64 * 1024] = { 0 }; // Indexed by fd.
+//	byte *bufr_save[64 * 1024] =  { NULL }; // Indexed by fd.
 	msg *mt, *mr;
 	struct epoll_event events[EPOLL_SZ];
 	int nevents, sock = -1;
@@ -1368,7 +1641,7 @@ as_hb_thr(void *arg)
 		if (1 != inet_pton(AF_INET, hbaddr_to_use, &self))
 			cf_warning(AS_HB, "unable to call inet_pton: %s", cf_strerror(errno));
 		else {
-			msg_set_uint32(mt, AS_HB_MSG_ADDR, *(uint32_t *)&self);
+			msg_set_uint32(mt, AS_HB_MSG_ADDR, * (uint32_t *) &self);
 			msg_set_uint32(mt, AS_HB_MSG_PORT, g_config.hb_port);
 		}
 	}
@@ -1388,6 +1661,7 @@ as_hb_thr(void *arg)
 	 * node */
 	if ((AS_HB_MODE_MESH == g_config.hb_mode) && g_config.hb_init_addr) {
 
+		// DEBUG -- ***PSI***  3-Jun-2014
 		cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_init_addr, g_config.hb_init_port);
 
 		if (0 != mesh_host_list_add(g_config.hb_init_addr, g_config.hb_init_port)) {
@@ -1397,7 +1671,7 @@ as_hb_thr(void *arg)
 
 	/* Iterate over events */
 	do {
-		nevents = epoll_wait(g_hb.efd, events, EPOLL_SZ, g_config.hb_interval / 3);
+		nevents = epoll_wait(g_hb.efd, events, EPOLL_SZ, MAX(g_config.hb_interval / 3, 1));
 
 		if (0 > nevents)
 			cf_debug(AS_HB, "epoll_wait() returned %d ; errno = %d (%s)", nevents, errno, cf_strerror(errno));
@@ -1412,11 +1686,12 @@ as_hb_thr(void *arg)
 				socklen_t clen = sizeof(caddr);
 				char cpaddr[24];
 
-				if (-1 == (csock = accept(fd, (struct sockaddr *)&caddr, &clen)))
+				if (-1 == (csock = accept(fd, (struct sockaddr *) &caddr, &clen)))
 					cf_crash(AS_HB, "accept failed: %s", cf_strerror(errno));
-				if (NULL == inet_ntop(AF_INET, &caddr.sin_addr.s_addr, (char *)cpaddr, sizeof(cpaddr)))
+				if (NULL == inet_ntop(AF_INET, &caddr.sin_addr.s_addr, (char *) cpaddr, sizeof(cpaddr)))
 					cf_crash(AS_HB, "inet_ntop failed: %s", cf_strerror(errno));
-				cf_detail(AS_HB, "new connection from %s", cpaddr);
+				// DEBUG -- ***PSI***  17-Jul-2014
+				cf_info(AS_HB, "new connection from %s:%d", cpaddr, caddr.sin_port);
 
 				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
 				as_hb_endpoint_add(csock, false /*is not udp*/);
@@ -1436,14 +1711,16 @@ CloseSocket:
 				}
 
 				if (events[i].events & EPOLLIN) {
-					cf_sockaddr from;
-					int r;
 
+					cf_sockaddr from;
+					int r = 0;
 					memset(&from, 0, sizeof(from));
-					if (AS_HB_MODE_MCAST == g_config.hb_mode)
+
+					if (AS_HB_MODE_MCAST == g_config.hb_mode) {
 						r = cf_socket_recvfrom(fd, bufr, sizeof(bufr), 0, &from);
-					else
+					} else {
 						r = cf_socket_recvfrom(fd, bufr, sizeof(bufr), 0, NULL);
+					}
 					cf_detail(AS_HB, "received %d bytes, calling msg_parse", r);
 					if (r > 0) {
 						if (0 > msg_parse(mr, bufr, r, false))
@@ -1451,8 +1728,7 @@ CloseSocket:
 						else
 							as_hb_rx_process(mr, from, fd);
 						msg_reset(mr);
-					}
-					else {
+					} else {
 						cf_warning(AS_HB, "about to goto CloseSocket....");
 						goto CloseSocket;
 					}
@@ -1472,11 +1748,18 @@ CloseSocket:
 					cf_crash(AS_HB, "Failed to set ANV length in heartbeat protocol v2 message.");
 
 			/* Fill in the current adjacency list and bufferize the message */
-			msg_set_buf(mt, AS_HB_MSG_ANV, (byte *)g_config.paxos->succession, sizeof(cf_node) * g_config.paxos_max_cluster_size, MSG_SET_COPY);
-			/* cf_info(AS_HB, "PUT HEARTBEAT PULSE PRINCIPAL is %"PRIx64"",g_config.paxos->succession[0]); */
+			msg_set_buf(mt, AS_HB_MSG_ANV, (byte *) g_config.paxos->succession, sizeof(cf_node) * g_config.paxos_max_cluster_size, MSG_SET_COPY);
+			/* cf_info(AS_HB, "PUT HEARTBEAT PULSE PRINCIPAL is %"PRIx64"", g_config.paxos->succession[0]); */
 			size_t n = sizeof(buft);
 			if (0 != msg_fillbuf(mt, buft, &n)) {
 				cf_crash(AS_HB, "internal error: could not create heartbeat message");
+			}
+
+			// DEBUG -- ***PSI***  29-May-2014
+			static bool once = false;
+			if (!once) {
+				once = true;
+				cf_info(AS_HB, "Heartbeat TX Size:  n = %zu (0x%x)", n, n);
 			}
 
 			for (int i = 0; i < AS_HB_TXLIST_SZ; i++) {
@@ -1490,14 +1773,36 @@ CloseSocket:
 						so.sin_port = htons(g_config.hb_port);
 						cf_sockaddr_convertto(&so, &dest);
 
-						if (0 > cf_socket_sendto(i, buft, n, 0, dest))
-							cf_warning(AS_HB, "cf_socket_sendto() failed 1");
-					}
-					else { // tcp
+						if (0 > cf_socket_sendto(i, buft, n, 0, dest)) {
+#if HB_LOG_SPEW
+							cf_warning(AS_HB, "cf_socket_sendto() failed 5");
+#else
+							as_hb_error(AS_HB_ERR_SENDTO_FAIL_5);
+#endif
+						}
+					} else { // tcp
+						// DEBUG -- ***PSI***  29-May-2014
+						cf_detail(AS_HB, "sending tcp heartbeat to index %d : msg size %zu", i, n);
+						if (0 > cf_socket_sendto(i, buft, n, 0, 0)) {
+#if HB_LOG_SPEW
+							cf_warning(AS_HB, "cf_socket_sendto() fd %d failed 6", i);
+#else
+							as_hb_error(AS_HB_ERR_SENDTO_FAIL_6);
+#endif
 
-						cf_detail(AS_HB, "sending tcp heartbeat to index %d : msg size %d", i, n);
-						if (0 > cf_socket_sendto(i, buft, n, 0, 0))
-							cf_warning(AS_HB, "cf_socket_sendto() failed 2");
+// NOTE:  Disabling for now, but this case better be handled correctly!!  ***PSI***  13-Jun-2014
+#if 0 // XXX & DEBUG -- ***PSI***  2-Jun-2014
+							g_hb.endpoint_txlist[i] = false;
+							cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
+							mesh_host_list_remove_fd(i);
+							if (0 > epoll_ctl(g_hb.efd, EPOLL_CTL_DEL, i, &g_hb.ev))
+							  cf_crash(AS_HB, "unable to remove socket %d from epoll fd list: %s", i, cf_strerror(errno));
+#if 0 // XXX -- ***PSI***  4-Jun-2014
+							// XXX -- Not closing for now as a test....  ***PSI***  4-Jun-2014
+							close(i);
+#endif
+#endif
+						}
 					}
 				}
 			}
@@ -1508,7 +1813,7 @@ CloseSocket:
 			// but has the chance of catching back up after a glitch
 			g_hb.time_last = (g_config.hb_interval + g_hb.time_last + now) / 2;
 		}
-	} while(1);
+	} while (1);
 
 	msg_destroy(mt);
 
@@ -1516,7 +1821,8 @@ CloseSocket:
 }
 
 // copy over this node's adjacency vector to Paxos
-void as_hb_copy_to_paxos(cf_node id, cf_node *anv) {
+void as_hb_copy_to_paxos(cf_node id, cf_node *anv)
+{
 
 	int i = 0;
 	for (i = 0; i < g_config.paxos_max_cluster_size; i++) {
@@ -1542,9 +1848,9 @@ void as_hb_copy_to_paxos(cf_node id, cf_node *anv) {
 int
 as_hb_monitor_reduce(void *key, void *data, void *udata)
 {
-	as_hb_monitor_reduce_udata *u = (as_hb_monitor_reduce_udata *)udata;
-	as_hb_pulse *p = (as_hb_pulse *)data;
-	cf_node id = *(cf_node *)key;
+	as_hb_monitor_reduce_udata *u = (as_hb_monitor_reduce_udata *) udata;
+	as_hb_pulse *p = (as_hb_pulse *) data;
+	cf_node id = * (cf_node *) key;
 
 	cf_clock now = cf_getms();
 
@@ -1573,9 +1879,12 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 
 		if (p->dunned) {
 			cf_debug(AS_HB, "hb considers expiring: now %"PRIu64" last %"PRIu64, now, p->last);
-		}
-		else {
+		} else {
+#if HB_LOG_SPEW
 			cf_info(AS_HB, "hb considers expiring: now %"PRIu64" last %"PRIu64, now, p->last);
+#else
+			as_hb_error(AS_HB_ERR_EXPIRE_HB);
+#endif
 		}
 	}
 
@@ -1583,29 +1892,33 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 	if (node_expired) {
 		uint64_t fabric_lasttime;
 		if (0 == as_fabric_get_node_lasttime(id, &fabric_lasttime)) {
-			if (fabric_lasttime > (g_config.hb_interval * g_config.hb_timeout) ) {
+			if (fabric_lasttime > (g_config.hb_interval * g_config.hb_timeout)) {
 				if (p->dunned) {
 					cf_debug(AS_HB, "hb expires but fabric says DEAD: node %"PRIx64, id);
-				}
-				else {
+				} else {
+#if HB_LOG_SPEW
 					cf_info(AS_HB, "hb expires but fabric says DEAD: node %"PRIx64, id);
+#else
+					as_hb_error(AS_HB_ERR_EXPIRE_FAB_DEAD);
+#endif
 				}
 
 				node_expired = true;
-			}
-			else {
+			} else {
 				if (p->dunned) {
 					cf_debug(AS_HB, "hb expires but fabric says ALIVE: lasttime %"PRIu64" node %"PRIx64, fabric_lasttime, id);
-				}
-				else {
+				} else {
+#if HB_LOG_SPEW
 					cf_info(AS_HB, "hb expires but fabric says ALIVE: lasttime %"PRIu64" node %"PRIx64, fabric_lasttime, id);
+#else
+					as_hb_error(AS_HB_ERR_EXPIRE_FAB_ALIVE);
+#endif
 				}
 
 				node_expired = false;
 			}
 
-		}
-		else {
+		} else {
 			cf_info(AS_HB, "possible node expiration, check of fabric returns error: node %"PRIx64, id);
 		}
 	}
@@ -1637,8 +1950,7 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 			}
 
 			return (0);
-		}
-		else {
+		} else {
 			// one way network failure resolved
 			p->last_detected = now;
 
@@ -1675,7 +1987,7 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 	bool node_in_slist = false;
 	for (int i = 0; i < g_config.paxos_max_cluster_size; i++)
 	{
-		if ( (p->anv[i] != (cf_node)0) && (p->anv[i] == id))
+		if ((p->anv[i] != (cf_node)0) && (p->anv[i] == id))
 			node_in_slist = true;
 	}
 	/*
@@ -1705,8 +2017,7 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 		} else { // A second weird case - should not really happen
 			cf_warning(AS_HB, "HB node %"PRIx64" in %s cluster is not in its own succession list - succession lists don't match", id, prstr);
 		}
-	}
-	else {
+	} else {
 		if (slists_match) // This is the normal case - print with debug level
 			cf_debug(AS_HB, "HB node %"PRIx64" in %s cluster - succession lists match", id, prstr);
 		else { // this is ths case where a node is just going to join a cluster or two clusters are merging
@@ -1799,7 +2110,7 @@ as_hb_monitor_thr(void *arg)
 					(g_hb.cb[j])((u.n_delete + u.n_insert + u.n_dun + u.n_undun), events, g_hb.cb_udata[j]);
 		}
 
-		usleep(g_config.hb_interval * 1000);
+		usleep(MAX(g_config.hb_interval, 1) * 1000);
 
 	} while (1);
 
@@ -1816,6 +2127,11 @@ void
 as_hb_init()
 {
 	cf_debug(AS_HB, "heartbeat initialization");
+
+	if (g_config.hb_interval < AS_HB_MIN_INTERVAL) {
+		cf_warning(AS_HB, "Re-setting hb_interval from %d to minimum value %d", g_config.hb_interval, AS_HB_MIN_INTERVAL);
+		g_config.hb_interval = AS_HB_MIN_INTERVAL;
+	}
 
 	as_hb_adjacencies_create();
 
@@ -1845,7 +2161,7 @@ as_hb_init_socket()
 {
 	cf_info(AS_HB, "heartbeat socket initialization");
 
-	switch(g_config.hb_mode) {
+	switch (g_config.hb_mode) {
 		case AS_HB_MODE_MCAST:
 			cf_info(AS_HB, "initializing multicast heartbeat socket : %s:%d", g_config.hb_addr, g_config.hb_port);
 			g_hb.socket_mcast.s.addr = g_config.hb_addr;
@@ -1918,7 +2234,7 @@ as_hb_shutdown()
 
 	bool was_udp = as_hb_stop_receiving();
 
-	switch(g_config.hb_mode) {
+	switch (g_config.hb_mode) {
 		case AS_HB_MODE_MCAST:
 			cf_debug(AS_HB, "Closing multicast socket %d", g_hb.socket_mcast.s.sock);
 			cf_mcastsocket_close(&g_hb.socket_mcast);
@@ -1932,4 +2248,115 @@ as_hb_shutdown()
 	}
 
 	return was_udp;
+}
+
+/*
+ *  as_hb_dump_pulse
+ *  Log the properties of an as_hb_pulse object.
+ */
+static void
+as_hb_dump_pulse(as_hb_pulse *pulse)
+{
+	cf_info(AS_HB, " last %lu", pulse->last);
+	cf_info(AS_HB, " sockaddr %"PRIx64"", pulse->socket);
+	uint8_t *addr = (uint8_t *) &pulse->addr;
+	cf_info(AS_HB, " addr %d.%d.%d.%d port %d", addr[0], addr[1], addr[2], addr[3], pulse->port);
+	cf_info(AS_HB, " fd %d", pulse->fd);
+	cf_info(AS_HB, " new %d updated %d dunned %d", pulse->new, pulse->updated, pulse->dunned);
+	cf_info(AS_HB, " last detected %lu", pulse->last_detected);
+	cf_info(AS_HB, " principal %"PRIx64"", pulse->principal);
+
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		if (pulse->anv[i]) {
+			cf_info(AS_HB, " anv[%d] %"PRIx64"", i, pulse->anv[i]);
+		}
+	}
+}
+
+/*
+ *  as_dump_adjacencies_entry
+ *  Log the properties of a single HB adjacencies list entry, i.e.,
+ *    cf_node ==> as_hb_pulse
+ */
+static int
+as_hb_dump_adjacencies_entry(void *key, void *data, void *udata)
+{
+	cf_node node = * (cf_node *) key;
+	as_hb_pulse *pulse = (as_hb_pulse *) data;
+	int *count = (int *) udata;
+
+	cf_info(AS_HB, "Adjacencies[%d]: node %"PRIx64"", *count, node);
+	as_hb_dump_pulse(pulse);
+
+	*count += 1;
+
+	return 0;
+}
+
+/*
+ *  as_hb_dump
+ *  Log the state of the heartbeat module.
+ */
+void
+as_hb_dump(bool verbose)
+{
+	cf_info(AS_HB, "Heartbeat Dump:");
+
+	// General HB Info:
+
+	cf_info(AS_HB, "HB Mode:  %s (%d)", (AS_HB_MODE_MCAST == g_config.hb_mode ? "multicast" :
+										 (AS_HB_MODE_MESH == g_config.hb_mode ? "mesh" : "undefined")),
+			g_config.hb_mode);
+	cf_info(AS_HB, "HB Interval:  %d", g_config.hb_interval);
+	cf_info(AS_HB, "HB Timeout:  %d", g_config.hb_timeout);
+	cf_info(AS_HB, "HB Protocol:  %s (%d)", (AS_HB_PROTOCOL_V1 == g_config.hb_protocol ? "V1" :
+											 (AS_HB_PROTOCOL_V2 == g_config.hb_protocol ? "V2" :
+											  (AS_HB_PROTOCOL_NONE == g_config.hb_protocol ? "none" :
+											   (AS_HB_PROTOCOL_RESET == g_config.hb_protocol ? "reset" : "undefined")))),
+			g_config.hb_protocol);
+
+	cf_socket_cfg *socket = (AS_HB_MODE_MCAST == g_config.hb_mode ? &g_hb.socket_mcast.s :
+							 (AS_HB_MODE_MESH == g_config.hb_mode ? &g_hb.socket : NULL));
+
+	if (socket) {
+		cf_info(AS_HB, "HB Socket:  addr:port %s:%d proto %d sock %d", socket->addr, socket->port, socket->proto, socket->sock);
+	}
+
+	// Mesh Host List Info:
+
+	mesh_host_list_element *elem = g_hb.mesh_host_list;
+	int i = 0;
+	while (elem) {
+		cf_info(AS_HB, "MeshHostList[%d] %s:%d %lu %d %d", i, elem->host, elem->port, elem->next_try, elem->try_interval, elem->fd);
+		i++;
+		elem = elem->next;
+	}
+
+	// Snub List:
+
+	snub_list_element *sle = g_hb.snub_list;
+	i = 0;
+	while (sle && sle->node) {
+		cf_info(AS_HB, "SnubList[%d] node %"PRIx64" expiration %"PRIx64"", i, sle->node, sle->expiration);
+		sle++;
+		i++;
+	}
+
+	// TxList Info:
+
+	int endpoint_count = 0;
+	for (i = 0; i < AS_HB_TXLIST_SZ; i++) {
+		if (g_hb.endpoint_txlist[i]) {
+			endpoint_count++;
+			cf_info(AS_HB, "TxList[%d]: fd %d isudp %d", i, i, g_hb.endpoint_txlist_isudp[i]);
+		}
+	}
+	cf_info(AS_HB, "There are %d open HB TxList sockets.", endpoint_count);
+
+	// Adjacencies
+
+	if (verbose) {
+		int count = 0;
+		shash_reduce(g_hb.adjacencies, as_hb_dump_adjacencies_entry, &count);
+	}
 }
