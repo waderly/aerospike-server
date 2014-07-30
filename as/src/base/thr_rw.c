@@ -620,11 +620,11 @@ int rw_cleanup(write_request *wr, as_transaction *tr, bool first_time,
 			tr->rsv.ns->name, tr->rsv.pid, *(uint64_t *) & (wr->keyd), wr->is_read ? "READ" : "WRITE", tr->result_code);
 
 	if (wr->is_read) {
-		cf_hist_track_insert_ms_since(g_config.rt_hist, tr->start_time);
+		cf_hist_track_insert_data_point(g_config.rt_hist, tr->start_time);
 	} else {
 		// Update Write Stats. Don't count Deletes or UDF calls.
 		if ((tr->msgp->msg.info2 & AS_MSG_INFO2_DELETE) == 0 && ! wr->has_udf) {
-			cf_hist_track_insert_ms_since(g_config.wt_hist, tr->start_time);
+			cf_hist_track_insert_data_point(g_config.wt_hist, tr->start_time);
 		}
 	}
 	if (first_time) {
@@ -1357,7 +1357,7 @@ int as_read_start(as_transaction *tr) {
 		// This code does task of rw_cleanup ... like releasing
 		// reservation cleaning up msgp etc ...
 		// (Todo) consolidate duplicate code
-		cf_hist_track_insert_ms_since(g_config.rt_hist, tr->start_time);
+		cf_hist_track_insert_data_point(g_config.rt_hist, tr->start_time);
 		as_partition_release(&tr->rsv);
 		cf_atomic_int_decr(&g_config.rw_tree_count);
 		if (tr->msgp) {
@@ -2566,7 +2566,7 @@ Out:
 		}
 		int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
 		if (g_config.microbenchmarks && start_ns) {
-			histogram_insert_ms_since(g_config.prole_fabric_send_hist,
+			histogram_insert_data_point(g_config.prole_fabric_send_hist,
 					start_ns);
 		}
 
@@ -4078,7 +4078,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	}
 
 	if (g_config.microbenchmarks && start_ns) {
-		histogram_insert_ms_since(g_config.write_sindex_hist, start_ns);
+		histogram_insert_data_point(g_config.write_sindex_hist, start_ns);
 	}
 
 	if (g_config.microbenchmarks) {
@@ -4088,7 +4088,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	as_storage_record_close(r, &rd);
 
 	if (g_config.microbenchmarks && start_ns) {
-		histogram_insert_ms_since(g_config.write_storage_close_hist, start_ns);
+		histogram_insert_data_point(g_config.write_storage_close_hist, start_ns);
 	}
 
 #ifdef EXTRA_CHECKS
@@ -4665,7 +4665,7 @@ Out:
 		}
 		int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
 		if (g_config.microbenchmarks && start_ns) {
-			histogram_insert_ms_since(g_config.prole_fabric_send_hist,
+			histogram_insert_data_point(g_config.prole_fabric_send_hist,
 					start_ns);
 		}
 
@@ -4709,7 +4709,7 @@ write_msg_fn(cf_node id, msg *m, void *udata)
 		write_process(id, m, true);
 
 		if (g_config.microbenchmarks && start_ns) {
-			histogram_insert_ms_since(g_config.wt_prole_hist, start_ns);
+			histogram_insert_data_point(g_config.wt_prole_hist, start_ns);
 		}
 
 		break;
@@ -4794,7 +4794,7 @@ rw_retransmit_reduce_fn(void *key, uint32_t keylen, void *data, void *udata)
 		cf_atomic_int_incr(&g_config.stat_rw_timeout);
 		if (wr->ready) {
 			if ( ! wr->has_udf ) {
-				cf_hist_track_insert_ms_since(g_config.wt_hist, wr->start_time);
+				cf_hist_track_insert_data_point(g_config.wt_hist, wr->start_time);
 			}
 		}
 
@@ -5462,7 +5462,7 @@ thr_tsvc_read(as_transaction *tr, as_record_lock *rl, int record_get_rv)
 						"tsvc read: can't send short reply, fd %d rc %d",
 						tr->proto_fd_h->fd, tr->result_code);
 			}
-			cf_hist_track_insert_ms_since(g_config.wt_reply_hist,
+			cf_hist_track_insert_data_point(g_config.wt_reply_hist,
 					tr->start_time);
 			tr->proto_fd_h = 0;
 		} else if (tr->proxy_msg) {
@@ -5669,7 +5669,7 @@ Out:
 	}
 	int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
 	if (g_config.microbenchmarks && start_ns) {
-		histogram_insert_ms_since(g_config.prole_fabric_send_hist, start_ns);
+		histogram_insert_data_point(g_config.prole_fabric_send_hist, start_ns);
 	}
 
 	if (rv2 != 0) {

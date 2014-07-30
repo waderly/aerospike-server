@@ -521,20 +521,10 @@ do {                                            \
 do {                                                                                    \
 	if (si->enable_histogram && start_time_ns != 0) {                                   \
 		if (si->stats._ ##type) {                                                       \
-			histogram_insert_ms_since(si->stats._ ##type, start_time_ns);               \
+			histogram_insert_data_point(si->stats._ ##type, start_time_ns);             \
 		}                                                                               \
 	}                                                                                   \
 } while(0);
-
-#define SINDEX_HIST_INSERT_DATA_POINT_US(si, type, start_time_ns)                       \
-do {                                                                                    \
-	if (si->enable_histogram && start_time_ns != 0) {                                   \
-		if (si->stats._ ##type) {                                                       \
-			histogram_insert_us_since(si->stats._ ##type, start_time_ns);               \
-		}                                                                               \
-	}                                                                                   \
-} while(0);
-
 
 #define SINDEX_HIST_INSERT_RAW(si, type, value)                                         \
 do {                                                                                    \

@@ -583,7 +583,7 @@ thr_demarshal(void *arg)
 					tr.preprocessed = false;
 
 					if (g_config.microbenchmarks) {
-						histogram_insert_ms_since(g_config.demarshal_hist, now_ns);
+						histogram_insert_data_point(g_config.demarshal_hist, now_ns);
 						tr.microbenchmark_time = cf_getns();
 					}
 

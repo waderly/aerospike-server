@@ -44,14 +44,7 @@ do {                                                                            
 #define SINDEX_GC_HIST_INSERT_DATA_POINT(type, start_time_ns)                             \
 do {                                                                                      \
 	if (start_time_ns != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
-		histogram_insert_ms_since(g_config._ ##type, start_time_ns);                      \
-	}                                                                                     \
-} while(0);
-
-#define SINDEX_GC_HIST_INSERT_DATA_POINT_US(type, start_time_ns)                          \
-do {                                                                                      \
-	if (start_time_ns != 0 && g_config.sindex_gc_enable_histogram && g_config._ ##type) { \
-		histogram_insert_us_since(g_config._ ##type, start_time_ns);                      \
+		histogram_insert_data_point(g_config._ ##type, start_time_ns);                    \
 	}                                                                                     \
 } while(0);
 

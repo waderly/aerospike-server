@@ -590,7 +590,7 @@ proxy_msg_fn(cf_node id, msg *m, void *udata)
 						as_proxy_set_stat_counters(0);
 					}
 SendFin:
-					cf_hist_track_insert_ms_since(g_config.px_hist, pr.start_time);
+					cf_hist_track_insert_data_point(g_config.px_hist, pr.start_time);
 
 					// Return the fabric message or the direct file descriptor -
 					// after write and complete.

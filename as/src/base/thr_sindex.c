@@ -302,19 +302,19 @@ as_sindex__defrag_fn(void *udata)
 
 	char hist_name[64];
 	sprintf(hist_name, "sindex_gc_validate_obj");
-	if (NULL == ( g_config._sindex_gc_validate_obj_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_validate_obj_hist = histogram_create(hist_name, HIST_MILLISECONDS)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (validate_obj_hist)");
 
 	sprintf(hist_name, "sindex_gc_delete_obj");
-	if (NULL == ( g_config._sindex_gc_delete_obj_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_delete_obj_hist = histogram_create(hist_name, HIST_MILLISECONDS)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (validate_obj_hist)");
 
 	sprintf(hist_name, "sindex_gc_pimd_rlock_hist");
-	if (NULL == ( g_config._sindex_gc_pimd_rlock_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_pimd_rlock_hist = histogram_create(hist_name, HIST_MILLISECONDS)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (pimd_rlock)");
 
 	sprintf(hist_name, "sindex_gc_pimd_wlock_hist");
-	if (NULL == ( g_config._sindex_gc_pimd_wlock_hist = histogram_create(hist_name)))
+	if (NULL == ( g_config._sindex_gc_pimd_wlock_hist = histogram_create(hist_name, HIST_MILLISECONDS)))
 		cf_warning(AS_SINDEX, "couldn't create histogram for sindex gc histogram (pimd_wlock)");
 
 	while (!g_sindex_boot_done) {

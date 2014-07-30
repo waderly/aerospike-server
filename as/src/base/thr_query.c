@@ -269,29 +269,11 @@ histogram * query_batch_io_q_wait_hist;          // Histogram to track time spen
 histogram * query_batch_io_hist;                 // Histogram to track time spend doing I/O per batch
 histogram * query_net_io_hist;                   // Histogram to track time spend sending results to client
 
-#define QUERY_HIST_INSERT_DATA_POINT(type, start_time_ms)              \
-do {                                                                   \
-	if (g_config.query_enable_histogram && start_time_ms != 0) {       \
-		if (type) {                                                    \
-			histogram_insert_data_point(type, start_time_ms);          \
-		}                                                              \
-	}                                                                  \
-} while(0);
-
-#define QUERY_HIST_INSERT_DELTA(type, delta)                           \
-do {                                                                   \
-	if (g_config.query_enable_histogram) {                             \
-		if (type) {                                                    \
-			histogram_insert_delta(type, delta);                       \
-		}                                                              \
-	}                                                                  \
-} while(0);
-
-#define QUERY_HIST_INSERT_DATA_POINT_US(type, start_time_ns)           \
+#define QUERY_HIST_INSERT_DATA_POINT(type, start_time_ns)              \
 do {                                                                   \
 	if (g_config.query_enable_histogram && start_time_ns != 0) {       \
 		if (type) {                                                    \
-			histogram_insert_us_since(type, start_time_ns);            \
+			histogram_insert_data_point(type, start_time_ns);          \
 		}                                                              \
 	}                                                                  \
 } while(0);
@@ -398,13 +380,13 @@ as_query__update_stats(as_query_transaction *qtr)
 		cf_atomic64_add(&g_config.lookup_num_records, qtr->num_records);
 	}
 	cf_hist_track_insert_raw(g_config.q_rcnt_hist, rows);
-	cf_hist_track_insert_ms_since(g_config.q_hist, qtr->start_time);
+	cf_hist_track_insert_data_point(g_config.q_hist, qtr->start_time);
 	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_hist, qtr->start_time);
 	SINDEX_HIST_INSERT_RAW(qtr->si, query_rcnt_hist, qtr->n_digests);
 	SINDEX_HIST_INSERT_RAW(qtr->si, query_diff_hist, qtr->n_digests - qtr->num_records);
 
-	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_hist, qtr->querying_ai_time_ns);
-	QUERY_HIST_INSERT_DATA_POINT_US(query_prepare_batch_q_wait_hist, qtr->waiting_time_ns);
+	QUERY_HIST_INSERT_DATA_POINT(query_prepare_batch_hist, qtr->querying_ai_time_ns);
+	QUERY_HIST_INSERT_DATA_POINT(query_prepare_batch_q_wait_hist, qtr->waiting_time_ns);
 	
 	uint64_t query_stop_time = cf_getns();
 	uint64_t elapsed_us = (query_stop_time - qtr->start_time) / 1000;
@@ -765,7 +747,7 @@ as_query__transaction_done(as_query_transaction *qtr)
 
 		int brv = as_query__send_response(qtr);
 		
-		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_ns);
+		QUERY_HIST_INSERT_DATA_POINT(query_net_io_hist, time_ns);
 
 		if (brv != AS_QUERY_OK) {
 			cf_detail( AS_QUERY,
@@ -884,7 +866,7 @@ as_query__add_val_response(void *void_qtr, const as_val *val, bool success)
 			return ret;
 		}
 
-		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_ns);
+		QUERY_HIST_INSERT_DATA_POINT(query_net_io_hist, time_ns);
 
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
@@ -952,7 +934,7 @@ as_query__add_response(void *void_qtr, as_index_ref *r_ref, as_storage_rd *rd)
 			return ret;
 		}
 
-		QUERY_HIST_INSERT_DATA_POINT_US(query_net_io_hist, time_ns);
+		QUERY_HIST_INSERT_DATA_POINT(query_net_io_hist, time_ns);
 	
 		// if sent successfully mark the used_sz as 0, and reuse
 		// the buffer
@@ -1445,7 +1427,7 @@ as_query__process_ioreq(as_query_request *qio)
 	}
 
 	int ret               = AS_QUERY_ERR;
-	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_q_wait_hist, qtr->queued_time_ns);
+	QUERY_HIST_INSERT_DATA_POINT(query_batch_io_q_wait_hist, qtr->queued_time_ns);
 	
 	cf_ll_element * ele   = NULL;
 	cf_ll_iterator * iter = NULL;
@@ -1503,8 +1485,8 @@ Cleanup:
 		qio->recl = NULL;
 	}
 
-	QUERY_HIST_INSERT_DATA_POINT_US(query_batch_io_hist, time_ns);
-	SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_io, time_ns);
+	QUERY_HIST_INSERT_DATA_POINT(query_batch_io_hist, time_ns);
+	SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_batch_io, time_ns);
 
 	return 0;
 }
@@ -1802,7 +1784,7 @@ as_query__generator(as_query_transaction *qtr)
 				continue;
 		}
 
-		SINDEX_HIST_INSERT_DATA_POINT_US(qtr->si, query_batch_lookup, time_ns);
+		SINDEX_HIST_INSERT_DATA_POINT(qtr->si, query_batch_lookup, time_ns);
 		if (qtr->si->enable_histogram) {
 			time_ns = cf_getns();
 		}
@@ -1964,32 +1946,32 @@ as_query_init()
 	}
 	char hist_name[64];
 	sprintf(hist_name, "query_txn_q_wait_us");
-	if (NULL == (query_txn_q_wait_hist = histogram_create(hist_name))) {
+	if (NULL == (query_txn_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
 		cf_warning(AS_SINDEX, "couldn't create histogram for the time spent in transaction queue by queries.");
 	}
 
 	sprintf(hist_name, "query_prepare_batch_q_wait_us");
-	if (NULL == (query_prepare_batch_q_wait_hist = histogram_create(hist_name))) {
+	if (NULL == (query_prepare_batch_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
 		cf_warning(AS_SINDEX, "couldn't create histogram for time spent waiting for batch creation phase");
 	}
 
 	sprintf(hist_name, "query_prepare_batch_us");
-	if (NULL == (query_prepare_batch_hist = histogram_create(hist_name))) {
+	if (NULL == (query_prepare_batch_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
 		cf_warning(AS_SINDEX, "couldn't create histogram for query batch creation phase");
 	}
 
 	sprintf(hist_name, "query_batch_io_q_wait_us");
-	if (NULL == (query_batch_io_q_wait_hist = histogram_create(hist_name))) {
+	if (NULL == (query_batch_io_q_wait_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
 		cf_warning(AS_SINDEX, "couldn't create histogram for i/o response time for query batches");
 	}
 
 	sprintf(hist_name, "query_batch_io_us");
-	if (NULL == (query_batch_io_hist = histogram_create(hist_name))) {
+	if (NULL == (query_batch_io_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
 		cf_warning(AS_SINDEX, "couldn't create histogram for i/o of query batches");
 	}
 
 	sprintf(hist_name, "query_net_io_us");
-	if (NULL == (query_net_io_hist = histogram_create(hist_name))) {
+	if (NULL == (query_net_io_hist = histogram_create(hist_name, HIST_MICROSECONDS))) {
 		cf_warning(AS_SINDEX, "couldn't create histogram for query net-i/o");
 	}
 
@@ -2163,7 +2145,7 @@ int
 as_query(as_transaction *tr)
 {
 	if (tr) {
-		QUERY_HIST_INSERT_DATA_POINT_US(query_txn_q_wait_hist, tr->start_time);
+		QUERY_HIST_INSERT_DATA_POINT(query_txn_q_wait_hist, tr->start_time);
 	}
 	uint64_t start_time     = cf_getns();
 	as_sindex *si           = NULL;

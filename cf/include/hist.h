@@ -37,20 +37,27 @@
 #define N_BUCKETS 64
 #define HISTOGRAM_NAME_SIZE 128
 
+typedef enum {
+	HIST_MILLISECONDS,
+	HIST_MICROSECONDS,
+	HIST_RAW,
+	HIST_SCALE_MAX_PLUS_1
+} histogram_scale;
+
 // DO NOT access this member data directly - use the API!
 // (Except for cf_hist_track, for which histogram is a base class.)
 typedef struct histogram_s {
 	char name[HISTOGRAM_NAME_SIZE];
+	uint32_t time_div;
 	cf_atomic64 counts[N_BUCKETS];
 } histogram;
 
-extern histogram *histogram_create(const char *name);
+extern histogram *histogram_create(const char *name, histogram_scale scale);
 extern void histogram_clear(histogram *h);
 extern void histogram_dump(histogram *h );
 
+extern void histogram_insert_data_point(histogram *h, uint64_t start_ns);
 extern void histogram_insert_raw(histogram *h, uint64_t value);
-extern void histogram_insert_ms_since(histogram *h, uint64_t start_ns);
-extern void histogram_insert_us_since(histogram *h, uint64_t start_ns);
 
 
 //==========================================================

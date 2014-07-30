@@ -45,9 +45,13 @@
 // you can just cf_free() the histogram.
 //
 histogram*
-histogram_create(const char *name)
+histogram_create(const char *name, histogram_scale scale)
 {
 	if (! (name && strlen(name) < HISTOGRAM_NAME_SIZE)) {
+		return NULL;
+	}
+
+	if (! (scale >= 0 && scale < HIST_SCALE_MAX_PLUS_1)) {
 		return NULL;
 	}
 
@@ -59,6 +63,20 @@ histogram_create(const char *name)
 
 	strcpy(h->name, name);
 	memset(&h->counts, 0, sizeof(h->counts));
+
+	switch (scale) {
+	case HIST_MILLISECONDS:
+		h->time_div = 1000 * 1000;
+		break;
+	case HIST_MICROSECONDS:
+		h->time_div = 1000;
+		break;
+	default:
+		h->time_div = 0;
+		// If histogram_insert_data_point() is called for a raw histogram, the
+		// divide by 0 will crash - consider that a high-performance assertion.
+		break;
+	}
 
 	return h;
 }
@@ -209,20 +227,11 @@ msb(uint64_t n)
 }
 
 //------------------------------------------------
-// Insert a raw data point.
-//
-void
-histogram_insert_raw(histogram *h, uint64_t value)
-{
-	cf_atomic64_incr(&h->counts[msb(value)]);
-}
-
-//------------------------------------------------
 // Insert a data point. The value is time elapsed
-// since start_ns, converted to milliseconds.
-// Assumes start_ns was obtained via cf_getns()
-// some time ago. These data points generate a
-// histogram with:
+// since start_ns, converted to milliseconds or
+// microseconds. Assumes start_ns was obtained via
+// cf_getns() some time ago. These data points
+// generate a histogram with either:
 //
 //		index	ms range
 //		-----	--------
@@ -233,35 +242,7 @@ histogram_insert_raw(histogram *h, uint64_t value)
 //		4		8 to 16 (more exactly, 15.999999)
 //		etc.
 //
-void
-histogram_insert_ms_since(histogram *h, uint64_t start_ns)
-{
-	uint64_t end_ns = cf_getns();
-	uint64_t delta_ms = (end_ns - start_ns) / 1000000;
-
-	int index = 0;
-
-	if (delta_ms != 0) {
-		index = msb(delta_ms);
-
-		if (start_ns > end_ns) {
-			// Either the clock went backwards, or wrapped. (Assume the former,
-			// since it takes ~580 years from 0 to wrap.)
-			cf_warning(AS_INFO, "clock went backwards: start %lu end %lu",
-					start_ns, end_ns);
-			index = 0;
-		}
-	}
-
-	cf_atomic64_incr(&h->counts[index]);
-}
-
-//------------------------------------------------
-// Insert a data point. The value is time elapsed
-// since start_ns, converted to microseconds.
-// Assumes start_ns was obtained via cf_getns()
-// some time ago. These data points generate a
-// histogram with:
+// or:
 //
 //		index	us range
 //		-----	--------
@@ -273,15 +254,15 @@ histogram_insert_ms_since(histogram *h, uint64_t start_ns)
 //		etc.
 //
 void
-histogram_insert_us_since(histogram *h, uint64_t start_ns)
+histogram_insert_data_point(histogram *h, uint64_t start_ns)
 {
 	uint64_t end_ns = cf_getns();
-	uint64_t delta_us = (end_ns - start_ns) / 1000;
+	uint64_t delta_t = (end_ns - start_ns) / h->time_div;
 
 	int index = 0;
 
-	if (delta_us != 0) {
-		index = msb(delta_us);
+	if (delta_t != 0) {
+		index = msb(delta_t);
 
 		if (start_ns > end_ns) {
 			// Either the clock went backwards, or wrapped. (Assume the former,
@@ -293,6 +274,15 @@ histogram_insert_us_since(histogram *h, uint64_t start_ns)
 	}
 
 	cf_atomic64_incr(&h->counts[index]);
+}
+
+//------------------------------------------------
+// Insert a raw data point.
+//
+void
+histogram_insert_raw(histogram *h, uint64_t value)
+{
+	cf_atomic64_incr(&h->counts[msb(value)]);
 }
 
 

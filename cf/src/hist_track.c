@@ -127,9 +127,13 @@ static int thresholds_to_buckets(const char* thresholds, uint32_t buckets[]);
 // Create a cf_hist_track object.
 //
 cf_hist_track*
-cf_hist_track_create(const char* name)
+cf_hist_track_create(const char* name, histogram_scale scale)
 {
-	if (strlen(name) >= HISTOGRAM_NAME_SIZE) {
+	if (! (name && strlen(name) < HISTOGRAM_NAME_SIZE)) {
+		return NULL;
+	}
+
+	if (! (scale >= 0 && scale < HIST_SCALE_MAX_PLUS_1)) {
 		return NULL;
 	}
 
@@ -147,6 +151,20 @@ cf_hist_track_create(const char* name)
 	// Base histogram setup, same as in histogram_create():
 	strcpy(this->hist.name, name);
 	memset((void*)this->hist.counts, 0, sizeof(this->hist.counts));
+
+	switch (scale) {
+	case HIST_MILLISECONDS:
+		this->hist.time_div = 1000 * 1000;
+		break;
+	case HIST_MICROSECONDS:
+		this->hist.time_div = 1000;
+		break;
+	default:
+		this->hist.time_div = 0;
+		// If histogram_insert_data_point() is called for a raw histogram, the
+		// divide by 0 will crash - consider that a high-performance assertion.
+		break;
+	}
 
 	// Start with tracking off.
 	this->rows = NULL;
@@ -329,27 +347,18 @@ cf_hist_track_dump(cf_hist_track* this)
 // Pass-through to base histogram.
 //
 void
+cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_ns)
+{
+	histogram_insert_data_point((histogram*)this, start_ns);
+}
+
+//------------------------------------------------
+// Pass-through to base histogram.
+//
+void
 cf_hist_track_insert_raw(cf_hist_track* this, uint64_t value)
 {
 	histogram_insert_raw((histogram*)this, value);
-}
-
-//------------------------------------------------
-// Pass-through to base histogram.
-//
-void
-cf_hist_track_insert_ms_since(cf_hist_track* this, uint64_t start_ns)
-{
-	histogram_insert_ms_since((histogram*)this, start_ns);
-}
-
-//------------------------------------------------
-// Pass-through to base histogram.
-//
-void
-cf_hist_track_insert_us_since(cf_hist_track* this, uint64_t start_ns)
-{
-	histogram_insert_us_since((histogram*)this, start_ns);
 }
 
 //------------------------------------------------
