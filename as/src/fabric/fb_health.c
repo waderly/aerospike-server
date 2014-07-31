@@ -44,7 +44,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-#include "clock.h"
+#include "citrusleaf/cf_clock.h"
+
 #include "fault.h"
 #include "msg.h"
 #include "util.h"

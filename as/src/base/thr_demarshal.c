@@ -33,8 +33,8 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 
-#include "clock.h"
 #include "fault.h"
 #include "jem.h"
 #include "hist.h"

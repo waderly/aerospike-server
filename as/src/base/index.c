@@ -33,9 +33,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <citrusleaf/alloc.h>
+#include "citrusleaf/alloc.h"
+#include "citrusleaf/cf_clock.h"
 
-#include "clock.h"
+#include "fault.h"
 
 #include "base/index.h"
 #include "base/cfg.h"

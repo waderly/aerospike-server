@@ -28,10 +28,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <citrusleaf/alloc.h>
-#include <citrusleaf/cf_digest.h>
+#include "citrusleaf/alloc.h"
+#include "citrusleaf/cf_clock.h"
+#include "citrusleaf/cf_digest.h"
 
-#include "clock.h"
 #include "msg.h"
 #include "util.h"
 

@@ -39,7 +39,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "clock.h"
+#include "citrusleaf/cf_clock.h"
+
 #include "socket.h"
 #include "util.h"
 

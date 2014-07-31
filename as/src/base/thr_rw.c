@@ -49,7 +49,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "aerospike/as_list.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_shash.h"
+
 #include "jem.h"
 
 #include "base/datamodel.h"
@@ -67,8 +70,6 @@
 #include "fabric/paxos.h"
 #include "storage/storage.h"
 
-
-#include <aerospike/as_list.h>
 
 msg_template rw_mt[] =
 {
@@ -3409,7 +3410,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	// For data-in-memory:
 	// - if just created record - sets rd.bins to NULL if multi-bin, empty bin
 	//		embedded in index if single-bin
-	// - otherwise - sets rd.bins to to existing (already populated) bins array,
+	// - otherwise - sets rd.bins to existing (already populated) bins array,
 	//		starts rd.n_bins_to_write with existing number of bins, starts
 	//		rd.particles_flat_size with sum of all particles' flat sizes
 	// For non-data-in-memory:
