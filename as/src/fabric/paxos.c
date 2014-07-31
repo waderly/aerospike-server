@@ -2211,7 +2211,6 @@ as_paxos_process_retransmit_check()
 			}
 		}
 		cf_debug(AS_PAXOS, sbuf);
-		// Comment out the Succession list check -- for now
 		if (memcmp(p->succession, succ_list[i], sizeof(succ_list[i])) != 0) {
 			cf_info(AS_PAXOS, "Cluster Integrity Check: Detected succession list discrepancy between node %"PRIx64" and self %"PRIx64"",
 					succ_list_index[i], g_config.self_node);
