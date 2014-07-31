@@ -161,8 +161,8 @@ cf_hist_track_create(const char* name, histogram_scale scale)
 		break;
 	default:
 		this->hist.time_div = 0;
-		// If histogram_insert_data_point() is called for a raw histogram, the
-		// divide by 0 will crash - consider that a high-performance assertion.
+		// If cf_hist_track_insert_data_point() is called for a raw histogram,
+		// the divide by 0 will crash - consider that a high-performance assert.
 		break;
 	}
 

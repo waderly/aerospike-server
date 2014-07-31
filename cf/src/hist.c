@@ -74,7 +74,7 @@ histogram_create(const char *name, histogram_scale scale)
 	default:
 		h->time_div = 0;
 		// If histogram_insert_data_point() is called for a raw histogram, the
-		// divide by 0 will crash - consider that a high-performance assertion.
+		// divide by 0 will crash - consider that a high-performance assert.
 		break;
 	}
 
@@ -98,6 +98,9 @@ histogram_clear(histogram *h)
 // Note - DO NOT change the log output format in
 // this method - tools such as as_log_latency
 // assume this format.
+//
+// TODO - print the scale so as_log_latency can
+// label its columns appropriately.
 //
 void
 histogram_dump(histogram *h)
@@ -146,7 +149,7 @@ histogram_dump(histogram *h)
 
 		pos += bytes;
 
-		if ((k & 3) == 3) {
+		if ((k & 3) == 3) { // maximum of 4 printed columns per log line
 			 cf_info(AS_INFO, "%s", buf);
 			 pos = 0;
 			 buf[0] = '\0';
@@ -227,14 +230,15 @@ msb(uint64_t n)
 }
 
 //------------------------------------------------
-// Insert a data point. The value is time elapsed
-// since start_ns, converted to milliseconds or
-// microseconds. Assumes start_ns was obtained via
-// cf_getns() some time ago. These data points
-// generate a histogram with either:
+// Insert a time interval data point. The interval
+// is time elapsed since start_ns, converted to
+// milliseconds or microseconds as appropriate.
+// Assumes start_ns was obtained via cf_getns()
+// some time ago. Generates a histogram with
+// either:
 //
-//		index	ms range
-//		-----	--------
+//		bucket	millisecond range
+//		------	-----------------
 //		0		0 to 1  (more exactly, 0.999999)
 //		1		1 to 2  (more exactly, 1.999999)
 //		2		2 to 4  (more exactly, 3.999999)
@@ -244,8 +248,8 @@ msb(uint64_t n)
 //
 // or:
 //
-//		index	us range
-//		-----	--------
+//		bucket	microsecond range
+//		------	-----------------
 //		0		0 to 1  (more exactly, 0.999)
 //		1		1 to 2  (more exactly, 1.999)
 //		2		2 to 4  (more exactly, 3.999)
@@ -259,25 +263,35 @@ histogram_insert_data_point(histogram *h, uint64_t start_ns)
 	uint64_t end_ns = cf_getns();
 	uint64_t delta_t = (end_ns - start_ns) / h->time_div;
 
-	int index = 0;
+	int bucket = 0;
 
 	if (delta_t != 0) {
-		index = msb(delta_t);
+		bucket = msb(delta_t);
 
 		if (start_ns > end_ns) {
 			// Either the clock went backwards, or wrapped. (Assume the former,
 			// since it takes ~580 years from 0 to wrap.)
 			cf_warning(AS_INFO, "clock went backwards: start %lu end %lu",
 					start_ns, end_ns);
-			index = 0;
+			bucket = 0;
 		}
 	}
 
-	cf_atomic64_incr(&h->counts[index]);
+	cf_atomic64_incr(&h->counts[bucket]);
 }
 
 //------------------------------------------------
-// Insert a raw data point.
+// Insert a raw data point. Generates a histogram
+// with:
+//
+//		bucket	value range
+//		------	-----------
+//		0		0
+//		1		1
+//		2		2, 3
+//		3		4 to 7
+//		4		8 to 15
+//		etc.
 //
 void
 histogram_insert_raw(histogram *h, uint64_t value)
@@ -419,7 +433,7 @@ linear_histogram_dump(linear_histogram *h)
 
 		pos += bytes;
 
-		if ((k & 3) == 3) {
+		if ((k & 3) == 3) { // maximum of 4 printed columns per log line
 			 cf_debug(AS_NSUP, "%s", buf);
 			 pos = 0;
 			 buf[0] = '\0';
@@ -456,17 +470,17 @@ void
 linear_histogram_insert_data_point(linear_histogram *h, uint64_t point)
 {
 	int64_t offset = point - h->start;
-	int64_t index = 0;
+	int64_t bucket = 0;
 
 	if (offset > 0) {
-		index = offset / h->bucket_width;
+		bucket = offset / h->bucket_width;
 
-		if (index >= (int64_t)h->num_buckets) {
-			index = h->num_buckets - 1;
+		if (bucket >= (int64_t)h->num_buckets) {
+			bucket = h->num_buckets - 1;
 		}
 	}
 
-	cf_atomic64_incr(&h->counts[index]);
+	cf_atomic64_incr(&h->counts[bucket]);
 }
 
 //------------------------------------------------
@@ -541,13 +555,13 @@ linear_histogram_save_info(linear_histogram *h)
 	pthread_mutex_lock(&h->info_lock);
 
 	// Write num_buckets, the bucket width, and the first bucket's count.
-	int idx = 0;
+	int i = 0;
 	int pos = snprintf(h->info_snapshot, INFO_SNAPSHOT_SIZE, "%d,%ld,%ld",
-			h->num_buckets, h->bucket_width, cf_atomic64_get(h->counts[idx++]));
+			h->num_buckets, h->bucket_width, cf_atomic64_get(h->counts[i++]));
 
-	while (pos < INFO_SNAPSHOT_SIZE && idx < h->num_buckets) {
+	while (pos < INFO_SNAPSHOT_SIZE && i < h->num_buckets) {
 		pos += snprintf(h->info_snapshot + pos, INFO_SNAPSHOT_SIZE - pos,
-				",%ld", cf_atomic64_get(h->counts[idx++]));
+				",%ld", cf_atomic64_get(h->counts[i++]));
 	}
 
 	pthread_mutex_unlock(&h->info_lock);
