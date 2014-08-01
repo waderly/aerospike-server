@@ -117,7 +117,6 @@ typedef struct ssd_wblock_state_s {
 //
 typedef struct ssd_alloc_table_s {
 	uint32_t			n_wblocks;		// number allocated below
-	cf_queue			*free_wblock_q;	// a queue of free wblocks
 	ssd_wblock_state	wblock_state[];
 } ssd_alloc_table;
 
@@ -144,6 +143,8 @@ typedef struct drv_ssd_s
 	ssd_write_buf	*current_swb;		// swb currently being filled by writes
 
 	cf_queue		*fd_q;				// queue of open fds
+
+	cf_queue		*free_wblock_q;		// IDs of free wblocks
 
 	cf_queue		*swb_write_q;		// pointers to swbs ready to write
 	cf_queue		*swb_free_q;		// pointers to swbs free and waiting
@@ -210,7 +211,7 @@ typedef struct drv_ssds_s
 // Private API - for enterprise separation only
 //
 
-void push_wblock_to_queue(ssd_alloc_table *at, uint32_t wblock_id, e_free_to free_to);
+void push_wblock_to_queue(drv_ssd *ssd, uint32_t wblock_id, e_free_to free_to);
 void ssd_resume_devices(drv_ssds *ssds);
 
 //

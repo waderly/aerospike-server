@@ -185,20 +185,20 @@ ssd_get_file_id(drv_ssds *ssds, cf_digest *keyd)
 
 // Put a wblock on the free queue for reuse.
 void
-push_wblock_to_queue(ssd_alloc_table *at, uint32_t wblock_id, e_free_to free_to)
+push_wblock_to_queue(drv_ssd *ssd, uint32_t wblock_id, e_free_to free_to)
 {
 	// temp debugging:
-	if (wblock_id >= at->n_wblocks) {
+	if (wblock_id >= ssd->alloc_table->n_wblocks) {
 		cf_warning(AS_DRV_SSD, "pushing invalid wblock_id %d to free_wblock_q",
 				(int32_t)wblock_id);
 		return;
 	}
 
 	if (free_to == FREE_TO_HEAD) {
-		cf_queue_push_head(at->free_wblock_q, &wblock_id);
+		cf_queue_push_head(ssd->free_wblock_q, &wblock_id);
 	}
 	else {
-		cf_queue_push(at->free_wblock_q, &wblock_id);
+		cf_queue_push(ssd->free_wblock_q, &wblock_id);
 	}
 }
 
@@ -269,10 +269,10 @@ swb_release(ssd_write_buf *swb)
 }
 
 static inline void
-swb_dereference_and_release(ssd_alloc_table *at, uint32_t wblock_id,
+swb_dereference_and_release(drv_ssd *ssd, uint32_t wblock_id,
 		ssd_write_buf *swb)
 {
-	ssd_wblock_state *wblock_state = &at->wblock_state[wblock_id];
+	ssd_wblock_state *wblock_state = &ssd->alloc_table->wblock_state[wblock_id];
 
 	pthread_mutex_lock(&wblock_state->LOCK);
 
@@ -288,7 +288,7 @@ swb_dereference_and_release(ssd_alloc_table *at, uint32_t wblock_id,
 	// Free wblock if all three gating conditions hold.
 	if (cf_atomic32_get(wblock_state->inuse_sz) == 0 &&
 			wblock_state->state != WBLOCK_STATE_DEFRAG) {
-		push_wblock_to_queue(at, wblock_id, FREE_TO_HEAD);
+		push_wblock_to_queue(ssd, wblock_id, FREE_TO_HEAD);
 	}
 
 	pthread_mutex_unlock(&wblock_state->LOCK);
@@ -311,8 +311,8 @@ swb_get(drv_ssd *ssd)
 	}
 
 	// Find a device block to write to.
-	if (CF_QUEUE_OK != cf_queue_pop(ssd->alloc_table->free_wblock_q,
-			&swb->wblock_id, CF_QUEUE_NOWAIT)) {
+	if (CF_QUEUE_OK != cf_queue_pop(ssd->free_wblock_q, &swb->wblock_id,
+			CF_QUEUE_NOWAIT)) {
 		cf_queue_push(ssd->swb_free_q, &swb);
 		return NULL;
 	}
@@ -406,7 +406,7 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks,
 			// Free wblock if all three gating conditions hold.
 			if (! p_wblock_state->swb &&
 					p_wblock_state->state != WBLOCK_STATE_DEFRAG) {
-				push_wblock_to_queue(at, start_wblock_id, free_to);
+				push_wblock_to_queue(ssd, start_wblock_id, free_to);
 			}
 		}
 
@@ -432,7 +432,7 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks,
 		}
 
 		if (cf_atomic32_get(at->wblock_state[wblock_id].inuse_sz) == 0) {
-			push_wblock_to_queue(at, wblock_id, free_to);
+			push_wblock_to_queue(ssd, wblock_id, free_to);
 		}
 
 		start_byte += f_partial_sz;
@@ -443,7 +443,7 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks,
 		while (sz_bytes) {
 			if (sz_bytes > ssd->write_block_size) {
 				cf_atomic32_set(&at->wblock_state[wblock_id].inuse_sz, 0);
-				push_wblock_to_queue(at, wblock_id, free_to);
+				push_wblock_to_queue(ssd, wblock_id, free_to);
 
 				start_byte += ssd->write_block_size;
 				sz_bytes -= ssd->write_block_size;
@@ -463,7 +463,7 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks,
 				}
 
 				if (cf_atomic32_get(at->wblock_state[wblock_id].inuse_sz) == 0) {
-					push_wblock_to_queue(at, wblock_id, free_to);
+					push_wblock_to_queue(ssd, wblock_id, free_to);
 				}
 
 				start_byte += sz_bytes;
@@ -823,7 +823,7 @@ Finished:
 	// Free the wblock if it's empty.
 	if (cf_atomic32_get(p_wblock_state->inuse_sz) == 0 &&
 			! p_wblock_state->swb) {
-		push_wblock_to_queue(ssd->alloc_table, wblock_id, FREE_TO_HEAD);
+		push_wblock_to_queue(ssd, wblock_id, FREE_TO_HEAD);
 	}
 
 	pthread_mutex_unlock(&p_wblock_state->LOCK);
@@ -983,7 +983,7 @@ ssd_block_get_free_size(drv_ssd *ssd, off_t *total_r, off_t *contiguous_r)
 	}
 
 	if (contiguous_r) {
-		*contiguous_r = (uint64_t)cf_queue_sz(ssd->alloc_table->free_wblock_q) *
+		*contiguous_r = (uint64_t)cf_queue_sz(ssd->free_wblock_q) *
 				(uint64_t)ssd->write_block_size;
 	}
 }
@@ -1002,7 +1002,6 @@ ssd_wblock_init(drv_ssd *ssd, uint32_t start_size)
 	ssd_alloc_table *at = cf_malloc(sizeof(ssd_alloc_table) + (n_wblocks * sizeof(ssd_wblock_state)));
 
 	at->n_wblocks = n_wblocks;
-	at->free_wblock_q = cf_queue_create(sizeof(uint32_t), true);
 
 	for (uint32_t i = 0; i < n_wblocks; i++) {
 		pthread_mutex_init(&at->wblock_state[i].LOCK, 0);
@@ -1649,7 +1648,7 @@ ssd_write_worker(void *arg)
 		ssd_fd_put(ssd, fd);
 
 		if (cf_atomic32_get(ssd->ns->storage_post_write_queue) == 0) {
-			swb_dereference_and_release(ssd->alloc_table, swb->wblock_id, swb);
+			swb_dereference_and_release(ssd, swb->wblock_id, swb);
 		}
 		else {
 			// Transfer swb to post-write queue.
@@ -1670,8 +1669,8 @@ ssd_write_worker(void *arg)
 					break;
 				}
 
-				swb_dereference_and_release(ssd->alloc_table,
-						cached_swb->wblock_id, cached_swb);
+				swb_dereference_and_release(ssd, cached_swb->wblock_id,
+						cached_swb);
 			}
 		}
 
@@ -2070,7 +2069,7 @@ as_storage_show_wblock_stats(as_namespace *ns)
 
 			cf_info(AS_DRV_SSD, "device %s free %d full %d fullswb %d pfull %d defrag %d freeq %d",
 				ssd->name, num_free_blocks, num_full_blocks, num_full_swb,
-				num_above_wm, num_defraggable, cf_queue_sz(at->free_wblock_q));
+				num_above_wm, num_defraggable, cf_queue_sz(ssd->free_wblock_q));
 		}
 	}
 	else {
@@ -2149,7 +2148,7 @@ as_storage_summarize_wblock_stats(as_namespace *ns)
 
 			cf_info(AS_DRV_SSD, "device %s free %d full %d fullswb %d pfull %d defrag %d freeq %d",
 				ssd->name, num_free_blocks, num_full_blocks, num_full_swb,
-				num_above_wm, num_defraggable, cf_queue_sz(at->free_wblock_q));
+				num_above_wm, num_defraggable, cf_queue_sz(ssd->free_wblock_q));
 		}
 
 		// Dump histogram.
@@ -2370,11 +2369,11 @@ ssd_track_free_thread(void *udata)
 		cf_info(AS_DRV_SSD, "device %s: free %zuM contig %zuM w-q %d w-free %d swb-free %d w-tot %"PRIu64,
 				ssd->name, free, contig,
 				cf_queue_sz(ssd->swb_write_q),
-				cf_queue_sz(ssd->alloc_table->free_wblock_q),
+				cf_queue_sz(ssd->free_wblock_q),
 				cf_queue_sz(ssd->swb_free_q),
 				cf_atomic_int_get(ssd->ssd_write_buf_counter));
 
-		if (cf_queue_sz(ssd->alloc_table->free_wblock_q) == 0) {
+		if (cf_queue_sz(ssd->free_wblock_q) == 0) {
 			cf_warning(AS_DRV_SSD, "Device %s out of storage space", ssd->name);
 		}
 
@@ -3873,6 +3872,8 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 		ssd_wblock_init(ssd, ns->cold_start ? ssd->write_block_size : 0);
 
 		ssd->fd_q = cf_queue_create(sizeof(int), true);
+
+		ssd->free_wblock_q = cf_queue_create(sizeof(uint32_t), true);
 
 		ssd->file_id = i;
 		ssd->inuse_size = 0;
