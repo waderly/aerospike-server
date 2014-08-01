@@ -33,9 +33,9 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
 
-#include "clock.h"
 #include "fault.h"
 
 #include "base/datamodel.h"
@@ -87,7 +87,7 @@ as_transaction_init(as_transaction *tr, cf_digest *keyd, cl_msg *msgp)
 	tr->generation                = 0;
 	tr->result_code               = AS_PROTO_RESULT_OK;
 	tr->proto_fd_h                = 0;
-	tr->start_time                = cf_getms();
+	tr->start_time                = cf_getns();
 	tr->end_time                  = 0;
 
 	AS_PARTITION_RESERVATION_INIT(tr->rsv);
@@ -144,7 +144,7 @@ int as_transaction_prepare(as_transaction *tr) {
 	// Set the transaction end time if available.
 	if (m->transaction_ttl) {
 //		cf_debug(AS_PROTO, "received non-zero transaction ttl: %d",m->transaction_ttl);
-		tr->end_time = m->transaction_ttl + tr->start_time;
+		tr->end_time = tr->start_time + ((uint64_t)m->transaction_ttl * 1000000);
 	}
 	
 	// Set the preprocessed flag. All exits from here on out are considered
@@ -278,7 +278,7 @@ as_transaction_create( as_transaction *tr, tr_create_data *  trc_data)
 {
 	tr_create_data * d = (tr_create_data*) trc_data;
 	udf_call * call    = d->call;
-	uint64_t now       = cf_getms();
+	uint64_t now       = cf_getns();
 
 	// Get namespace and set lengths.
 	int ns_len        = strlen(d->ns->name);	

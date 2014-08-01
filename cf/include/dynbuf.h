@@ -1,5 +1,5 @@
 /*
- * clock.h
+ * dynbuf.h
  *
  * Copyright (C) 2009 Aerospike, Inc.
  *

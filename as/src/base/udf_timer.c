@@ -24,7 +24,8 @@
 
 #include <pthread.h>
 
-#include "clock.h"
+#include "citrusleaf/cf_clock.h"
+
 #include "fault.h"
 
 

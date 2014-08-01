@@ -39,8 +39,8 @@
 #include "aerospike/as_serializer.h"
 #include "aerospike/as_string.h"
 #include "aerospike/as_val.h"
+#include "citrusleaf/cf_clock.h"
 
-#include "clock.h"
 #include "fault.h"
 
 #include "base/datamodel.h"

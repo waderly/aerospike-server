@@ -204,8 +204,8 @@ typedef struct as_config_s {
 
 	/* global timeout configuration */
 	uint32_t			transaction_retry_ms;
-	// max time (ms) in the proxy system before we kick the request out forever
-	uint32_t			transaction_max_ms;
+	// max time (ns) in the system before we kick the request out forever
+	uint64_t			transaction_max_ns;
 	// transaction pending limit - number of pending transactions ON A SINGLE RECORD (0 means no limit)
 	uint32_t			transaction_pending_limit;
 	/* transaction_repeatable_read flag defines whether a read should attempt to get all duplicate values before returning */

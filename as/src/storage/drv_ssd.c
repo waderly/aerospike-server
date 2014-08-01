@@ -52,10 +52,10 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
 #include "citrusleaf/cf_random.h"
 
-#include "clock.h"
 #include "fault.h"
 #include "hist.h"
 #include "jem.h"
@@ -615,15 +615,15 @@ ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
 
 			rd.write_to_device = true;
 
-			uint64_t start_ms = 0;
+			uint64_t start_ns = 0;
 			if (g_config.microbenchmarks) {
-				start_ms = cf_getms();
+				start_ns = cf_getns();
 			}
 
 			as_storage_record_close(r, &rd);
 
-			if (g_config.microbenchmarks && start_ms) {
-				histogram_insert_data_point(g_config.defrag_storage_close_hist, start_ms);
+			if (g_config.microbenchmarks && start_ns) {
+				histogram_insert_data_point(g_config.defrag_storage_close_hist, start_ns);
 			}
 
 			rv = 0; // record was in index tree and current - moved it
@@ -677,7 +677,7 @@ ssd_defrag_wblock(drv_ssds *ssds, drv_ssd *ssd, uint32_t wblock_id)
 	uint64_t start_time = 0;
 
 	if (g_config.storage_benchmarks) {
-		start_time = cf_getms();
+		start_time = cf_getns();
 	}
 
 	off_t file_offset = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, wblock_id), SEEK_SET);
@@ -1149,7 +1149,7 @@ as_storage_record_read_ssd(as_storage_rd *rd)
 
 		// Measure the latency of device reads.
 		if (g_config.storage_benchmarks) {
-			start_time = cf_getms();
+			start_time = cf_getns();
 		}
 
 		lseek(fd, read_offset, SEEK_SET);
@@ -1635,7 +1635,7 @@ ssd_write_worker(void *arg)
 		uint64_t start_time = 0;
 
 		if (g_config.storage_benchmarks) {
-			start_time = cf_getms();
+			start_time = cf_getns();
 		}
 
 		off_t rv_o = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id), SEEK_SET);
@@ -3930,18 +3930,24 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 		ssd->ssd_write_buf_counter = 0;
 
 		char histname[HISTOGRAM_NAME_SIZE];
+
 		snprintf(histname, sizeof(histname), "SSD_READ_%d %s", i, ssd->name);
-		ssd->hist_read = histogram_create(histname);
+		ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS);
+
 		if (! ssd->hist_read) {
 			cf_warning(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
+
 		snprintf(histname, sizeof(histname), "SSD_LARGE_BLOCK_READ_%d %s", i, ssd->name);
-		ssd->hist_large_block_read = histogram_create(histname);
+		ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS);
+
 		if (! ssd->hist_large_block_read) {
 			cf_warning(AS_DRV_SSD,"cannot create histogram %s", histname);
 		}
+
 		snprintf(histname, sizeof(histname), "SSD_WRITE_%d %s", i, ssd->name);
-		ssd->hist_write = histogram_create(histname);
+		ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS);
+
 		if (! ssd->hist_write) {
 			cf_warning(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}

@@ -49,7 +49,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "aerospike/as_list.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_shash.h"
+
 #include "jem.h"
 
 #include "base/datamodel.h"
@@ -67,8 +70,6 @@
 #include "fabric/paxos.h"
 #include "storage/storage.h"
 
-
-#include <aerospike/as_list.h>
 
 msg_template rw_mt[] =
 {
@@ -189,7 +190,7 @@ write_request_create(void) {
 	wr->replication_fire_and_forget = false;
 	// Set the initial limit on wr lifetime to guarantee finite life-span.
 	// (Will be reset relative to the transaction end time if/when the wr goes ready.)
-	cf_atomic64_set(&(wr->end_time), cf_getms() + g_config.transaction_max_ms);
+	cf_atomic64_set(&(wr->end_time), cf_getns() + g_config.transaction_max_ns);
 
 	// initialize waiting transaction queue
 	wr->wait_queue_head = NULL;
@@ -1058,7 +1059,7 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 		wr->retry_interval_ms = g_config.transaction_retry_ms;
 		wr->start_time = tr->start_time;
 		cf_atomic64_set(&(wr->end_time),
-				(tr->end_time > 0) ? (tr->end_time) : (g_config.transaction_max_ms + wr->start_time));
+				(tr->end_time != 0) ? tr->end_time : wr->start_time + g_config.transaction_max_ns);
 		wr->ready = true;
 		WR_TRACK_INFO(wr, "internal_rw_start: first time - tr->wr ");
 	}
@@ -1068,7 +1069,7 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 	msg_dump(wr->dest_msg, "rw start outoing msg");
 #endif
 
-	wr->microbenchmark_time = cf_getms();
+	wr->microbenchmark_time = cf_getns();
 
 	if (tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP)
 		cf_detail(AS_RW, "[Digest %"PRIx64" Shipped OP] Replication Initiated",
@@ -2560,14 +2561,14 @@ Out:
 	msg_set_uint32(m, RW_FIELD_RESULT, result_code);
 
 	if (respond) {
-		uint64_t start_ms = 0;
+		uint64_t start_ns = 0;
 		if (g_config.microbenchmarks) {
-			start_ms = cf_getms();
+			start_ns = cf_getns();
 		}
 		int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
-		if (g_config.microbenchmarks && start_ms) {
+		if (g_config.microbenchmarks && start_ns) {
 			histogram_insert_data_point(g_config.prole_fabric_send_hist,
-					start_ms);
+					start_ns);
 		}
 
 		if (rv2 != 0) {
@@ -3409,7 +3410,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	// For data-in-memory:
 	// - if just created record - sets rd.bins to NULL if multi-bin, empty bin
 	//		embedded in index if single-bin
-	// - otherwise - sets rd.bins to to existing (already populated) bins array,
+	// - otherwise - sets rd.bins to existing (already populated) bins array,
 	//		starts rd.n_bins_to_write with existing number of bins, starts
 	//		rd.particles_flat_size with sum of all particles' flat sizes
 	// For non-data-in-memory:
@@ -4055,9 +4056,9 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	//			 look for UDF_OP_IS_LDT is checked that is used for if it is LDT MULTI_OP
 	//			 packet.
 
-	uint64_t start_ms = 0;
+	uint64_t start_ns = 0;
 	if (g_config.microbenchmarks) {
-		start_ms = cf_getms();
+		start_ns = cf_getns();
 	}
 	if (has_sindex) {
 		if (oldbin_cnt || newbin_cnt) {
@@ -4077,18 +4078,18 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 		}
 	}
 
-	if (g_config.microbenchmarks && start_ms) {
-		histogram_insert_data_point(g_config.write_sindex_hist, start_ms);
+	if (g_config.microbenchmarks && start_ns) {
+		histogram_insert_data_point(g_config.write_sindex_hist, start_ns);
 	}
 
 	if (g_config.microbenchmarks) {
-		start_ms = cf_getms();
+		start_ns = cf_getns();
 	}
 	// write record to device
 	as_storage_record_close(r, &rd);
 
-	if (g_config.microbenchmarks && start_ms) {
-		histogram_insert_data_point(g_config.write_storage_close_hist, start_ms);
+	if (g_config.microbenchmarks && start_ns) {
+		histogram_insert_data_point(g_config.write_storage_close_hist, start_ns);
 	}
 
 #ifdef EXTRA_CHECKS
@@ -4659,14 +4660,14 @@ Out:
 	msg_set_uint32(m, RW_FIELD_RESULT, result_code);
 
 	if (f_respond) {
-		uint64_t start_ms = 0;
+		uint64_t start_ns = 0;
 		if (g_config.microbenchmarks) {
-			start_ms = cf_getms();
+			start_ns = cf_getns();
 		}
 		int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
-		if (g_config.microbenchmarks && start_ms) {
+		if (g_config.microbenchmarks && start_ns) {
 			histogram_insert_data_point(g_config.prole_fabric_send_hist,
-					start_ms);
+					start_ns);
 		}
 
 		if (rv2 != 0) {
@@ -4698,18 +4699,18 @@ write_msg_fn(cf_node id, msg *m, void *udata)
 	switch (op) {
 
 	case RW_OP_WRITE: {
-		uint64_t start_ms = 0;
+		uint64_t start_ns = 0;
 
 		if (g_config.microbenchmarks) {
-			start_ms = cf_getms();
+			start_ns = cf_getns();
 		}
 
 		cf_atomic_int_incr(&g_config.write_prole);
 
 		write_process(id, m, true);
 
-		if (g_config.microbenchmarks && start_ms) {
-			histogram_insert_data_point(g_config.wt_prole_hist, start_ms);
+		if (g_config.microbenchmarks && start_ns) {
+			histogram_insert_data_point(g_config.wt_prole_hist, start_ns);
 		}
 
 		break;
@@ -4869,7 +4870,7 @@ rw_retransmit_fn(void *gcc_is_ass)
 
 		usleep(130 * 1000);
 
-		cf_clock now = cf_getms();
+		cf_clock now = cf_getns();
 
 		rchash_reduce_delete(g_write_hash, rw_retransmit_reduce_fn, &now);
 
@@ -5202,7 +5203,8 @@ dump_rw_reduce_fn(void *key, uint32_t keylen, void *data,
 	pthread_mutex_lock(&wr->lock);
 	cf_info(AS_RW,
 			"gwh[%d]: wr %p rc %d ready %d et %ld xm %ld (delta %ld) ri %d pb %p |wq| %d",
-			*counter, wr, cf_rc_count(wr), wr->ready, cf_atomic64_get(wr->end_time), wr->xmit_ms, wr->xmit_ms - g_now, wr->retry_interval_ms, wr->pickled_buf, wq_len(wr->wait_queue_head));
+			*counter, wr, cf_rc_count(wr), wr->ready, cf_atomic64_get(wr->end_time) / 1000000,
+			wr->xmit_ms, wr->xmit_ms - g_now, wr->retry_interval_ms, wr->pickled_buf, wq_len(wr->wait_queue_head));
 	pthread_mutex_unlock(&wr->lock);
 
 	*counter += 1;
@@ -5662,13 +5664,13 @@ Out:
 	msg_set_uint32(m, RW_FIELD_OP, RW_OP_MULTI_ACK);
 	msg_set_uint32(m, RW_FIELD_RESULT, result_code);
 
-	uint64_t start_ms = 0;
+	uint64_t start_ns = 0;
 	if (g_config.microbenchmarks) {
-		start_ms = cf_getms();
+		start_ns = cf_getns();
 	}
 	int rv2 = as_fabric_send(node, m, AS_FABRIC_PRIORITY_MEDIUM);
-	if (g_config.microbenchmarks && start_ms) {
-		histogram_insert_data_point(g_config.prole_fabric_send_hist, start_ms);
+	if (g_config.microbenchmarks && start_ns) {
+		histogram_insert_data_point(g_config.prole_fabric_send_hist, start_ns);
 	}
 
 	if (rv2 != 0) {

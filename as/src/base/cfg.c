@@ -39,10 +39,10 @@
 #include "aerospike/mod_lua_config.h"
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_shash.h"
 
 #include "cf_str.h"
-#include "clock.h"
 #include "fault.h"
 #include "hist.h"
 #include "hist_track.h"
@@ -139,7 +139,7 @@ cfg_set_defaults()
 	c->scan_sleep = 1; // amount of time scan thread will sleep between two context switch
 	c->storage_benchmarks = false;
 	c->ticker_interval = 10;
-	c->transaction_max_ms = 1000;
+	c->transaction_max_ns = 1000 * 1000 * 1000; // 1 second
 	c->transaction_pending_limit = 20;
 	c->transaction_repeatable_read = false;
 	c->transaction_retry_ms = 1000;
@@ -1822,7 +1822,7 @@ as_config_init(const char *config_file)
 				c->n_transaction_duplicate_threads = cfg_int_no_checks(&line);
 				break;
 			case CASE_SERVICE_TRANSACTION_MAX_MS:
-				c->transaction_max_ms = cfg_u32_no_checks(&line);
+				c->transaction_max_ns = cfg_u64_no_checks(&line) * 1000000;
 				break;
 			case CASE_SERVICE_TRANSACTION_PENDING_LIMIT:
 				c->transaction_pending_limit = cfg_u32_no_checks(&line);
@@ -2996,9 +2996,10 @@ cfg_obj_size_hist_max(uint32_t hist_max)
 //
 
 static void
-create_and_check_hist_track(cf_hist_track** h, const char* name)
+create_and_check_hist_track(cf_hist_track** h, const char* name,
+		histogram_scale scale)
 {
-	if (NULL == (*h = cf_hist_track_create(name))) {
+	if (NULL == (*h = cf_hist_track_create(name, scale))) {
 		cf_crash(AS_AS, "couldn't create histogram: %s", name);
 	}
 
@@ -3013,7 +3014,7 @@ create_and_check_hist_track(cf_hist_track** h, const char* name)
 static void
 create_and_check_hist(histogram** h, const char* name)
 {
-	if (NULL == (*h = histogram_create(name))) {
+	if (NULL == (*h = histogram_create(name, HIST_MILLISECONDS))) {
 		cf_crash(AS_AS, "couldn't create histogram: %s", name);
 	}
 }
@@ -3023,13 +3024,13 @@ cfg_create_all_histograms()
 {
 	as_config* c = &g_config;
 
-	create_and_check_hist_track(&c->rt_hist, "reads");
-	create_and_check_hist_track(&c->q_hist, "query");
-	create_and_check_hist_track(&c->q_rcnt_hist, "query_rec_count");
-	create_and_check_hist_track(&c->ut_hist, "udf");
-	create_and_check_hist_track(&c->wt_hist, "writes_master");
-	create_and_check_hist_track(&c->px_hist, "proxy");
-	create_and_check_hist_track(&c->wt_reply_hist, "writes_reply");
+	create_and_check_hist_track(&c->rt_hist, "reads", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->q_hist, "query", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->q_rcnt_hist, "query_rec_count", HIST_RAW);
+	create_and_check_hist_track(&c->ut_hist, "udf", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->wt_hist, "writes_master", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->px_hist, "proxy", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->wt_reply_hist, "writes_reply", HIST_MILLISECONDS);
 
 	create_and_check_hist(&c->rt_cleanup_hist, "reads_cleanup");
 	create_and_check_hist(&c->rt_net_hist, "reads_net");

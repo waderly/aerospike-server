@@ -38,9 +38,9 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
 
-#include "clock.h"
 #include "fault.h"
 #include "hist.h"
 #include "queue.h"

@@ -28,10 +28,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <citrusleaf/alloc.h>
-#include <citrusleaf/cf_digest.h>
+#include "citrusleaf/alloc.h"
+#include "citrusleaf/cf_clock.h"
+#include "citrusleaf/cf_digest.h"
 
-#include "clock.h"
 #include "msg.h"
 #include "util.h"
 
@@ -63,14 +63,14 @@
 #define MICROBENCHMARK_RESET() \
 { \
 	if (g_config.microbenchmarks) { \
-		tr.microbenchmark_time = cf_getms(); \
+		tr.microbenchmark_time = cf_getns(); \
 	} \
 }
 
 #define MICROBENCHMARK_RESET_P() \
 { \
 	if (g_config.microbenchmarks) { \
-		tr->microbenchmark_time = cf_getms(); \
+		tr->microbenchmark_time = cf_getns(); \
 	} \
 }
 
@@ -80,7 +80,7 @@
 		if (tr.microbenchmark_time) { \
 			histogram_insert_data_point(g_config.__hist_name, tr.microbenchmark_time); \
 		} \
-		tr.microbenchmark_time = cf_getms(); \
+		tr.microbenchmark_time = cf_getns(); \
 	} \
 }
 
@@ -90,7 +90,7 @@
 		if (tr->microbenchmark_time) { \
 			histogram_insert_data_point(g_config.__hist_name, tr->microbenchmark_time); \
 		} \
-		tr->microbenchmark_time = cf_getms(); \
+		tr->microbenchmark_time = cf_getns(); \
 	} \
 }
 

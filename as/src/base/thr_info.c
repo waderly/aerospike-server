@@ -1933,7 +1933,7 @@ info_service_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";transaction-retry-ms=");
 	cf_dyn_buf_append_int(db, g_config.transaction_retry_ms);
 	cf_dyn_buf_append_string(db, ";transaction-max-ms=");
-	cf_dyn_buf_append_int(db, g_config.transaction_max_ms);
+	cf_dyn_buf_append_int(db, (int)(g_config.transaction_max_ns / 1000000));
 	cf_dyn_buf_append_string(db, ";transaction-repeatable-read=");
 	cf_dyn_buf_append_string(db, g_config.transaction_repeatable_read ? "true" : "false");
 	cf_dyn_buf_append_string(db, ";dump-message-above-size=");
@@ -2467,8 +2467,8 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 		else if (0 == as_info_parameter_get(params, "transaction-max-ms", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
 				goto Error;
-			cf_info(AS_INFO, "Changing value of transaction-retry-ms from %d to %d ", g_config.transaction_max_ms, val);
-			g_config.transaction_max_ms = val;
+			cf_info(AS_INFO, "Changing value of transaction-retry-ms from %d to %d ", (g_config.transaction_max_ns / 1000000), val);
+			g_config.transaction_max_ns = (uint64_t)val * 1000000;
 		}
 		else if (0 == as_info_parameter_get(params, "transaction-pending-limit", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
@@ -3844,15 +3844,34 @@ info_command_hist_track(char *name, char *params, cf_dyn_buf *db)
 //
 
 // Error strings for security check results.
-static const char*
-sec_err_str(uint8_t result) {
+static void
+append_sec_err_str(cf_dyn_buf *db, uint32_t result, as_sec_priv cmd_priv) {
 	switch (result) {
 	case AS_SEC_ERR_NOT_AUTHENTICATED:
-		return "security error - not authenticated";
+		cf_dyn_buf_append_string(db, "ERROR:");
+		cf_dyn_buf_append_uint32(db, result);
+		cf_dyn_buf_append_string(db, ":not authenticated");
+		return;
 	case AS_SEC_ERR_ROLE_VIOLATION:
-		return "security error - role violation";
+		switch (cmd_priv) {
+		case PRIV_INDEX_MANAGE:
+			INFO_COMMAND_SINDEX_FAILCODE(result, "role violation");
+			return;
+		case PRIV_UDF_MANAGE:
+			cf_dyn_buf_append_string(db, "error=role_violation");
+			return;
+		default:
+			break;
+		}
+		cf_dyn_buf_append_string(db, "ERROR:");
+		cf_dyn_buf_append_uint32(db, result);
+		cf_dyn_buf_append_string(db, ":role violation");
+		return;
 	default:
-		return "unexpected security error";
+		cf_dyn_buf_append_string(db, "ERROR:");
+		cf_dyn_buf_append_uint32(db, result);
+		cf_dyn_buf_append_string(db, ":unexpected security error");
+		return;
 	}
 }
 
@@ -3874,7 +3893,7 @@ info_all(const as_file_handle* fd_h, cf_dyn_buf *db)
 
 	if (auth_result != AS_PROTO_RESULT_OK) {
 		as_security_log(fd_h, auth_result, PRIV_NONE, "info-all request", NULL);
-		cf_dyn_buf_append_string(db, sec_err_str(auth_result));
+		append_sec_err_str(db, auth_result, PRIV_NONE);
 		cf_dyn_buf_append_char(db, EOL);
 		return 0;
 	}
@@ -3917,7 +3936,7 @@ info_some(char *buf, char *buf_lim, const as_file_handle* fd_h, cf_dyn_buf *db)
 	if (auth_result != AS_PROTO_RESULT_OK) {
 		// TODO - log null-terminated buf as detail?
 		as_security_log(fd_h, auth_result, PRIV_NONE, "info request", NULL);
-		cf_dyn_buf_append_string(db, sec_err_str(auth_result));
+		append_sec_err_str(db, auth_result, PRIV_NONE);
 		cf_dyn_buf_append_char(db, EOL);
 		return 0;
 	}
@@ -4023,7 +4042,7 @@ info_some(char *buf, char *buf_lim, const as_file_handle* fd_h, cf_dyn_buf *db)
 						cmd->command_fn(cmd->name, param, db);
 					}
 					else {
-						cf_dyn_buf_append_string(db, sec_err_str(result));
+						append_sec_err_str(db, result, cmd->required_priv);
 					}
 
 					cf_dyn_buf_append_char( db, EOL );

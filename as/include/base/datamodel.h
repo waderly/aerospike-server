@@ -1088,7 +1088,6 @@ extern void as_namespace_get_bins_info(as_namespace *ns, cf_dyn_buf *db, bool sh
 extern void as_namespace_get_hist_info(as_namespace *ns, char *set_name, char *hist_name,
 		cf_dyn_buf *db, bool show_ns);
 extern int as_namespace_check_set_limits(as_set * p_set, as_namespace * ns);
-extern void as_namespace_histogram_append(as_namespace * ns, linear_histogram * h);
 
 #ifdef USE_JEM
 int as_namespace_set_jem_arena(char *ns, int arena);

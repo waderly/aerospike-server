@@ -33,9 +33,9 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_digest.h"
 
-#include "clock.h"
 #include "dynbuf.h"
 #include "hist.h"
 #include "queue.h"
@@ -301,7 +301,7 @@ batch_process_queue(void* q_to_wait_on)
 		}
 
 		// Check for timeouts.
-		if (btr.end_time != 0 && cf_getms() > btr.end_time) {
+		if (btr.end_time != 0 && cf_getns() > btr.end_time) {
 			cf_atomic_int_incr(&g_config.batch_timeout);
 
 			if (btr.fd_h) {
@@ -314,7 +314,7 @@ batch_process_queue(void* q_to_wait_on)
 		}
 
 		// Process batch request.
-		start = cf_getms();
+		start = cf_getns();
 		batch_process_request(&btr);
 		histogram_insert_data_point(g_config.batch_q_process_hist, start);
 	}

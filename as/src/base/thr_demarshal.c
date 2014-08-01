@@ -33,8 +33,8 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 
-#include "clock.h"
 #include "fault.h"
 #include "jem.h"
 #include "hist.h"
@@ -273,7 +273,8 @@ thr_demarshal(void *arg)
 
 		cf_detail(AS_DEMARSHAL, "epoll event received: nevents %d", nevents);
 
-		uint64_t now = cf_getms();
+		uint64_t now_ns = cf_getns();
+		uint64_t now_ms = now_ns / 1000000;
 
 		// Iterate over all events.
 		for (i = 0; i < nevents; i++) {
@@ -565,7 +566,7 @@ thr_demarshal(void *arg)
 				if (0 == fd_h->proto_unread) {
 
 					// It's only really live if it's injecting a transaction.
-					fd_h->last_used = now;
+					fd_h->last_used = now_ms;
 
 					fd_h->t_inprogress = true; // disallow and/or detect pipelining
 					fd_h->proto = 0;
@@ -578,12 +579,12 @@ thr_demarshal(void *arg)
 					cf_rc_reserve(fd_h);
 					has_extra_ref   = true;
 					tr.proto_fd_h   = fd_h;
-					tr.start_time   = now; // set transaction start time
+					tr.start_time   = now_ns; // set transaction start time
 					tr.preprocessed = false;
 
 					if (g_config.microbenchmarks) {
-						histogram_insert_data_point(g_config.demarshal_hist, now);
-						tr.microbenchmark_time = cf_getms();
+						histogram_insert_data_point(g_config.demarshal_hist, now_ns);
+						tr.microbenchmark_time = cf_getns();
 					}
 
 					// Check if it's compressed.
