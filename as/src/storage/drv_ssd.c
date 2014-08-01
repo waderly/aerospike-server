@@ -547,13 +547,14 @@ is_valid_record(const drv_ssd_block* block, const char* ns_name)
 
 
 int
-ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
-		uint64_t rblock_id, uint32_t n_rblocks, uint64_t filepos)
+ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
+		uint32_t n_rblocks, uint64_t filepos)
 {
+	as_namespace *ns = ssd->ns;
 	as_partition_reservation rsv;
 	as_partition_id pid = as_partition_getid(block->keyd);
 
-	if (! is_valid_record(block, ssds->ns->name)) {
+	if (! is_valid_record(block, ns->name)) {
 		return -3;
 	}
 
@@ -562,16 +563,16 @@ ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
 		block->generation = 1;
 	}
 
-	as_partition_reserve_migrate(ssds->ns, pid, &rsv, 0);
+	as_partition_reserve_migrate(ns, pid, &rsv, 0);
 	cf_atomic_int_incr(&g_config.ssdr_tree_count);
 
 	int rv;
 	as_index_ref r_ref;
 	r_ref.skip_lock = false;
 
-	if ((0 == as_record_get(rsv.tree, &block->keyd, &r_ref, rsv.ns))
-		|| (rsv.ns->ldt_enabled
-				&& (0 == as_record_get(rsv.sub_tree, &block->keyd, &r_ref, rsv.ns)))) {
+	if (0 == as_record_get(rsv.tree, &block->keyd, &r_ref, ns) ||
+			(ns->ldt_enabled &&
+					0 == as_record_get(rsv.sub_tree, &block->keyd, &r_ref, ns))) {
 		as_index *r = r_ref.r;
 
 		if (r->storage_key.ssd.file_id == ssd->file_id &&
@@ -588,13 +589,13 @@ ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
 			}
 
 			as_storage_rd rd;
-			as_storage_record_open(ssds->ns, r, &rd, &block->keyd);
+			as_storage_record_open(ns, r, &rd, &block->keyd);
 
 			as_index_vinfo_mask_set(r,
 					as_partition_vinfoset_mask_unpickle(rsv.p,
 							block->data + block->vinfo_offset,
 							block->vinfo_length),
-					ssds->ns->allow_versions);
+					ns->allow_versions);
 
 			rd.u.ssd.block = block;
 			rd.have_device_block = true;
@@ -632,7 +633,7 @@ ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
 			rv = -1; // record was in index tree - presumably was overwritten
 		}
 
-		as_record_done(&r_ref, ssds->ns);
+		as_record_done(&r_ref, ns);
 	}
 	else {
 		rv = -2; // record was not in index tree - presumably was deleted
@@ -646,10 +647,10 @@ ssd_record_defrag(drv_ssds *ssds, drv_ssd *ssd, drv_ssd_block *block,
 
 
 int
-ssd_defrag_wblock(drv_ssds *ssds, drv_ssd *ssd, uint32_t wblock_id)
+ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id)
 {
-	if (! as_storage_has_space_ssd(ssds->ns)) {
-		cf_warning(AS_DRV_SSD, "{%s}: defrag: drives full", ssds->ns->name);
+	if (! as_storage_has_space_ssd(ssd->ns)) {
+		cf_warning(AS_DRV_SSD, "{%s}: defrag: drives full", ssd->ns->name);
 		return 0;
 	}
 
@@ -756,7 +757,7 @@ ssd_defrag_wblock(drv_ssds *ssds, drv_ssd *ssd, uint32_t wblock_id)
 		}
 
 		// Found a good record, move it if it's current.
-		int rv = ssd_record_defrag(ssds, ssd, block,
+		int rv = ssd_record_defrag(ssd, block,
 				BYTES_TO_RBLOCKS(file_offset + wblock_offset),
 				(uint32_t)BYTES_TO_RBLOCKS(next_wblock_offset - wblock_offset),
 				file_offset + wblock_offset);
@@ -831,21 +832,11 @@ Finished:
 }
 
 
-// TODO - really don't need ssds - deprecate this struct.
-typedef struct {
-	drv_ssds *ssds;
-	drv_ssd *ssd;
-} ssd_defrag_devices_data;
-
 void *
 ssd_defrag_worker_fn(void *udata)
 {
-	ssd_defrag_devices_data *ddd = (ssd_defrag_devices_data*)udata;
-	drv_ssd *ssd = ddd->ssd;
-	drv_ssds *ssds = ddd->ssds;
-
-	cf_free(ddd);
-	ddd = 0;
+	drv_ssd *ssd = (drv_ssd*)udata;
+	as_namespace *ns = ssd->ns;
 
 	uint64_t last_time = cf_get_seconds();
 	uint64_t last_log_time = last_time;
@@ -858,7 +849,7 @@ ssd_defrag_worker_fn(void *udata)
 
 		uint64_t curr_time = cf_get_seconds();
 
-		if ((curr_time - last_time) < ssds->ns->storage_defrag_period) {
+		if ((curr_time - last_time) < ns->storage_defrag_period) {
 			// Period has not been reached.
 			continue;
 		}
@@ -866,8 +857,8 @@ ssd_defrag_worker_fn(void *udata)
 		cf_detail(AS_DRV_SSD, "%s defrag start", ssd->name);
 
 		last_time = curr_time;
-		uint32_t defrag_max_wblocks = ssds->ns->storage_defrag_max_blocks;
-		uint32_t defrag_lwm_pct = ssds->ns->storage_defrag_lwm_pct;
+		uint32_t defrag_max_wblocks = ns->storage_defrag_max_blocks;
+		uint32_t defrag_lwm_pct = ns->storage_defrag_lwm_pct;
 		uint32_t *free_wblocks = cf_malloc(sizeof(uint32_t)*defrag_max_wblocks);
 		uint32_t found_wblocks = 0;
 		uint32_t lwm_size = (ssd->write_block_size * defrag_lwm_pct) / 100;
@@ -933,7 +924,7 @@ ssd_defrag_worker_fn(void *udata)
 				}
 			}
 
-			num_records += ssd_defrag_wblock(ssds, ssd, free_wblocks[i]);
+			num_records += ssd_defrag_wblock(ssd, free_wblocks[i]);
 		}
 
 		cf_free(free_wblocks);
@@ -964,14 +955,10 @@ ssd_start_defrag_threads(drv_ssds *ssds)
 		drv_ssd *ssd = &ssds->ssds[i];
 		cf_info(AS_DRV_SSD, "%s defrag thread started", ssd->name);
 
-		ssd_defrag_devices_data *ddd = cf_malloc(sizeof(ssd_defrag_devices_data));
-		if (!ddd) {
-			cf_crash(AS_DRV_SSD, "memory allocation in defrag thread dispatch");
+		if (pthread_create(&ssd->defrag_thread, NULL, ssd_defrag_worker_fn,
+				(void*)ssd) != 0) {
+			cf_crash(AS_DRV_SSD, "%s defrag thread create failed", ssd->name);
 		}
-
-		ddd->ssds = ssds;
-		ddd->ssd = ssd;
-		pthread_create(&ssd->defrag_thread, 0, ssd_defrag_worker_fn, ddd);
 	}
 }
 
@@ -4166,6 +4153,7 @@ as_storage_wait_for_defrag_ssd(as_namespace *ns)
 	cf_info(AS_DRV_SSD, "{%s} floor set at %u wblocks per device", ns->name,
 			ns->storage_min_free_wblocks);
 }
+
 
 bool
 as_storage_overloaded_ssd(as_namespace *ns)
