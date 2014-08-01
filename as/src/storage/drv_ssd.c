@@ -1591,12 +1591,6 @@ ssd_write_worker(void *arg)
 
 	cf_free(wwa);
 
-	if (ssd->readonly) {
-		// Should never get here. TODO - may as well cf_crash.
-		cf_warning(AS_DRV_SSD, "don't start write worker: readonly mode");
-		return 0;
-	}
-
 	while (ssd->running) {
 		ssd_write_buf *swb;
 
@@ -1693,10 +1687,6 @@ ssd_write_worker(void *arg)
 void
 ssd_start_write_worker_threads(drv_ssds *ssds)
 {
-	if (ssds->ns->storage_readonly) {
-		return;
-	}
-
 	if (ssds->ns->storage_write_threads > MAX_SSD_THREADS) {
 		cf_warning(AS_DRV_SSD, "configured number of write threads %s greater than max, using %d instead",
 				ssds->ns->storage_write_threads, MAX_SSD_THREADS);
@@ -2377,8 +2367,8 @@ ssd_track_free_thread(void *udata)
 		free /= (1000 * 1000);
 		contig /= (1000 * 1000);
 
-		cf_info(AS_DRV_SSD, "device %s: free %zuM contig %zuM %s w-q %d w-free %d swb-free %d w-tot %"PRIu64,
-				ssd->name, free, contig, ssd->readonly ? "READONLY" : "",
+		cf_info(AS_DRV_SSD, "device %s: free %zuM contig %zuM w-q %d w-free %d swb-free %d w-tot %"PRIu64,
+				ssd->name, free, contig,
 				cf_queue_sz(ssd->swb_write_q),
 				cf_queue_sz(ssd->alloc_table->free_wblock_q),
 				cf_queue_sz(ssd->swb_free_q),
@@ -2581,10 +2571,6 @@ as_storage_init_header(as_namespace *ns)
 int
 as_storage_write_header(drv_ssd *ssd, ssd_device_header *header)
 {
-	if (ssd->readonly) {
-		return -1;
-	}
-
 	cf_detail(AS_DRV_SSD, "storage write header: device %s", ssd->name);
 
 	int fd = open(ssd->name, ssd->open_flag, S_IRUSR | S_IWUSR);
@@ -3725,7 +3711,6 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 
 		ssd->use_signature = ns->storage_signature;
 		ssd->data_in_memory = ns->storage_data_in_memory;
-		ssd->readonly = ns->storage_readonly;
 		ssd->write_block_size =
 				check_write_block_size(ns->storage_write_block_size);
 		ssd->file_id = i;
@@ -3798,7 +3783,6 @@ ssd_init_files(as_namespace *ns, drv_ssds **ssds_p)
 		ssd->open_flag = O_RDWR;
 		ssd->use_signature = ns->storage_signature;
 		ssd->data_in_memory = ns->storage_data_in_memory;
-		ssd->readonly = ns->storage_readonly;
 		ssd->write_block_size =
 				check_write_block_size(ns->storage_write_block_size);
 		ssd->file_id = i;
@@ -3897,20 +3881,18 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 		ssd->swb_free_q = 0;
 		ssd->post_write_q = 0;
 
-		if (! ns->storage_readonly) {
-			ssd->swb_write_q = cf_queue_create(sizeof(void*), true);
-			ssd->swb_free_q = cf_queue_create(sizeof(void*), true);
+		ssd->swb_write_q = cf_queue_create(sizeof(void*), true);
+		ssd->swb_free_q = cf_queue_create(sizeof(void*), true);
 
-			if (ssd->swb_write_q == 0 || ssd->swb_free_q == 0) {
-				cf_crash(AS_DRV_SSD, "can't create queue");
-			}
+		if (ssd->swb_write_q == 0 || ssd->swb_free_q == 0) {
+			cf_crash(AS_DRV_SSD, "can't create queue");
+		}
 
-			if (! ns->storage_data_in_memory) {
-				ssd->post_write_q = cf_queue_create(sizeof(void*), false);
+		if (! ns->storage_data_in_memory) {
+			ssd->post_write_q = cf_queue_create(sizeof(void*), false);
 
-				if (! ssd->post_write_q) {
-					cf_crash(AS_DRV_SSD, "can't create post-write queue");
-				}
+			if (! ssd->post_write_q) {
+				cf_crash(AS_DRV_SSD, "can't create post-write queue");
 			}
 		}
 
@@ -4295,10 +4277,6 @@ as_storage_save_evict_void_time_ssd(as_namespace *ns, uint32_t evict_void_time)
 
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd* ssd = &ssds->ssds[i];
-
-		if (ssd->readonly) {
-			continue;
-		}
 
 		int fd = open(ssd->name, ssd->open_flag, S_IRUSR | S_IWUSR);
 

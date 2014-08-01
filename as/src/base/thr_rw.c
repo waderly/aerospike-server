@@ -1125,12 +1125,6 @@ int as_rw_start(as_transaction *tr, bool is_read) {
 			"invalid reservation");
 
 	if (! is_read) {
-		if (tr->rsv.ns->storage_readonly) {
-			cf_debug(AS_RW, "attempting to write to read-only namespace %s", tr->rsv.ns->name);
-			tr->result_code = AS_PROTO_RESULT_FAIL_PARAMETER;
-			return -1;
-		}
-
 		// If we're doing a "real" write, check that we aren't backed up.
 		if ((tr->msgp->msg.info2 & AS_MSG_INFO2_DELETE) == 0 &&
 				as_storage_overloaded(tr->rsv.ns)) {

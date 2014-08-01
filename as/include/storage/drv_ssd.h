@@ -165,7 +165,6 @@ typedef struct drv_ssd_s
 
 	uint64_t		header_size;
 
-	bool			readonly;
 	bool			has_ldt;
 	bool			sub_sweep;
 
