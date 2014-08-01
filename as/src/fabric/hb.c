@@ -66,16 +66,6 @@
 
 
 /*
- *  If defined, log verbosely.
- */
-//#define VERBOSE 1
-
-/*
- *  If defined, certain error conditions will cause a "cf_crash()".
- */
-#define FAIL_FAST 1
-
-/*
  *  Size of the epoll descriptor events set.
  */
 #define EPOLL_SZ (1024)
@@ -314,13 +304,6 @@ as_hb_error(as_hb_err_type type)
 }
 
 /*
- *  Control HB Error Log Spew:
- *    0 means aggregate HB error log messages as counts.
- *    1 means print (spewing) original log messages.
- */
-#define HB_LOG_SPEW 0
-
-/*
  *  as_hb_log_error
  *  Log the number of heartbeat-related errors of each type.
  */
@@ -412,10 +395,9 @@ as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_
 	}
 
 	p_pulse->last = cf_getms();
-	// DEBUG -- ***PSI***  20-Jul-2014
-	cf_info(AS_HB, "HB fabric (%"PRIx64"+%"PRIu64"): addr %08x port %d", node, p_pulse->last, addr, port);
+	cf_debug(AS_HB, "HB fabric (%"PRIx64"+%"PRIu64"): addr %08x port %d", node, p_pulse->last, addr, port);
 
-	// Mark Fabric-initiated heartbeat connections with a negative FD.  ***PSI***  20-Jul-2014
+	// Mark Fabric-initiated heartbeat connections with a negative FD.
 	p_pulse->fd = - fd;
 
 	memset(&p_pulse->socket, 0, sizeof(cf_sockaddr));
@@ -836,8 +818,7 @@ mesh_list_service_fn(void *arg)
 
 			if (mhqe.op == MH_OP_REMOVE_ALL) {
 
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "removing all hosts from mesh list");
+				cf_debug(AS_HB, "removing all hosts from mesh list");
 
 				while (g_hb.mesh_host_list) {
 					e = g_hb.mesh_host_list;
@@ -857,8 +838,7 @@ mesh_list_service_fn(void *arg)
 					e = e->next;
 				}
 
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "adding %s:%d to mesh host list", mhqe.host, mhqe.port);
+				cf_debug(AS_HB, "adding %s:%d to mesh host list", mhqe.host, mhqe.port);
 
 				// add to list
 				e = cf_malloc(sizeof(mesh_host_list_element));
@@ -870,24 +850,19 @@ mesh_list_service_fn(void *arg)
 				e->fd = -1;
 			} else if (mhqe.op == MH_OP_REMOVE_FD) {
 
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "removing fd %d from mesh host list", mhqe.remove_fd);
+				cf_debug(AS_HB, "removing fd %d from mesh host list", mhqe.remove_fd);
 
 				e = g_hb.mesh_host_list;
 				while (e) {
 					if (e->fd == mhqe.remove_fd) {
-
-						// DEBUG -- ***PSI***  17-Jul-2014
-						cf_info(AS_HB, "actually removing fd %d",  mhqe.remove_fd);
-
+						cf_debug(AS_HB, "actually removing fd %d",  mhqe.remove_fd);
 						e->fd = -1;
 						goto NextQueueElement;
 					}
 					e = e->next;
 				}
 
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "did NOT find fd %d in mesh host list",  mhqe.remove_fd);
+				cf_debug(AS_HB, "did NOT find fd %d in mesh host list",  mhqe.remove_fd);
 
 			} else {
 				cf_warning(AS_HB, "recieved bad op service queue message: %d internal error", mhqe.op);
@@ -902,7 +877,6 @@ NextQueueElement:
 
 		e = g_hb.mesh_host_list;
 		if (e) {
-			// DEBUG -- ***PSI***  17-Jul-2014
 			cf_debug(AS_HB, "mesh list service: attempting connections");
 		}
 		while (e) {
@@ -914,12 +888,10 @@ NextQueueElement:
 				s.port = e->port;
 				s.proto = SOCK_STREAM;
 
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "tip: attempting to connect mesh host at %s:%d", e->host, e->port);
+				cf_debug(AS_HB, "tip: attempting to connect mesh host at %s:%d", e->host, e->port);
 
 				if (0 != cf_socket_init_client(&s)) {
-					// DEBUG -- ***PSI***  17-Jul-2014
-					cf_info(AS_HB, "tip: Could not create heartbeat connection to node %s:%d", e->host, e->port);
+					cf_debug(AS_HB, "tip: Could not create heartbeat connection to node %s:%d", e->host, e->port);
 					e = e->next;
 					continue;
 				}
@@ -932,8 +904,6 @@ NextQueueElement:
 
 				// Try to get the client details for better logging.
 				// Otherwise, fall back to generic log message.
-				//getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len);
-				//inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr))
 				if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
 						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
 					cf_info(AS_HB, "mesh_list_service_fn: initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
@@ -1065,10 +1035,7 @@ as_hb_adjacencies_destroy()
 static int
 as_hb_start_receiving(int socket, int was_udp)
 {
-	// DEBUG -- ***PSI***  17-Jul-2014
-#ifdef VERBOSE
-	cf_info(AS_HB, "Heartbeat: starting packet receive on socket fd %d", socket);
-#endif
+	cf_debug(AS_HB, "Heartbeat: starting packet receive on socket fd %d", socket);
 
 	if (!g_hb.adjacencies)
 		as_hb_adjacencies_create();
@@ -1087,8 +1054,7 @@ as_hb_stop_receiving()
 {
 	int socket = g_hb.socket_mcast.s.sock;
 
-	// DEBUG -- ***PSI***  17-Jul-2014
-	cf_info(AS_HB, "Heartbeat: stopping packet receive on socket fd %d", socket);
+	cf_debug(AS_HB, "Heartbeat: stopping packet receive on socket fd %d", socket);
 
 	if (0 > epoll_ctl(g_hb.efd, EPOLL_CTL_DEL, socket, &g_hb.ev))
 		cf_crash(AS_HB,  "unable to remove socket %d from epoll fd list: %s", socket, cf_strerror(errno));
@@ -1179,14 +1145,12 @@ static int
 as_hb_endpoint_add(int socket, bool isudp)
 {
 	if (socket >= AS_HB_TXLIST_SZ) {
-		// DEBUG -- ***PSI***  17-Jul-2014
 		cf_info(AS_HB, "attempting to add heartbeat: socket fd %d too large", socket);
 		return(-1);
 	}
 
 	/* Make the socket nonblocking */
 	if (-1 == cf_socket_set_nonblocking(socket)) {
-		// DEBUG -- ***PSI***  17-Jul-2014
 		cf_info(AS_HB, "unable to set client socket %d to nonblocking mode: %s", socket, cf_strerror(errno));
 		cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
 		return(-1);
@@ -1222,11 +1186,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 		cf_crash(AS_HB, "failed to alloca() a heartbeat pulse of size %d", AS_HB_PULSE_SIZE());
 
 	if (0 > msg_get_uint32(m, AS_HB_MSG_TYPE, &type)) {
-#if HB_LOG_SPEW
-		cf_warning(AS_HB, "unable to get type field");
-#else
+		cf_detail(AS_HB, "unable to get type field");
 		as_hb_error(AS_HB_ERR_NO_TYPE);
-#endif
 		return;
 	}
 
@@ -1236,11 +1197,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 		case AS_HB_MSG_TYPE_PULSE:
 			/* Ignore messages from ourselves */
 			if (0 > msg_get_uint64(m, AS_HB_MSG_NODE, &node)) {
-#if HB_LOG_SPEW
-				cf_warning(AS_HB, "unable to get node ID");
-#else
+				cf_detail(AS_HB, "unable to get node ID");
 				as_hb_error(AS_HB_ERR_NO_NODE_PULSE);
-#endif
 				return;
 			}
 
@@ -1264,11 +1222,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			/* Make sure this is actually a heartbeat message. */
 			uint32_t c;
 			if (0 > msg_get_uint32(m, AS_HB_MSG_ID, &c)) {
-#if HB_LOG_SPEW
-				cf_warning(AS_HB, "received heartbeat message without a valid ID");
-#else
+				cf_detail(AS_HB, "received heartbeat message without a valid ID");
 				as_hb_error(AS_HB_ERR_NO_ID);
-#endif
 				return;
 			}
 
@@ -1282,11 +1237,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			   If the adjacent node vector (ANV) of the incoming message does not agree with our maximum cluster size, simply ignore it. */
 			if (AS_HB_MSG_V1_IDENTIFIER != c) {
 				if (0 > msg_get_uint32(m, AS_HB_MSG_ANV_LENGTH, &c)) {
-#if HB_LOG_SPEW
-					cf_warning(AS_HB, "Received heartbeat protocol v%d message without ANV length ~~ Ignoring message!", AS_HB_PROTOCOL_VERSION_NUMBER(c));
-#else
+					cf_detail(AS_HB, "Received heartbeat protocol v%d message without ANV length ~~ Ignoring message!", AS_HB_PROTOCOL_VERSION_NUMBER(c));
 					as_hb_error(AS_HB_ERR_NO_ANV_LENGTH);
-#endif
 					return;
 				}
 				if (c != g_config.paxos_max_cluster_size) {
@@ -1311,25 +1263,17 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 				p_pulse->new = true;
 			} else if (rv == SHASH_OK) {
 				if (p_pulse->fd != fd) {
-#if HB_LOG_SPEW
-					cf_warning(AS_HB, "received same pulse from other fd, surprising");
-#else
+					cf_detail(AS_HB, "received same pulse from other fd, surprising");
 					if (0 > p_pulse->fd) {
-						cf_info(AS_HB, "Re-setting Fabric-opened HB fd %d to the current fd %d", - p_pulse->fd, fd);
+						cf_detail(AS_HB, "Re-setting Fabric-opened HB fd %d to the current fd %d", - p_pulse->fd, fd);
 						p_pulse->fd = fd;
 					} else {
-#ifdef VERBOSE
-						cf_warning(AS_HB, "Bad Pulse FD: pulse says %d ; received on %d", p_pulse->fd, fd);
-#endif
+						cf_detail(AS_HB, "Bad Pulse FD: pulse says %d ; received on %d", p_pulse->fd, fd);
 						as_hb_error(AS_HB_ERR_BAD_PULSE_FD);
 					}
-#endif
-#if 0 // XXX -- This sucks!!  (Does not work as expected.)  ***PSI***  18-Jul-2014
-					// DEBUG -- ***PSI***  18-Jul-2014
-					cf_warning(AS_HB, "closing redundant HB socket fd %d (same as addr 0x%08x port %d fd %d)", fd, p_pulse->addr, p_pulse->port, p_pulse->fd);
-					shutdown(fd, SHUT_RDWR);
-					return;
-#endif
+					// cf_warning(AS_HB, "closing redundant HB socket fd %d (same as addr 0x%08x port %d fd %d)", fd, p_pulse->addr, p_pulse->port, p_pulse->fd);
+					// shutdown(fd, SHUT_RDWR);
+					// return;
 				}
 			}
 
@@ -1417,22 +1361,13 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 					if (0 == msg_fillbuf(mt, bufm, &n)) {
 						if (AS_HB_MODE_MCAST == g_config.hb_mode) {
 							if (0 > cf_socket_sendto(fd, bufm, n, 0, so)) {
-#if HB_LOG_SPEW
-								cf_warning(AS_HB, "cf_socket_sendto() failed 1");
-#else
+								cf_detail(AS_HB, "cf_socket_sendto() failed 1");
 								as_hb_error(AS_HB_ERR_SENDTO_FAIL_1);
-#endif
 							}
 						} else {
 							if (0 > cf_socket_sendto(fd, bufm, n, 0, 0)) {
-#if HB_LOG_SPEW
-								cf_warning(AS_HB, "cf_socket_sendto() fd %d failed 2", fd);
-#else
+								cf_detail(AS_HB, "cf_socket_sendto() fd %d failed 2", fd);
 								as_hb_error(AS_HB_ERR_SENDTO_FAIL_2);
-#endif
-#if 0 // DEBUG -- ***PSI***  2-Jun-2014
-								close(fd);
-#endif
 							}
 						}
 					} else {
@@ -1448,11 +1383,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 //            fprintf(stderr, "got an info request\n");
 //            msg_dump(m);
 			if (0 > msg_get_uint64(m, AS_HB_MSG_NODE, &node)) {
-#if HB_LOG_SPEW
-				cf_warning(AS_HB, "unable to get node ID");
-#else
+				cf_detail(AS_HB, "unable to get node ID");
 				as_hb_error(AS_HB_ERR_NO_NODE_REQ);
-#endif
 				return;
 			} else {
 				msg *mt = as_fabric_msg_get(M_TYPE_HEARTBEAT);
@@ -1481,19 +1413,13 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 				if (0 == msg_fillbuf(mt, bufm, &n)) {
 					if (AS_HB_MODE_MCAST == g_config.hb_mode) {
 						if (0 > cf_socket_sendto(fd, bufm, n, 0, so)) {
-#if HB_LOG_SPEW
-							cf_warning(AS_HB, "cf_socket_sendto() failed 3");
-#else
+							cf_detail(AS_HB, "cf_socket_sendto() failed 3");
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_3);
-#endif
 						}
 					} else {
 						if (0 > cf_socket_sendto(fd, bufm, n, 0, 0)) {
-#if HB_LOG_SPEW
-							cf_warning(AS_HB, "cf_socket_sendto() fd %d failed 4", fd);
-#else
+							cf_detail(AS_HB, "cf_socket_sendto() fd %d failed 4", fd);
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_4);
-#endif
 						}
 					}
 				} else {
@@ -1509,24 +1435,14 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			if ((0 > msg_get_uint64(m, AS_HB_MSG_NODE, &node)) ||
 					(0 > msg_get_uint32(m, AS_HB_MSG_ADDR, &addr)) ||
 					(0 > msg_get_uint32(m, AS_HB_MSG_PORT, &port))) {
-#if HB_LOG_SPEW
-				cf_warning(AS_HB, "unable to get required field");
-#else
+				cf_detail(AS_HB, "unable to get required field");
 				as_hb_error(AS_HB_ERR_MISSING_FIELD);
-#endif
 				return;
 			}
 
-#if 1
 			// If it's already known, we don't need to connect again
 			if (SHASH_OK == shash_get(g_hb.adjacencies, &node, a_p_pulse))
 				return;
-#else
-			if (SHASH_OK != (rv = shash_put_unique(g_hb.adjacencies, &node, a_p_pulse))) {
-				cf_warning(AS_HB, "Skipping HB info. reply for already-existing node %016lx addr %08x port %d", node, addr, port);
-				return;
-			}
-#endif
 
 			/* If the address or port are zero, just wait; we'll try again
 			 * when the next heartbeat is received */
@@ -1540,8 +1456,7 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 					cf_info(AS_HB, "heartbeat: received suspicious address %s : %s", cpaddr, cf_strerror(errno));
 					return;
 				}
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "connecting to remote heartbeat service: %s:%d", cpaddr, port);
+				cf_debug(AS_HB, "connecting to remote heartbeat service: %s:%d", cpaddr, port);
 
 				// This call does a blocking TCP connect inline
 				cf_socket_cfg s;
@@ -1569,8 +1484,7 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 				// Otherwise, fall back to generic log message.
 				if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
 						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
-					// DEBUG -- ***PSI***  17-Jul-2014
-					cf_info(AS_HB, "info reply: initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
+					cf_debug(AS_HB, "info reply: initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
 				} else {
 					cf_warning(AS_HB, "info reply: failed initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
 				}
@@ -1578,12 +1492,9 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			break;
 
 		default:
-#if HB_LOG_SPEW
-			cf_warning(AS_HB, "incomprehensible message type %d", type);
-#else
+			cf_detail(AS_HB, "incomprehensible message type %d", type);
 			as_hb_error(AS_HB_ERR_BAD_TYPE);
-#endif
-			return;
+			break;
 	}
 
 	return;
@@ -1595,9 +1506,6 @@ void *
 as_hb_thr(void *arg)
 {
 	byte buft[2048], bufr[2048];
-//	size_t bufr_pos[64 * 1024] = { 0 }; // Indexed by fd.
-//	int bufr_pos[64 * 1024] = { 0 }; // Indexed by fd.
-//	byte *bufr_save[64 * 1024] =  { NULL }; // Indexed by fd.
 	msg *mt, *mr;
 	struct epoll_event events[EPOLL_SZ];
 	int nevents, sock = -1;
@@ -1661,7 +1569,6 @@ as_hb_thr(void *arg)
 	 * node */
 	if ((AS_HB_MODE_MESH == g_config.hb_mode) && g_config.hb_init_addr) {
 
-		// DEBUG -- ***PSI***  3-Jun-2014
 		cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_init_addr, g_config.hb_init_port);
 
 		if (0 != mesh_host_list_add(g_config.hb_init_addr, g_config.hb_init_port)) {
@@ -1690,8 +1597,7 @@ as_hb_thr(void *arg)
 					cf_crash(AS_HB, "accept failed: %s", cf_strerror(errno));
 				if (NULL == inet_ntop(AF_INET, &caddr.sin_addr.s_addr, (char *) cpaddr, sizeof(cpaddr)))
 					cf_crash(AS_HB, "inet_ntop failed: %s", cf_strerror(errno));
-				// DEBUG -- ***PSI***  17-Jul-2014
-				cf_info(AS_HB, "new connection from %s:%d", cpaddr, caddr.sin_port);
+				cf_debug(AS_HB, "new connection from %s:%d", cpaddr, caddr.sin_port);
 
 				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
 				as_hb_endpoint_add(csock, false /*is not udp*/);
@@ -1723,10 +1629,12 @@ CloseSocket:
 					}
 					cf_detail(AS_HB, "received %d bytes, calling msg_parse", r);
 					if (r > 0) {
-						if (0 > msg_parse(mr, bufr, r, false))
-							cf_warning(AS_HB, "unable to parse heartbeat message");
-						else
+						if (0 > msg_parse(mr, bufr, r, false)) {
+							cf_detail(AS_HB, "unable to parse heartbeat message");
+							as_hb_error(AS_HB_ERR_UNPARSABLE_MSG);
+						} else {
 							as_hb_rx_process(mr, from, fd);
+						}
 						msg_reset(mr);
 					} else {
 						cf_warning(AS_HB, "about to goto CloseSocket....");
@@ -1755,13 +1663,6 @@ CloseSocket:
 				cf_crash(AS_HB, "internal error: could not create heartbeat message");
 			}
 
-			// DEBUG -- ***PSI***  29-May-2014
-			static bool once = false;
-			if (!once) {
-				once = true;
-				cf_info(AS_HB, "Heartbeat TX Size:  n = %zu (0x%x)", n, n);
-			}
-
 			for (int i = 0; i < AS_HB_TXLIST_SZ; i++) {
 				if (true == g_hb.endpoint_txlist[i]) {
 					if (true == g_hb.endpoint_txlist_isudp[i]) {
@@ -1774,34 +1675,15 @@ CloseSocket:
 						cf_sockaddr_convertto(&so, &dest);
 
 						if (0 > cf_socket_sendto(i, buft, n, 0, dest)) {
-#if HB_LOG_SPEW
-							cf_warning(AS_HB, "cf_socket_sendto() failed 5");
-#else
+							cf_detail(AS_HB, "cf_socket_sendto() failed 5");
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_5);
-#endif
 						}
 					} else { // tcp
-						// DEBUG -- ***PSI***  29-May-2014
+
 						cf_detail(AS_HB, "sending tcp heartbeat to index %d : msg size %zu", i, n);
 						if (0 > cf_socket_sendto(i, buft, n, 0, 0)) {
-#if HB_LOG_SPEW
-							cf_warning(AS_HB, "cf_socket_sendto() fd %d failed 6", i);
-#else
+							cf_detail(AS_HB, "cf_socket_sendto() fd %d failed 6", i);
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_6);
-#endif
-
-// NOTE:  Disabling for now, but this case better be handled correctly!!  ***PSI***  13-Jun-2014
-#if 0 // XXX & DEBUG -- ***PSI***  2-Jun-2014
-							g_hb.endpoint_txlist[i] = false;
-							cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
-							mesh_host_list_remove_fd(i);
-							if (0 > epoll_ctl(g_hb.efd, EPOLL_CTL_DEL, i, &g_hb.ev))
-							  cf_crash(AS_HB, "unable to remove socket %d from epoll fd list: %s", i, cf_strerror(errno));
-#if 0 // XXX -- ***PSI***  4-Jun-2014
-							// XXX -- Not closing for now as a test....  ***PSI***  4-Jun-2014
-							close(i);
-#endif
-#endif
 						}
 					}
 				}
@@ -1880,11 +1762,8 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 		if (p->dunned) {
 			cf_debug(AS_HB, "hb considers expiring: now %"PRIu64" last %"PRIu64, now, p->last);
 		} else {
-#if HB_LOG_SPEW
 			cf_info(AS_HB, "hb considers expiring: now %"PRIu64" last %"PRIu64, now, p->last);
-#else
 			as_hb_error(AS_HB_ERR_EXPIRE_HB);
-#endif
 		}
 	}
 
@@ -1896,11 +1775,8 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 				if (p->dunned) {
 					cf_debug(AS_HB, "hb expires but fabric says DEAD: node %"PRIx64, id);
 				} else {
-#if HB_LOG_SPEW
 					cf_info(AS_HB, "hb expires but fabric says DEAD: node %"PRIx64, id);
-#else
 					as_hb_error(AS_HB_ERR_EXPIRE_FAB_DEAD);
-#endif
 				}
 
 				node_expired = true;
@@ -1908,11 +1784,8 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 				if (p->dunned) {
 					cf_debug(AS_HB, "hb expires but fabric says ALIVE: lasttime %"PRIu64" node %"PRIx64, fabric_lasttime, id);
 				} else {
-#if HB_LOG_SPEW
 					cf_info(AS_HB, "hb expires but fabric says ALIVE: lasttime %"PRIu64" node %"PRIx64, fabric_lasttime, id);
-#else
 					as_hb_error(AS_HB_ERR_EXPIRE_FAB_ALIVE);
-#endif
 				}
 
 				node_expired = false;

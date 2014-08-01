@@ -6683,7 +6683,7 @@ as_info_init()
 	// All commands accepted by asinfo/telnet
 	as_info_set("help", "alloc-info;asm;build;bins;config-get;config-set;digests;"
 				"dump-fabric;dump-hb;dump-migrates;dump-msgs;dump-paxos;dump-smd;"
-				"dump-wb;dump-wb-summary;dump-wr;dun;get-config;hist-dump;"
+				"dump-wb;dump-wb-summary;dump-wr;dun;get-config;get-sl;hist-dump;"
 				"hist-track-start;hist-track-stop;jem-stats;jobs;latency;log;log-set;"
 				"logs;mcast;mem;mesh;mstats;mtrace;name;namespace;namespaces;"
 				"node;service;services;services-alumni;set-config;set-log;sets;set-sl;"

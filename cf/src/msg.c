@@ -186,19 +186,19 @@ int
 msg_parse(msg *m, const uint8_t *buf, const size_t buflen, bool copy)
 {
 	if (buflen < 6) {
-		cf_info(CF_MSG,"msg_parse: but not enough data! will get called again len %d need 6.",buflen);
+		cf_debug(CF_MSG,"msg_parse: but not enough data! will get called again len %d need 6.",buflen);
 		return(-2);
 	}
 	uint32_t len = ntohl( *(uint32_t *) buf );
 	if (buflen < len + 6) {
-		cf_info(CF_MSG,"msg_parse: but not enough data! will get called again. buf %p len %d need %d",buf, buflen, (len + 6));
+		cf_debug(CF_MSG,"msg_parse: but not enough data! will get called again. buf %p len %d need %d",buf, buflen, (len + 6));
 		return(-2);
 	}
 	buf += 4;
 
 	uint16_t type = ntohs( *(uint16_t *) buf );
 	if (m->type != type) {
-		cf_info(CF_MSG,"msg_parse: trying to parse incoming type %d into msg type %d, bad bad",type, m->type);
+		cf_debug(CF_MSG,"msg_parse: trying to parse incoming type %d into msg type %d, bad bad",type, m->type);
 		return(-1);
 	}
 	buf += 2;

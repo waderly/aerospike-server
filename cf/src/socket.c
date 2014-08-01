@@ -121,7 +121,7 @@ cf_socket_send(int sock, void *buf, size_t buflen, int flags)
 	int i;
 	flags |= MSG_NOSIGNAL;
 	if (0 >= (i = send(sock, buf, buflen, flags))) {
-		cf_warning(CF_SOCKET, "send() failed: %d %s", errno, cf_strerror(errno));
+		cf_debug(CF_SOCKET, "send() failed: %d %s", errno, cf_strerror(errno));
 	}
 
 	return(i);
@@ -146,7 +146,7 @@ cf_socket_recvfrom(int sock, void *buf, size_t buflen, int flags, cf_sockaddr *f
 	flags |= MSG_NOSIGNAL;
 
 	if (0 >= (i = recvfrom(sock, buf, buflen, flags, (struct sockaddr *)fp, &fl))) {
-		cf_warning(CF_SOCKET, "recvfrom() failed: %d %s", errno, cf_strerror(errno));
+		cf_debug(CF_SOCKET, "recvfrom() failed: %d %s", errno, cf_strerror(errno));
 		if (from) memset(from, 0, sizeof(cf_sockaddr));
 	}
 	else{
@@ -173,7 +173,7 @@ cf_socket_sendto(int sock, void *buf, size_t buflen, int flags, cf_sockaddr to)
 	flags |= MSG_NOSIGNAL;
 
 	if (0 >= (i = sendto(sock, buf, buflen, flags, (struct sockaddr *)sp, sizeof(const struct sockaddr))))
-		cf_info(CF_SOCKET, "sendto() failed: %d %s", errno, cf_strerror(errno));
+		cf_debug(CF_SOCKET, "sendto() failed: %d %s", errno, cf_strerror(errno));
 
 	return(i);
 }
