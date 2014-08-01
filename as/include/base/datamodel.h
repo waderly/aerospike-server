@@ -879,7 +879,6 @@ struct as_namespace_s {
 	uint32_t	storage_num_write_blocks;
 	bool		storage_data_in_memory;    // true if the DRAM copy is always kept
 	bool    	storage_signature;
-	bool		storage_readonly;
 	bool		storage_disable_odirect;
 	uint32_t	storage_defrag_period;
 	uint32_t	storage_defrag_max_blocks;
