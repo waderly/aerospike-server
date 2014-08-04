@@ -496,13 +496,21 @@ udf_rw_post_processing(udf_record *urecord, udf_optype *urecord_op, uint16_t set
 			&urecord->pickled_rec_props, true/*increment_generation*/,
 			NULL, r_ref->r, rd, urecord->starting_memory_bytes);
 
-		// Now ok to accommodate a new stored key.
+		// Now ok to accommodate a new stored key...
 		if (! as_index_is_flag_set(r_ref->r, AS_INDEX_FLAG_KEY_STORED) && rd->key) {
 			if (rd->ns->storage_data_in_memory) {
 				as_record_allocate_key(r_ref->r, rd->key, rd->key_size);
 			}
 
 			as_index_set_flags(r_ref->r, AS_INDEX_FLAG_KEY_STORED);
+		}
+		// ... or drop a stored key.
+		else if (as_index_is_flag_set(r_ref->r, AS_INDEX_FLAG_KEY_STORED) && ! rd->key) {
+			if (rd->ns->storage_data_in_memory) {
+				as_record_remove_key(r_ref->r);
+			}
+
+			as_index_clear_flags(r_ref->r, AS_INDEX_FLAG_KEY_STORED);
 		}
 	}
 

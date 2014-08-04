@@ -821,7 +821,11 @@ udf_record_drop_key(const as_rec * rec)
 		return -1;
 	}
 
-	// TODO - remove the key here
+	// Flag the key to be dropped.
+	if (urecord->rd->key) {
+		urecord->rd->key = NULL;
+		urecord->rd->key_size = 0;
+	}
 
 	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
 

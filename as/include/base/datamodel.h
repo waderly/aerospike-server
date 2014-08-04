@@ -486,6 +486,7 @@ extern void as_record_destroy(as_record *r, as_namespace *ns);
 extern void as_record_done(as_index_ref *r_ref, as_namespace *ns);
 
 extern void as_record_allocate_key(as_record* r, const uint8_t* key, uint32_t key_size);
+extern void as_record_remove_key(as_record* r);
 
 extern int as_record_pickle(as_record *r, as_storage_rd *rd, uint8_t **buf_r, size_t *len_r);
 extern int as_record_pickle_a_delete(byte **buf_r, size_t *len_r);
