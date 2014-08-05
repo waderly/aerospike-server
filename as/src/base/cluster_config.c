@@ -220,9 +220,6 @@ cc_add_group(cluster_config_t * cc, cc_group_t group_id ) {
 		}
 	}
 
-	if( DEBUG )
-		printf("<><><> ADD GROUP:: Found(%d) GroupID(%04x) NDX(%d)\n", found, group_id, group_index );
-
 	return group_index;
 } // end add_group()
 
@@ -233,9 +230,7 @@ cc_add_group(cluster_config_t * cc, cc_group_t group_id ) {
  */
 int
 cc_add_node_group_entry(cluster_config_t * cc, cc_node_t node, cc_group_t group ) {
-	static char * meth = "add_node_group_entry()";
 	int rc = 0;
-//	printf("[ENTER]<%s:%s> node(%u) group(%u)\n", MOD, meth, node, group );
 
 	// Look for the group -- if found, then save the index.
 	// And, if not found, add it, and save the index.
@@ -247,10 +242,8 @@ cc_add_node_group_entry(cluster_config_t * cc, cc_node_t node, cc_group_t group 
 	// Quick validation step -- if the membership array shows a NON-negative
 	// entry, point that out, but ALSO
 	if( cc->membership[node_ndx]  > 0 && cc->membership[node_ndx] != group_ndx) {
-		cf_debug(AS_PARTITION, "[ERROR]<%s:%s>Adding NODE(%d) GROUP(%d) SET(%d)",
-				MOD, meth, node, group, cc->membership[node_ndx] );
-//		printf( "[ERROR]<%s:%s>Adding NODE[%d](%u) GROUP[%d](%u) MEM(%d) \n",
-//				MOD, meth, node_ndx, node, group_ndx, group, cc->membership[node_ndx] );
+		cf_debug(AS_PARTITION, "Adding node(%d) group(%d) set(%d)",
+				node, group, cc->membership[node_ndx] );
 		rc = -1;
 	}
 
@@ -270,9 +263,7 @@ cc_add_node_group_entry(cluster_config_t * cc, cc_node_t node, cc_group_t group 
  */
 int
 cc_add_fullnode_group_entry(cluster_config_t * cc, cf_node fullnode ) {
-	static char * meth = "add_fullnode_group_entry()";
 	int rc = 0;
-//	printf("[ENTER]<%s:%s> fullnode(%"PRIx64")\n", MOD, meth, fullnode );
 
 	// Look for the group -- if found, then save the index.
 	// And, if not found, add it, and save the index.
@@ -285,8 +276,8 @@ cc_add_fullnode_group_entry(cluster_config_t * cc, cf_node fullnode ) {
 	// Quick validation step -- if the membership array shows a NON-negative
 	// entry, point that out, but ALSO
 	if( cc->membership[node_ndx]  > 0 && cc->membership[node_ndx] != group_ndx) {
-		cf_debug(AS_PARTITION, "[ERROR]<%s:%s>Adding FULLNODE[%d](%"PRIx64") MEMBER(%d) \n",
-				MOD, meth, node_ndx, fullnode, cc->membership[node_ndx] );
+		cf_debug(AS_PARTITION, "Adding fullnode[%d](%"PRIx64") member(%d)",
+				node_ndx, fullnode, cc->membership[node_ndx] );
 		rc = -1;
 	}
 
@@ -309,8 +300,6 @@ cc_add_fullnode_group_entry(cluster_config_t * cc, cf_node fullnode ) {
  */
 int
 cc_locate_node_group(cluster_config_t * cc, cc_node_t node_id ) {
-//	static char * meth = "locate_node_group()";
-//	printf("[ENTER]<%s:%s> Locate Node ID (%u)\n", MOD, meth, node_id );
 
 	int node_index = cc_locate_node( cc, node_id );
 	int group_index = cc->membership[ node_index];
@@ -381,14 +370,13 @@ cc_show_cluster_state( cluster_config_t * cc )
 	if (CL_MODE_NO_TOPOLOGY == g_config.cluster_mode) {
 		cf_info(AS_PARTITION, "Rack Aware is disabled.");
 	} else {
-		cf_info(AS_PARTITION, "\nRack Aware is enabled.  Mode: %s.",
+		cf_info(AS_PARTITION, "Rack Aware is enabled.  Mode: %s.",
 				(CL_MODE_STATIC == g_config.cluster_mode ? CL_STR_STATIC : CL_STR_DYNAMIC));
 
 		// For each group -- print out the stats.  This is somewhat
 		// inefficient (N squared for N groups), but we don't expect N to
 		// be a large number (usually under 10, NEVER over 64).
-		cf_info(AS_PARTITION, "\n<<CLUSTER REPORT>> <<CLUSTER REPORT>> <<CLUSTER REPORT>> <<CLUSTER REPORT>>" );
-		cf_info(AS_PARTITION, "\n<< CLUSTER STATE(%s) SelfNode(%"PRIx64") Group Count(%d) Total Node Count(%d) >>",
+		cf_info(AS_PARTITION, "CLUSTER STATE(%s) SelfNode(%"PRIx64") Group Count(%d) Total Node Count(%d)",
 				cc_state_str[cc->cluster_state], g_config.self_node, cc->group_count, cc->node_count );
 		for( i = 0; i < cc->group_count; i++ ) {
 			sprintf(print_buf, "Group(%04x) GroupNodeCount(%u):: ",
@@ -399,7 +387,7 @@ cc_show_cluster_state( cluster_config_t * cc )
 					sprintf(&(print_buf[buf_pos - 1]), " Node(%"PRIx64") ", cc->full_node_val[j]);
 				}
 			}
-			cf_info(AS_PARTITION, "\n<<%s>>", print_buf );
+			cf_info(AS_PARTITION, "%s", print_buf );
 		} // for each group
 	} // Rack Aware Mode
 } // end cc_show_cluster_state()
@@ -423,13 +411,6 @@ cc_get_cluster_state( cluster_config_t * cc )
 		result = balanced;
 		cf_info(AS_PARTITION, "Rack Aware is enabled.  Mode: %s.",
 				(CL_MODE_STATIC == g_config.cluster_mode ? CL_STR_STATIC : CL_STR_DYNAMIC));
-
-		if( DEBUG ) {
-			printf("<< CLUSTER DEBUG:: Group Count(%d) >> \n", cc->group_count );
-			for( i = 0; i < cc->group_count; i++ ) {
-				printf("::Group(%d)[%04x] NodeCount(%d) \n", i, cc->group_ids[i], cc->group_node_count[i] );
-			} // for each group
-		}
 
 		// For each group, check the counts; if they are not equal, then
 		// declare this cluster unbalanced, and print out the counts.
