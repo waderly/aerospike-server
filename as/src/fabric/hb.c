@@ -134,10 +134,12 @@ typedef struct mesh_host_queue_element_s {
 #define AS_HB_MAX_CALLBACKS 7
 typedef struct as_hb_s {
 	shash *adjacencies;
+	shash *discovered_list;
 
 #define AS_HB_TXLIST_SZ 1024 * 64
 	bool endpoint_txlist[AS_HB_TXLIST_SZ];
 	bool endpoint_txlist_isudp[AS_HB_TXLIST_SZ];
+	cf_node endpoint_txlist_node_id[AS_HB_TXLIST_SZ]; //HB BUG: to monitor the nodeId of a fd : we should have a hash to maintain txlist instead of array
 
 	struct epoll_event ev;
 	int efd;
@@ -238,7 +240,7 @@ typedef struct {
 
 static void as_hb_init_socket();
 static void as_hb_reinit(int socket, bool isudp);
-static int as_hb_endpoint_add(int socket, bool isudp);
+static int as_hb_endpoint_add(int socket, bool isudp, cf_node node_id);
 
 typedef enum as_hb_err_type_e
 {
@@ -369,6 +371,164 @@ as_hb_getaddr(cf_node node, cf_sockaddr *so)
 
 	return(0);
 }
+
+//HB Bug
+//Putting them as 5 for now, but logically there can only be two one from either side will change it to 2 after some testing
+#define AS_HB_MAX_OPEN_CONN_PER_NODE 5  
+
+typedef struct discovered_node_conn_s {
+	int fd; //TODO add more parameter for debugging
+}discovered_node_conn_t;
+
+typedef struct discovered_node_hval_s {
+	int                  num_conn;
+	discovered_node_conn_t   conn[AS_HB_MAX_OPEN_CONN_PER_NODE];
+}discovered_node_hval_t;
+
+
+static void
+init_discovered_node_conn(discovered_node_conn_t * ap_conn)
+{
+	if(ap_conn) {
+		ap_conn->fd = -1;
+	}
+}
+
+static void 
+init_discovered_node_hval(discovered_node_hval_t * ap_hval)
+{
+	if(ap_hval) {
+		ap_hval->num_conn  = 0;
+		for ( int i = 0 ; i < AS_HB_MAX_OPEN_CONN_PER_NODE ; i++) {
+			init_discovered_node_conn(&ap_hval->conn[i]);
+		}
+	}
+}
+
+static int
+as_hb_nodes_discovered_hash_create()
+{
+	/* Create the discovered hash and zero the tx list */
+	if (SHASH_OK != shash_create(&g_hb.discovered_list, cf_nodeid_shash_fn, sizeof(cf_node), sizeof(discovered_node_hval_t), 127, SHASH_CR_MT_MANYLOCK))
+		cf_crash(AS_HB, "could not create nodes discovered hash table");
+
+	return(0);
+}
+
+static int
+as_hb_nodes_discovered_hash_dstry()
+{
+	//clean up code still to implemented
+	return(0);
+}
+
+static bool
+as_hb_nodes_discovered_hash_is_conn(cf_node node)
+{
+
+	pthread_mutex_t *vlock = NULL;
+	bool ret = false;
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_is_conn  node %"PRIx64"", node);
+
+	discovered_node_hval_t * p_hval = NULL;
+
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.discovered_list, &node, (void **)&p_hval, &vlock)) {
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_is_conn node %"PRIx64" not conn", node);
+		return ret;
+	}
+
+	for ( int i = 0 ; i < AS_HB_MAX_OPEN_CONN_PER_NODE ; i++) {
+		if (p_hval->conn[i].fd != -1) {
+			cf_detail(AS_HB, "as_hb_nodes_discovered_hash_is_conn node %"PRIx64" conn[%d] fd:[%d] ", node, i, p_hval->conn[i].fd );
+			ret = true;
+			break;
+		}
+	}
+	pthread_mutex_unlock(vlock);
+	return ret;
+}
+
+static int
+as_hb_nodes_discovered_hash_del_conn(cf_node node, int fd)
+{
+	pthread_mutex_t *vlock = NULL;
+	int ret = -1;
+	bool found = false;
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn  node %"PRIx64"", node);
+
+	discovered_node_hval_t * p_hval = NULL;
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.discovered_list, &node, (void **)&p_hval, &vlock)) {
+		cf_warning(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" not found", node);
+	}
+	else {
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] num curr conn before deleting %d", node, fd, p_hval->num_conn);
+		for ( int i = 0 ; i < AS_HB_MAX_OPEN_CONN_PER_NODE ; i++ ) {
+			if (p_hval->conn[i].fd == fd) {
+				cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" conn[%d] fd:[%d] ", node, i, fd);
+				p_hval->conn[i].fd = -1;
+				p_hval->num_conn--;
+				found = true;
+				ret = 0;
+				break;
+			}
+		}
+		pthread_mutex_unlock(vlock);
+		if (!found) {
+			cf_warning(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] not found", node, fd);
+		}
+	}
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] num curr conn after deleting %d", node, fd, p_hval->num_conn);
+	return(ret);
+}
+
+static int
+as_hb_nodes_discovered_hash_put_conn(cf_node node, int fd)
+{
+	pthread_mutex_t *vlock = NULL;
+	int ret = 0;
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_put_conn  node %"PRIx64" fd %d", node, fd);
+
+	discovered_node_hval_t * p_hval = NULL;
+
+	discovered_node_hval_t l_hval;
+
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.discovered_list, &node, (void **)&p_hval, &vlock)) {
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_put_conn node %"PRIx64" not conn", node);
+		init_discovered_node_hval(&l_hval);
+		p_hval = &l_hval;
+	}
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_put_conn node %"PRIx64" fd:[%d] num curr conn before adding %d", node, fd, p_hval->num_conn);
+
+	for ( int i = 0 ; i < AS_HB_MAX_OPEN_CONN_PER_NODE ; i++) {
+		if (p_hval->conn[i].fd == -1) {
+			p_hval->conn[i].fd = fd;
+			p_hval->num_conn++;
+			cf_detail(AS_HB, "as_hb_nodes_discovered_hash_put_conn node %"PRIx64" conn[%d] fd:[%d]", node, i, p_hval->conn[i].fd );
+			break;
+		}
+	}
+
+	if (vlock) {
+		pthread_mutex_unlock(vlock);
+	} else {
+		int rv = shash_put_unique(g_hb.discovered_list, &node, p_hval);
+		if (rv == SHASH_ERR_FOUND) {
+			cf_info(AS_HB, "as_hb_nodes_discovered_hash_put_conn node found in discovered list");
+			ret = as_hb_nodes_discovered_hash_put_conn(node, fd); //calling recursively
+		} else if (rv != 0) {
+			cf_warning(AS_HB, "as_hb_nodes_discovered_hash_put_conn unable to update discovered_list");
+			ret = -1;
+		}
+	}
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_put_conn node %"PRIx64" fd:[%d] num curr conn after addition %d", node, fd, p_hval->num_conn);
+	return ret;
+}
+
 
 void
 as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_t addr, uint32_t port, cf_node *buf, size_t bufsz)
@@ -923,7 +1083,7 @@ NextQueueElement:
 
 				// simply adds the socket to the epoll list
 				// if this call fails, sock has been eaten
-				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/)) {
+				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/, 0 /*dont know the node id still*/)) {
 					close(s.sock);
 				} else {
 					e->fd = s.sock;
@@ -1026,6 +1186,7 @@ as_hb_adjacencies_create()
 		cf_crash(AS_HB, "could not create adjacency hash table");
 	memset(g_hb.endpoint_txlist, 0, sizeof(g_hb.endpoint_txlist));
 	memset(g_hb.endpoint_txlist_isudp, 0, sizeof(g_hb.endpoint_txlist_isudp));
+	memset(g_hb.endpoint_txlist_node_id, 0, sizeof(g_hb.endpoint_txlist_node_id));
 
 	return(0);
 }
@@ -1041,7 +1202,7 @@ as_hb_adjacencies_destroy()
 }
 
 static int
-as_hb_start_receiving(int socket, int was_udp)
+as_hb_start_receiving(int socket, int was_udp, cf_node node_id)
 {
 	cf_debug(AS_HB, "Heartbeat: starting packet receive on socket fd %d", socket);
 
@@ -1053,6 +1214,11 @@ as_hb_start_receiving(int socket, int was_udp)
 
 	g_hb.endpoint_txlist[socket] = true;
 	g_hb.endpoint_txlist_isudp[socket] = was_udp;
+	g_hb.endpoint_txlist_node_id[socket] = node_id; 
+	if ( node_id != 0 ) { 
+		//add this connection to discovered hash
+		as_hb_nodes_discovered_hash_put_conn (node_id, socket);
+	}
 
 	return(0);
 }
@@ -1111,7 +1277,7 @@ as_hb_set_protocol(hb_protocol_enum protocol)
 				g_config.hb_protocol = AS_HB_PROTOCOL_NONE;
 			}
 
-			as_hb_start_receiving(socket, s_was_udp);
+			as_hb_start_receiving(socket, s_was_udp, 0 /*multicast node id not required*/);
 			g_config.hb_protocol = protocol;
 			break;
 
@@ -1150,7 +1316,7 @@ as_hb_set_protocol(hb_protocol_enum protocol)
 /* as_hb_endpoint_add
  * Add a new endpoint to listen to */
 static int
-as_hb_endpoint_add(int socket, bool isudp)
+as_hb_endpoint_add(int socket, bool isudp, cf_node node_id)
 {
 	if (socket >= AS_HB_TXLIST_SZ) {
 		cf_info(AS_HB, "attempting to add heartbeat: socket fd %d too large", socket);
@@ -1168,7 +1334,7 @@ as_hb_endpoint_add(int socket, bool isudp)
 	g_hb.ev.events = EPOLLIN | EPOLLERR | EPOLLRDHUP;  // level-triggered!
 	g_hb.ev.data.fd = socket;
 
-	as_hb_start_receiving(socket, isudp);
+	as_hb_start_receiving(socket, isudp, node_id);
 
 	return(0);
 }
@@ -1262,6 +1428,12 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 
 			as_hb_pulse *p_pulse;
 			pthread_mutex_t *vlock = NULL;
+
+			//HB Bug: check in for node associated with the fd for mesh
+			if ((AS_HB_MODE_MESH == g_config.hb_mode) && (g_hb.endpoint_txlist_node_id[fd] == 0)) {
+				g_hb.endpoint_txlist_node_id[fd] = node;
+				as_hb_nodes_discovered_hash_put_conn(node,fd);
+			}
 
 			int rv = shash_get_vlock(g_hb.adjacencies, &node, (void **) &p_pulse, &vlock);
 			if (rv == SHASH_ERR_NOTFOUND) {
@@ -1456,6 +1628,11 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			 * when the next heartbeat is received */
 			if (0 == addr || 0 == port)
 				return;
+			//HB BUG: check discovered node data with this node id
+			if(as_hb_nodes_discovered_hash_is_conn(node)) {//HB BUG: checking for node in discovered hash
+				cf_detail(AS_HB, "as_hb_rx_process node already connected, returning");
+				return;
+			}
 
 			{
 				// unwind the address
@@ -1478,9 +1655,10 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 					return;
 				}
 				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
-				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/)) {
+				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/, node)) {
 					cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
 					close(s.sock);
+					return;
 				}
 				struct sockaddr_in addr_in;
 				socklen_t addr_len = sizeof(addr_in);
@@ -1608,7 +1786,7 @@ as_hb_thr(void *arg)
 				cf_debug(AS_HB, "new connection from %s:%d", cpaddr, caddr.sin_port);
 
 				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
-				as_hb_endpoint_add(csock, false /*is not udp*/);
+				as_hb_endpoint_add(csock, false /*is not udp*/, 0 /*node id not known till pulse come*/);
 
 			} else {
 				/* Catch remotely-closed connections */
@@ -1616,6 +1794,11 @@ as_hb_thr(void *arg)
 CloseSocket:
 					cf_info(AS_HB, "remote close: fd %d event %x", fd, events[i].events);
 					g_hb.endpoint_txlist[fd] = false;
+					//HB Bug :remove for discovered list
+					if (g_hb.endpoint_txlist_node_id[fd]) {
+						as_hb_nodes_discovered_hash_del_conn(g_hb.endpoint_txlist_node_id[fd], fd);
+					}
+					g_hb.endpoint_txlist_node_id[fd] = 0;
 					cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
 					mesh_host_list_remove_fd(fd);
 					if (0 > epoll_ctl(g_hb.efd, EPOLL_CTL_DEL, fd, &g_hb.ev))
@@ -1730,7 +1913,7 @@ void as_hb_copy_to_paxos(cf_node id, cf_node *anv)
 	// i is the position for this node
 	cf_detail(AS_HB, "SETTING index %d, node %"PRIx64"", i, id);
 	g_config.hb_paxos_succ_list_index[i] =  id;
-	memcpy (g_config.hb_paxos_succ_list[i], anv, sizeof(cf_node) * g_config.paxos_max_cluster_size);
+	memcpy (g_config.hb_paxos_succ_list[i], anv, sizeof(cf_node) * g_config.paxos_max_cluster_size); //adding anv of a node to hb paxos_succ_list
 }
 
 /* as_hb_monitor_reduce
@@ -2013,7 +2196,7 @@ as_hb_init()
 		cf_warning(AS_HB, "Re-setting hb_interval from %d to minimum value %d", g_config.hb_interval, AS_HB_MIN_INTERVAL);
 		g_config.hb_interval = AS_HB_MIN_INTERVAL;
 	}
-
+	as_hb_nodes_discovered_hash_create();
 	as_hb_adjacencies_create();
 
 	/* Start a thread to monitor the adjacency hash for failed nodes */
@@ -2083,7 +2266,7 @@ as_hb_reinit(int socket, bool isudp)
 
 	as_hb_init_socket();
 
-	as_hb_start_receiving(socket, isudp);
+	as_hb_start_receiving(socket, isudp, 0 /*node*/);
 }
 
 /* as_hb_start
