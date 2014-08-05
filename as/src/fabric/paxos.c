@@ -2571,8 +2571,10 @@ as_paxos_thr(void *arg)
 				 * send a commit message and reset the vote count */
 				switch(as_paxos_transaction_vote(s, qm->id, &t)) {
 					case AS_PAXOS_TRANSACTION_VOTE_ACCEPT:
+						cf_warning(AS_PAXOS, "received %d from %"PRIx64"", AS_PAXOS_TRANSACTION_VOTE_ACCEPT, qm->id);
+						break;
 					case AS_PAXOS_TRANSACTION_VOTE_REJECT:
-						/* FIXME What happens in the rejected vote case? */
+						cf_warning(AS_PAXOS, "received %d from %"PRIx64"", AS_PAXOS_TRANSACTION_VOTE_REJECT, qm->id);
 						break;
 					case AS_PAXOS_TRANSACTION_VOTE_QUORUM:
 						reply = as_paxos_msg_wrap(s, as_paxos_state_next(c, ACK));
