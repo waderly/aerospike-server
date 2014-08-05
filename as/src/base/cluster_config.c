@@ -29,9 +29,6 @@
 #include "base/cluster_config.h"
 #include "fabric/paxos.h"
 
-// Help with tracing -- show module and last update date.
-static char * MOD = "cluster_config.c::2013:06:12";
-static bool DEBUG = false;
 
 // String defined for the various cluster states
 const char * cc_state_str[] = {"unknown", "balanced", "unbalanced", "invalid"};
