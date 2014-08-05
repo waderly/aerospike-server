@@ -397,16 +397,24 @@ as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_
 	p_pulse->last = cf_getms();
 	cf_debug(AS_HB, "HB fabric (%"PRIx64"+%"PRIu64"): addr %08x port %d", node, p_pulse->last, addr, port);
 
+	// Don't steal or remember the file descriptor from fabric. Fabric is using it,
+	// and pain breaks out if we use it.
 	// Mark Fabric-initiated heartbeat connections with a negative FD.
-	p_pulse->fd = - fd;
+//	p_pulse->fd = - fd;
 
-	memset(&p_pulse->socket, 0, sizeof(cf_sockaddr));
+	// This was already 0'd in the case of new pulse, and clearing it for old pulse
+	// seems dangerous.
+//	memset(&p_pulse->socket, 0, sizeof(cf_sockaddr));
 
-	if (AS_HB_MODE_MCAST == g_config.hb_mode) {
-		p_pulse->socket = socket;
-	} else if (AS_HB_MODE_MESH == g_config.hb_mode) {
-		p_pulse->addr = addr;
-		p_pulse->port = port;
+	// If this is a new pulse message, we will keep track of the socket and addr.
+	// Not sure that keeping the socket is safe for MCAST, but going to try it for now.
+	if (p_pulse->new) {
+		if (AS_HB_MODE_MCAST == g_config.hb_mode) {
+			p_pulse->socket = socket;
+		} else if (AS_HB_MODE_MESH == g_config.hb_mode) {
+			p_pulse->addr = addr;
+			p_pulse->port = port;
+		}
 	}
 
 	// copy the succession list into the pulse structure
