@@ -91,6 +91,14 @@ cf_socket_set_nonblocking(int s)
 	return(1);
 }
 
+void
+cf_socket_set_nodelay(int s)
+{
+	int flag = 1;
+	setsockopt(s, SOL_TCP, TCP_NODELAY, &flag, sizeof(flag));
+}
+
+
 /* cf_socket_recv
  * Read from a service socket */
 int
@@ -388,6 +396,7 @@ Success:	;
 
 	return(0);
 }
+
 
 /* cf_socket_close
  * Close a socket originally opened listening

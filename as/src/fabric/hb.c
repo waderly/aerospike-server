@@ -1329,6 +1329,7 @@ as_hb_endpoint_add(int socket, bool isudp, cf_node node_id)
 		cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
 		return(-1);
 	}
+	cf_socket_set_nodelay(socket);
 
 	/* Put the socket in the event queue and update the transmit list */
 	g_hb.ev.events = EPOLLIN | EPOLLERR | EPOLLRDHUP;  // level-triggered!
