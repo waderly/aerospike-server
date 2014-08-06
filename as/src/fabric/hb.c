@@ -1340,6 +1340,37 @@ as_hb_endpoint_add(int socket, bool isudp, cf_node node_id)
 	return(0);
 }
 
+/* as_hb_tcp_send
+ * send hb protocol message and retry after 100 u sec in case of EAGAIN 
+ * and EWOULDBLOCK*/
+
+static int 
+as_hb_tcp_send(int fd, byte * buff, size_t msg_size) 
+{  
+	int ret = 0;
+	int retry = 0;
+	const int max_retry = 3;
+	size_t orig_size = msg_size;
+	do {
+		cf_detail(AS_HB, "cf_socket_sendto() fd %d retry count:%d msg_size:%d", fd, retry, msg_size);
+		ret =  cf_socket_sendto(fd, buff, msg_size, 0, 0);
+		if( ( ret < 0 ) && (( errno != EAGAIN ) || ( errno != EWOULDBLOCK ))) {
+			cf_detail(AS_HB, "as_hb_tcp_send cf_socket_sendto() fd %d", fd);
+			return -1;
+		} else if (ret > 0) {
+			buff += ret; //incrementing buff pointer
+			msg_size -= ret;//decreasing msg_size to be sent
+		}
+		retry++;
+		usleep(100);
+	} while ( (msg_size > 0) && (retry < max_retry) );
+
+	if ( (msg_size != 0)  && (msg_size != orig_size) ) {
+		cf_warning(AS_HB, "as_hb_tcp_send cf_socket_sendto() fd %d incomplete msg sent", fd);
+	}
+	return (orig_size - msg_size);
+}
+
 /* as_hb_rx_process
  * Process a received heartbeat */
 void
@@ -1546,8 +1577,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 								as_hb_error(AS_HB_ERR_SENDTO_FAIL_1);
 							}
 						} else {
-							if (0 > cf_socket_sendto(fd, bufm, n, 0, 0)) {
-								cf_detail(AS_HB, "cf_socket_sendto() fd %d failed 2", fd);
+							if (0 > as_hb_tcp_send(fd, bufm, n)) {
+								cf_detail(AS_HB, "as_hb_tcp_send() fd %d failed 2", fd);
 								as_hb_error(AS_HB_ERR_SENDTO_FAIL_2);
 							}
 						}
@@ -1598,8 +1629,8 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_3);
 						}
 					} else {
-						if (0 > cf_socket_sendto(fd, bufm, n, 0, 0)) {
-							cf_detail(AS_HB, "cf_socket_sendto() fd %d failed 4", fd);
+						if (0 > as_hb_tcp_send(fd, bufm, n)) {
+							cf_detail(AS_HB, "as_hb_tcp_send() fd %d failed 4", fd);
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_4);
 						}
 					}
@@ -1873,8 +1904,8 @@ CloseSocket:
 					} else { // tcp
 
 						cf_detail(AS_HB, "sending tcp heartbeat to index %d : msg size %zu", i, n);
-						if (0 > cf_socket_sendto(i, buft, n, 0, 0)) {
-							cf_detail(AS_HB, "cf_socket_sendto() fd %d failed 6", i);
+						if (0 > as_hb_tcp_send(i, buft, n)) {
+							cf_detail(AS_HB, "as_hb_tcp_send() fd %d failed 6", i);
 							as_hb_error(AS_HB_ERR_SENDTO_FAIL_6);
 						}
 					}
@@ -1885,7 +1916,7 @@ CloseSocket:
 			// g_hb.time_last = now;
 			// this takes the average of where we are and where we should be, which is far more accurate
 			// but has the chance of catching back up after a glitch
-			g_hb.time_last = (g_config.hb_interval + g_hb.time_last + now) / 2;
+			g_hb.time_last = ((g_config.hb_interval / 2) + (g_hb.time_last / 2) + (now / 2));
 		}
 	} while (1);
 
