@@ -880,9 +880,8 @@ struct as_namespace_s {
 	bool		storage_data_in_memory;    // true if the DRAM copy is always kept
 	bool    	storage_signature;
 	bool		storage_disable_odirect;
-	uint32_t	storage_defrag_period;
-	uint32_t	storage_defrag_max_blocks;
 	uint32_t	storage_defrag_lwm_pct;
+	uint32_t	storage_defrag_sleep;
 	int			storage_defrag_startup_minimum;
 	uint32_t	storage_min_avail_pct;
 	uint32_t	storage_write_smoothing_period;
@@ -904,7 +903,7 @@ struct as_namespace_s {
 	uint64_t	ssd_size;
 	uint64_t	kv_size;
 	bool		cond_write;  // true if writing uniqueness is to be enforced by the KV store.
-	float		lwm, hwm_disk, hwm_memory;
+	float		hwm_disk, hwm_memory;
 	float   	stop_writes_pct;
 	uint32_t	evict_tenths_pct;
 	uint64_t	default_ttl;
@@ -913,8 +912,9 @@ struct as_namespace_s {
 	int			storage_min_free_wblocks; // the number of wblocks per device to "reserve"
 	int			storage_last_avail_pct; // most recently calculated available percent
 	int			storage_max_write_q; // storage_max_write_cache is converted to this
-	uint32_t	saved_defrag_period; // restore after defrag at startup is done
+	uint32_t	saved_defrag_sleep; // restore after defrag at startup is done
 	uint32_t	saved_write_smoothing_period; // restore after defrag at startup is done
+	uint32_t	defrag_lwm_size; // storage_defrag_lwm_pct % of storage_write_block_size
 
 	/* very interesting counters */
 	cf_atomic_int	n_objects;
@@ -1075,7 +1075,7 @@ extern as_namespace *as_namespace_get_bymsgfield(struct as_msg_field_s *fp);
 extern as_namespace *as_namespace_get_bymsgfield_unswap(struct as_msg_field_s *fp);
 extern as_namespace *as_namespace_get_bybuf(uint8_t *name, size_t len);
 extern as_namespace_id as_namespace_getid_bymsgfield(struct as_msg_field_s *fp);
-extern void as_namespace_eval_write_state(as_namespace *ns, bool *lwm_breached, bool *hwm_breached, bool *stop_writes, bool chk_disk, bool chk_memory);
+extern void as_namespace_eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_writes);
 extern void as_namespace_bless(as_namespace *ns);
 extern int as_namespace_get_create_set(as_namespace *ns, const char *set_name, uint16_t *p_set_id, bool check_threshold);
 extern as_set * as_namespace_init_set(as_namespace *ns, const char *set_name);

@@ -119,7 +119,6 @@ as_namespace_create(char *name, uint16_t replication_factor)
 	ns->hwm_disk = 0.5; // default high water mark for eviction is 50%
 	ns->hwm_memory = 0.6; // default high water mark for eviction is 60%
 	ns->ldt_enabled = false; // By default ldt is not enabled
-	ns->lwm = 0.00; // default eviction low water mark is 0%
 	ns->obj_size_hist_max = OBJ_SIZE_HIST_NUM_BUCKETS;
 	ns->single_bin = false;
 	ns->stop_writes_pct = 0.9; // stop writes when 90% of either memory or disk is used
@@ -133,9 +132,8 @@ as_namespace_create(char *name, uint16_t replication_factor)
 	ns->storage_scheduler_mode = NULL; // null indicates default is to not change scheduler mode
 	ns->storage_write_block_size = 1024 * 1024;
 	ns->storage_defrag_lwm_pct = 50; // defrag if occupancy of block is < 50%
-	ns->storage_defrag_max_blocks = 4000; // maximum number of blocks to defrag at one time
-	ns->storage_defrag_period = 1; // run defrag check every second
 	ns->storage_defrag_startup_minimum = 10; // defrag until >= 10% disk is writable before joining cluster
+	ns->storage_defrag_sleep = 1000; // sleep this many microseconds between each wblock
 	ns->storage_max_write_cache = 1024 * 1024 * 64;
 	ns->storage_min_avail_pct = 5; // stop writes when < 5% disk is writable
 	ns->storage_num_write_blocks = 64; // number of write blocks to use with KV store devices
@@ -343,14 +341,13 @@ as_namespace_getid_bymsgfield(as_msg_field *fp)
 #define CL_TERA_BYTES	1099511627776L
 #define CL_PETA_BYTES	1125899906842624L
 
-void as_namespace_eval_write_state(as_namespace *ns, bool *lwm_breached, bool *hwm_breached, bool *stop_writes, bool chk_memory, bool chk_disk)
+void
+as_namespace_eval_write_state(as_namespace *ns, bool *hwm_breached, bool *stop_writes)
 {
 	cf_assert(ns, AS_NAMESPACE, CF_WARNING, "NULL namespace");
 	cf_assert(hwm_breached, AS_NAMESPACE, CF_WARNING, "NULL parameter, hwm_breached");
-	cf_assert(lwm_breached, AS_NAMESPACE, CF_WARNING, "NULL parameter, lwm_breached");
 	cf_assert(stop_writes, AS_NAMESPACE, CF_WARNING, "NULL parameter, stop_writes");
 
-	*lwm_breached = false;
 	*hwm_breached = false;
 	*stop_writes = false;
 
@@ -358,28 +355,21 @@ void as_namespace_eval_write_state(as_namespace *ns, bool *lwm_breached, bool *h
 	uint64_t mem_lim = ns->memory_size;
 	uint64_t ssd_lim = ns->ssd_size;
 
-	/* Compute the [low,high]-watermarks - memory*/
-	uint64_t mem_lwm = mem_lim * ns->lwm;
+	// Compute the high-watermarks - memory.
 	uint64_t mem_hwm = mem_lim * ns->hwm_memory;
 	uint64_t mem_stop_writes = mem_lim * ns->stop_writes_pct;
-	cf_assert((mem_lwm <= mem_hwm), AS_NAMESPACE, CF_WARNING, "low-water mark is greater than high-water mark");
 
-	/* Compute the [low,high]-watermarks - disk*/
-	uint64_t ssd_lwm = ssd_lim * ns->lwm;
+	// Compute the high-watermark - disk.
 	uint64_t ssd_hwm = ssd_lim * ns->hwm_disk;
-	cf_assert((ssd_lwm <= ssd_hwm), AS_NAMESPACE, CF_WARNING, "low-water mark is greater than high-water mark");
 
 	// compute disk size of namespace
 	uint64_t disk_sz = 0;
 	int disk_avail_pct = 0;
-	if (chk_disk) {
-		as_storage_stats(ns, &disk_avail_pct, &disk_sz);
-	}
-	// During cold-start (chk_disk false) don't get disk_sz - it's meaningless
-	// because of the "start full and subtract" used-size accounting method.
+
+	as_storage_stats(ns, &disk_avail_pct, &disk_sz);
 
 	// Protection check! Make sure we are not wrapped around for the disk_sz and erroneously evict!
-	if (chk_disk && disk_sz > CL_PETA_BYTES) {
+	if (disk_sz > CL_PETA_BYTES) {
 		cf_warning(AS_NAMESPACE, "namespace disk bytes big %"PRIu64" please bring node down to reset counter", disk_sz);
 		disk_sz = 0;
 	}
@@ -396,15 +386,6 @@ void as_namespace_eval_write_state(as_namespace *ns, bool *lwm_breached, bool *h
 	uint64_t data_in_memory_sz = cf_atomic_int_get(ns->n_bytes_memory);
 	uint64_t memory_sz = index_sz + data_in_memory_sz + sindex_sz;
 
-	// check if low water mark is breached
-	if (chk_memory && (memory_sz > mem_lwm)) {
-		*lwm_breached = true;
-	}
-
-	if (chk_disk && (disk_sz > ssd_lwm)) {
-		*lwm_breached = true;
-	}
-
 	// Possible reasons for eviction or stopping writes.
 	// (We don't use all combinations, but in case we change our minds...)
 	static const char* reasons[] = {
@@ -414,12 +395,12 @@ void as_namespace_eval_write_state(as_namespace *ns, bool *lwm_breached, bool *h
 	// check if the high water mark is breached
 	uint32_t how_breached = 0x0;
 
-	if (chk_memory && (memory_sz > mem_hwm)) {
+	if (memory_sz > mem_hwm) {
 		*hwm_breached = true;
 		how_breached = 0x1;
 	}
 
-	if (chk_disk && (disk_sz > ssd_hwm)) {
+	if (disk_sz > ssd_hwm) {
 		*hwm_breached = true;
 		how_breached |= 0x2;
 	}
@@ -427,34 +408,23 @@ void as_namespace_eval_write_state(as_namespace *ns, bool *lwm_breached, bool *h
 	// check if the writes should be stopped
 	uint32_t why_stopped = 0x0;
 
-	if (chk_memory && (memory_sz > mem_stop_writes)) {
+	if (memory_sz > mem_stop_writes) {
 		*stop_writes = true;
 		why_stopped = 0x1;
 	}
 
-	if (chk_disk && (disk_avail_pct < (int)ns->storage_min_avail_pct)) {
+	if (disk_avail_pct < (int)ns->storage_min_avail_pct) {
 		*stop_writes = true;
 		why_stopped |= 0x4;
 	}
 
 	if (*hwm_breached || *stop_writes) {
-		if (chk_disk) {
-			cf_info(AS_NAMESPACE, "{%s} hwm_breached %s%s, stop_writes %s%s, memory sz:%"PRIu64" (%"PRIu64" + %"PRIu64") hwm:%"PRIu64" sw:%"PRIu64", disk sz:%"PRIu64" hwm:%"PRIu64,
-					ns->name, *hwm_breached ? "true" : "false", reasons[how_breached], *stop_writes ? "true" : "false", reasons[why_stopped],
-					memory_sz, index_sz, data_in_memory_sz, mem_hwm, mem_stop_writes,
-					disk_sz, ssd_hwm);
-		}
-		else {
-			// During cold-start (chk_disk false) don't show disk info - no
-			// meaningful used-size value is even available, because of the
-			// "start full and subtract" used-size accounting method.
-			cf_info(AS_NAMESPACE, "{%s} hwm_breached %s%s, stop_writes %s%s, memory sz:%"PRIu64" (%"PRIu64" + %"PRIu64") hwm:%"PRIu64" sw:%"PRIu64,
-					ns->name, *hwm_breached ? "true" : "false", reasons[how_breached], *stop_writes ? "true" : "false", reasons[why_stopped],
-					memory_sz, index_sz, data_in_memory_sz, mem_hwm, mem_stop_writes);
-		}
+		cf_info(AS_NAMESPACE, "{%s} hwm_breached %s%s, stop_writes %s%s, memory sz:%"PRIu64" (%"PRIu64" + %"PRIu64") hwm:%"PRIu64" sw:%"PRIu64", disk sz:%"PRIu64" hwm:%"PRIu64,
+				ns->name, *hwm_breached ? "true" : "false", reasons[how_breached], *stop_writes ? "true" : "false", reasons[why_stopped],
+				memory_sz, index_sz, data_in_memory_sz, mem_hwm, mem_stop_writes,
+				disk_sz, ssd_hwm);
 	}
 	else {
-		// For debug, don't bother hiding disk info during cold-start.
 		cf_debug(AS_NAMESPACE, "{%s} hwm_breached %s%s, stop_writes %s%s, memory sz:%"PRIu64" (%"PRIu64" + %"PRIu64") hwm:%"PRIu64" sw:%"PRIu64", disk sz:%"PRIu64" hwm:%"PRIu64,
 				ns->name, *hwm_breached ? "true" : "false", reasons[how_breached], *stop_writes ? "true" : "false", reasons[why_stopped],
 				memory_sz, index_sz, data_in_memory_sz, mem_hwm, mem_stop_writes,

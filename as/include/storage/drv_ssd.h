@@ -145,11 +145,13 @@ typedef struct drv_ssd_s
 	cf_queue		*fd_q;				// queue of open fds
 
 	cf_queue		*free_wblock_q;		// IDs of free wblocks
+	cf_queue		*defrag_wblock_q;	// IDs of wblocks to defrag
 
 	cf_queue		*swb_write_q;		// pointers to swbs ready to write
 	cf_queue		*swb_free_q;		// pointers to swbs free and waiting
 	cf_queue		*post_write_q;		// pointers to swbs that have been written but are cached
 
+	cf_atomic_int	defrag_wblock_counter; // total number of wblocks added to the defrag_wblock_q
 	cf_atomic_int	ssd_write_buf_counter; // total number of swbs added to the swb_write_q
 
 	off_t			file_size;
@@ -211,7 +213,6 @@ typedef struct drv_ssds_s
 // Private API - for enterprise separation only
 //
 
-void push_wblock_to_queue(drv_ssd *ssd, uint32_t wblock_id, e_free_to free_to);
 void ssd_resume_devices(drv_ssds *ssds);
 
 //

@@ -231,7 +231,6 @@ typedef struct as_config_s {
 
 	/* tuning parameter for how often to run nsup to evict data in a namespace */
 	uint32_t			nsup_period;
-	uint32_t			nsup_auto_hwm_pct; // where auto-hwm kicks in: ie, 10 pct free
 	uint32_t			nsup_queue_hwm; // tsvc queue hwm check
 	uint32_t			nsup_queue_lwm; // tsvc queue lwm check
 	uint32_t			nsup_queue_escape; // tsvc queue lwm check
@@ -260,11 +259,6 @@ typedef struct as_config_s {
 	cf_atomic_int		migrate_num_incoming;
 	// For debouncing re-tansmitted migrate start messages:
 	int					migrate_rx_lifetime_ms;
-
-	uint32_t			defrag_queue_hwm; // write queue hwm check
-	uint32_t			defrag_queue_lwm; // write queue lwm check
-	uint32_t			defrag_queue_escape; // write queue wait limit
-	uint32_t			defrag_queue_priority; // ms to wait per loop (0 ok)
 
 	uint32_t			fb_health_msg_per_burst; // health probe paxos messages per "burst"
 	uint32_t			fb_health_msg_timeout; // milliseconds after which to give up on health probe message

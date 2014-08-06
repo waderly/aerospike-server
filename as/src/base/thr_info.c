@@ -1884,16 +1884,6 @@ info_service_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_int(db, g_config.nsup_queue_lwm);
 	cf_dyn_buf_append_string(db, ";nsup-queue-escape=");
 	cf_dyn_buf_append_int(db, g_config.nsup_queue_escape);
-	cf_dyn_buf_append_string(db, ";defrag-queue-hwm=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_hwm);
-	cf_dyn_buf_append_string(db, ";defrag-queue-lwm=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_lwm);
-	cf_dyn_buf_append_string(db, ";defrag-queue-escape=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_escape);
-	cf_dyn_buf_append_string(db, ";defrag-queue-priority=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_priority);
-	cf_dyn_buf_append_string(db, ";nsup-auto-hwm-pct=");
-	cf_dyn_buf_append_int(db, g_config.nsup_auto_hwm_pct);
 	cf_dyn_buf_append_string(db, ";nsup-startup-evict=");
 	cf_dyn_buf_append_string(db, g_config.nsup_startup_evict ? "true" : "false");
 	cf_dyn_buf_append_string(db, ";paxos-retransmit-period=");
@@ -2025,9 +2015,6 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";memory-size=");
 	cf_dyn_buf_append_uint64(db, ns->memory_size);
 
-	cf_dyn_buf_append_string(db, ";low-water-pct=");
-	cf_dyn_buf_append_int(db, ns->lwm * 100);
-
 	cf_dyn_buf_append_string(db, ";high-water-disk-pct=");
 	cf_dyn_buf_append_int(db, ns->hwm_disk * 100);
 
@@ -2083,11 +2070,10 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	if (ns->storage_type == AS_STORAGE_ENGINE_SSD) {
 
 		info_append_uint64("", "total-bytes-disk", ns->ssd_size, db);
-		info_append_uint64("", "defrag-period", ns->storage_defrag_period, db);
-		info_append_uint64("", "defrag-max-blocks", ns->storage_defrag_max_blocks, db);
 		info_append_uint64("", "defrag-lwm-pct", ns->storage_defrag_lwm_pct, db);
-		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
+		info_append_uint64("", "defrag-sleep", ns->storage_defrag_sleep, db);
 		info_append_uint64("", "defrag-startup-minimum", ns->storage_defrag_startup_minimum, db);
+		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
 		info_append_uint64("", "max-write-cache", ns->storage_max_write_cache, db);
 		info_append_uint64("", "min-avail-pct", ns->storage_min_avail_pct, db);
 		info_append_uint64("", "post-write-queue", (uint64_t)ns->storage_post_write_queue, db);
@@ -2505,30 +2491,6 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			cf_info(AS_INFO, "Changing value of nsup-queue-escape from %d to %d ", g_config.nsup_queue_escape, val);
 			g_config.nsup_queue_escape = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-hwm", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-hwm from %d to %d ", g_config.defrag_queue_hwm, val);
-			g_config.defrag_queue_hwm = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-lwm", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-lwm from %d to %d ", g_config.defrag_queue_lwm, val);
-			g_config.defrag_queue_lwm = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-escape", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-escape from %d to %d ", g_config.defrag_queue_escape, val);
-			g_config.defrag_queue_escape = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-priority", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-priority from %d to %d ", g_config.defrag_queue_priority, val);
-			g_config.defrag_queue_priority = val;
 		}
 		else if (0 == as_info_parameter_get(params, "paxos-retransmit-period", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
@@ -3111,11 +3073,6 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			cf_info(AS_INFO, "Changing value of memory-size of ns %s from %d to %d ", ns->name, ns->memory_size, val);
 			ns->memory_size = val;
 		}
-		else if (0 == as_info_parameter_get(params, "low-water-pct", context, &context_len)) {
-			cf_debug(AS_INFO, "low water pct = %1.3f", atof(context) / (float)100);
-			cf_info(AS_INFO, "Changing value of low-water-pct of ns %s from %1.3f to %1.3f ", ns->name, ns->lwm, atof(context) / (float)100);
-			ns->lwm = atof(context) / (float)100;
-		}
 		else if (0 == as_info_parameter_get(params, "high-water-pct", context, &context_len)) {
 			cf_info(AS_INFO, "Changing value of high-water-pct disk of ns %s from %1.3f to %1.3f ", ns->name, ns->hwm_disk, atof(context) / (float)100);
 			ns->hwm_disk = atof(context) / (float)100;
@@ -3205,26 +3162,20 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			}
 		}
-		else if (0 == as_info_parameter_get(params, "defrag-period", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of defrag-period of ns %s from %d to %d ", ns->name, ns->storage_defrag_period, val);
-			ns->storage_defrag_period = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-max-blocks", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of defrag-max-blocks of ns %s from %d to %d ", ns->name, ns->storage_defrag_max_blocks, val);
-			ns->storage_defrag_max_blocks = val;
-		}
 		else if (0 == as_info_parameter_get(params, "defrag-lwm-pct", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of defrag-lwm-pct of ns %s from %d to %d ", ns->name, ns->storage_defrag_lwm_pct, val);
 			ns->storage_defrag_lwm_pct = val;
+			ns->defrag_lwm_size = (ns->storage_write_block_size * ns->storage_defrag_lwm_pct) / 100;
+		}
+		else if (0 == as_info_parameter_get(params, "defrag-throttle", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val)) {
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of defrag-sleep of ns %s from %u to %d", ns->name, ns->storage_defrag_sleep, val);
+			ns->storage_defrag_sleep = (uint32_t)val;
 		}
 		else if (0 == as_info_parameter_get(params, "enable-xdr", context, &context_len)) {
 			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
