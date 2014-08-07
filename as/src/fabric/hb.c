@@ -374,7 +374,7 @@ as_hb_getaddr(cf_node node, cf_sockaddr *so)
 
 //HB Bug
 //Putting them as 5 for now, but logically there can only be two one from either side will change it to 2 after some testing
-#define AS_HB_MAX_OPEN_CONN_PER_NODE 5  
+#define AS_HB_MAX_OPEN_CONN_PER_NODE 2
 
 typedef struct discovered_node_conn_s {
 	int fd; //TODO add more parameter for debugging
