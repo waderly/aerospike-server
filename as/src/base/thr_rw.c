@@ -3372,7 +3372,9 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 			return -1;
 		}
 	}
-	else if (tr->store_key) {
+	// If we got a key without a digest, it's an old client, not a cue to store
+	// the key. (Remove this check when we're sure all old C clients are gone.)
+	else if (as_msg_field_get(m, AS_MSG_FIELD_TYPE_DIGEST_RIPE)) {
 		// Key not stored for this record - store one if sent from client. For
 		// data-in-memory, don't allocate the key until we reach the point of no
 		// return. Also don't set AS_INDEX_FLAG_KEY_STORED flag until then.
