@@ -75,8 +75,9 @@ typedef enum {
 // For sizing the storage API "v-tables".
 #define AS_STORAGE_ENGINE_TYPES 4
 
-// For invalidating the ssd.file_id bits in as_index.
-#define STORAGE_INVALID_FILE_ID 0x3F // 6 bits
+// For invalidating the ssd.file_id and ssd.rblock_id bits in as_index.
+#define STORAGE_INVALID_FILE_ID	0x3F // 6 bits
+#define STORAGE_INVALID_RBLOCK	0x3FFFFffff // 34 bits
 
 // Forward declarations.
 struct drv_ssd_s;

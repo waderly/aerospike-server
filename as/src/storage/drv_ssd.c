@@ -392,6 +392,8 @@ void
 ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks, char *msg)
 {
 	if (n_rblocks == 0) {
+		cf_warning(AS_DRV_SSD, "%s: %s: freeing 0 rblocks, rblock_id %lu",
+				ssd->name, msg, rblock_id);
 		return;
 	}
 
@@ -1989,13 +1991,6 @@ ssd_write(as_record *r, as_storage_rd *rd)
 
 	if (STORAGE_RBLOCK_IS_VALID(r->storage_key.ssd.rblock_id)) {
 		// Replacing an old record.
-
-		// temp "available percent" bug hunting:
-		if (r->storage_key.ssd.n_rblocks == 0) {
-			cf_warning(AS_DRV_SSD, "accounting: replacing 0-size record %lx",
-					*(uint64_t*)&r->key);
-		}
-
 		old_ssd = rd->u.ssd.ssd;
 		old_rblock_id = r->storage_key.ssd.rblock_id;
 		old_n_rblocks = r->storage_key.ssd.n_rblocks;
@@ -3027,6 +3022,10 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		ssd_block_free(&ssds->ssds[r->storage_key.ssd.file_id],
 				r->storage_key.ssd.rblock_id, r->storage_key.ssd.n_rblocks,
 				"record-add");
+		ssd->record_add_replace_counter++;
+	}
+	else {
+		ssd->record_add_unique_counter++;
 	}
 
 	// Update storage accounting to include this record.
@@ -3035,8 +3034,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	// TODO - pass in size instead of n_rblocks.
 	uint32_t size = (uint32_t)RBLOCKS_TO_BYTES(n_rblocks);
 
-	// TODO - leave this atomic in case we ever do multi-threaded device load?
-	cf_atomic64_add(&ssd->inuse_size, (int64_t)size);
+	ssd->inuse_size += size;
 	ssd->alloc_table->wblock_state[wblock_id].inuse_sz += size;
 
 	// Set/reset the record's storage information.
@@ -3050,7 +3048,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	}
 
 	as_record_done(&r_ref, ns);
-	ssd->record_add_success_counter++;
+
 	return 0;
 }
 
@@ -3240,10 +3238,10 @@ ssd_load_devices_fn(void *udata)
 		ssd_load_device_sweep(ssds, ssd);
 	}
 
-	cf_info(AS_DRV_SSD, "device %s: read complete: READ %"PRIu64" (GEN %"PRIu64") (EXPIRED %"PRIu64") (MAX-TTL %"PRIu64") records",
-		ssd->name, ssd->record_add_success_counter,
-		ssd->record_add_generation_counter, ssd->record_add_expired_counter,
-		ssd->record_add_max_ttl_counter);
+	cf_info(AS_DRV_SSD, "device %s: read complete: UNIQUE %"PRIu64" (REPLACED %"PRIu64") (GEN %"PRIu64") (EXPIRED %"PRIu64") (MAX-TTL %"PRIu64") records",
+		ssd->name, ssd->record_add_unique_counter,
+		ssd->record_add_replace_counter, ssd->record_add_generation_counter,
+		ssd->record_add_expired_counter, ssd->record_add_max_ttl_counter);
 
 	if (ssd->record_add_sigfail_counter) {
 		cf_warning(AS_DRV_SSD, "devices %s: WARNING: %"PRIu64" elements could not be read due to signature failure. Possible hardware errors.",
@@ -3968,6 +3966,7 @@ as_storage_record_create_ssd(as_namespace *ns, as_record *r, as_storage_rd *rd,
 	rd->u.ssd.must_free_block = NULL;
 	rd->u.ssd.ssd = 0;
 
+	// Should already look like this, but ...
 	r->storage_key.ssd.file_id = STORAGE_INVALID_FILE_ID;
 	r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
 	r->storage_key.ssd.n_rblocks = 0;

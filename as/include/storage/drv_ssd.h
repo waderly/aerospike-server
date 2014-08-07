@@ -175,7 +175,8 @@ typedef struct drv_ssd_s
 	uint64_t		record_add_generation_counter;	// records not inserted due to generation
 	uint64_t		record_add_expired_counter;		// records not inserted due to expiration
 	uint64_t		record_add_max_ttl_counter;		// records not inserted due to max-ttl
-	uint64_t		record_add_success_counter;		// records inserted or reinserted
+	uint64_t		record_add_replace_counter;		// records reinserted
+	uint64_t		record_add_unique_counter;		// records inserted
 	uint64_t		record_add_sigfail_counter;
 
 	ssd_alloc_table	*alloc_table;
@@ -220,8 +221,6 @@ void ssd_resume_devices(drv_ssds *ssds);
 // Conversions between bytes and rblocks.
 //
 
-// Fills an rblock_id with '1' bits:
-#define STORAGE_INVALID_RBLOCK			0x3FFFFffff // 34 bits (see index.h)
 #define STORAGE_RBLOCK_IS_VALID(__x)	((__x) != STORAGE_INVALID_RBLOCK)
 #define STORAGE_RBLOCK_IS_INVALID(__x)	((__x) == STORAGE_INVALID_RBLOCK)
 
