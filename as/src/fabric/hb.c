@@ -1340,6 +1340,24 @@ as_hb_endpoint_add(int socket, bool isudp, cf_node node_id)
 	return(0);
 }
 
+
+/* as_hb_tcp_close
+ * closes hb tcp socket and removed it from discovered hash*/
+static void
+as_hb_tcp_close(int fd)
+{
+	cf_detail(AS_HB, "as_hb_tcp_close() fd %d ", fd);
+	g_hb.endpoint_txlist[fd] = false;
+	//HB Bug :remove for discovered list
+	if (g_hb.endpoint_txlist_node_id[fd]) {
+		as_hb_nodes_discovered_hash_del_conn(g_hb.endpoint_txlist_node_id[fd], fd);
+	}
+	g_hb.endpoint_txlist_node_id[fd] = 0;
+	cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
+	mesh_host_list_remove_fd(fd);
+	close(fd);
+}
+
 /* as_hb_tcp_send
  * send hb protocol message and retry after 100 u sec in case of EAGAIN 
  * and EWOULDBLOCK*/
@@ -1355,20 +1373,81 @@ as_hb_tcp_send(int fd, byte * buff, size_t msg_size)
 		cf_detail(AS_HB, "cf_socket_sendto() fd %d retry count:%d msg_size:%d", fd, retry, msg_size);
 		ret =  cf_socket_sendto(fd, buff, msg_size, 0, 0);
 		if( ( ret < 0 ) && (( errno != EAGAIN ) || ( errno != EWOULDBLOCK ))) {
-			cf_detail(AS_HB, "as_hb_tcp_send cf_socket_sendto() fd %d", fd);
+			cf_info(AS_HB, "as_hb_tcp_send cf_socket_sendto() fd %d failed", fd);
+			as_hb_tcp_close(fd);
 			return -1;
 		} else if (ret > 0) {
 			buff += ret; //incrementing buff pointer
 			msg_size -= ret;//decreasing msg_size to be sent
 		}
-		retry++;
-		usleep(100);
-	} while ( (msg_size > 0) && (retry < max_retry) );
+
+		if (msg_size > 0) {
+			retry++;
+			usleep(g_config.hb_mesh_read_write_retry_wait);
+		} else {
+			cf_detail(AS_HB, "cf_socket_sendto() fd %d retry count:%d msg_size:%d complete msg sent", fd, retry, msg_size);
+			break;
+		}
+	} while ( retry < max_retry );
 
 	if ( (msg_size != 0)  && (msg_size != orig_size) ) {
 		cf_warning(AS_HB, "as_hb_tcp_send cf_socket_sendto() fd %d incomplete msg sent", fd);
+		as_hb_tcp_close(fd); //closing fd
+		return -1;
 	}
 	return (orig_size - msg_size);
+}
+
+/* as_hb_tcp_recv
+ * recv hb protocol message and retry after 100 u sec in case of EAGAIN 
+ * and EWOULDBLOCK*/
+static int 
+as_hb_tcp_recv(int fd, byte * buff, size_t msg_size)
+{
+	int ret = 0;
+	uint32_t len = 0;
+	int flags = (MSG_NOSIGNAL | MSG_PEEK);
+	if (0 >= (ret = recv(fd, buff, 4, flags))) {
+		cf_warning(AS_HB, "as_hb_tcp_recv() fd %d recv peek error", fd);
+		return ret;
+	} 
+	if (ret != 4) {
+		cf_warning(AS_HB, "as_hb_tcp_recv() fd %d not even 4 bytes", fd);
+		return -1;
+	}
+	len = ntohl(*((uint32_t *)buff))  + 6;
+	if (msg_size < len) {
+		cf_warning(AS_HB, "as_hb_tcp_recv() fd %d buffer size insufficient", fd);
+		return -1;
+	}
+
+	int try = 0;
+	const int max_try = 3;
+	int read_so_far = 0;
+	while (try < max_try ) {
+		cf_detail(AS_HB, "as_hb_tcp_recv() fd %d try %d len %d", fd, try, len);
+		if (0 >= (ret = recv(fd, (buff + read_so_far), len - read_so_far, MSG_NOSIGNAL))) {
+			if(errno == EAGAIN || errno == EWOULDBLOCK) {
+				try++;
+				usleep(g_config.hb_mesh_read_write_retry_wait);
+				continue;
+			}
+			cf_info(AS_HB, "as_hb_tcp_recv() fd %d recv error try %d", fd, try);
+			return ret;
+		} 
+
+		read_so_far += ret;
+		if(read_so_far < len) {
+			cf_detail(AS_HB, "as_hb_tcp_recv() recv success fd %d try %d read_so_far %d ", fd, try, read_so_far);
+			try++;
+			usleep(g_config.hb_mesh_read_write_retry_wait);
+		} else {
+			cf_detail(AS_HB, "as_hb_tcp_recv() recv success fd %d try %d len %d ", fd, try, len);
+			return len;
+		}
+	}
+	cf_info(AS_HB, "as_hb_tcp_recv() fd %d returning error try %d len %d read_so_far %d", fd, try, len, read_so_far);
+	return -1;
 }
 
 /* as_hb_rx_process
@@ -1848,7 +1927,7 @@ CloseSocket:
 					if (AS_HB_MODE_MCAST == g_config.hb_mode) {
 						r = cf_socket_recvfrom(fd, bufr, sizeof(bufr), 0, &from);
 					} else {
-						r = cf_socket_recvfrom(fd, bufr, sizeof(bufr), 0, NULL);
+						r = as_hb_tcp_recv(fd, bufr, sizeof(bufr));
 					}
 					cf_detail(AS_HB, "received %d bytes, calling msg_parse", r);
 					if (r > 0) {
