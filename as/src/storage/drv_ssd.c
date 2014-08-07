@@ -219,6 +219,19 @@ push_wblock_to_defrag_q(drv_ssd *ssd, uint32_t wblock_id)
 }
 
 
+// Available contiguous size.
+static inline uint64_t
+available_size(drv_ssd *ssd)
+{
+	return ssd->free_wblock_q ? // null until devices are loaded at startup
+			(uint64_t)cf_queue_sz(ssd->free_wblock_q) * ssd->write_block_size :
+			ssd->file_size;
+
+	// Note - returns 100% available during cold start, to make it irrelevant in
+	// cold-start eviction threshold check.
+}
+
+
 //------------------------------------------------
 // ssd_write_buf "swb" methods.
 //
@@ -799,12 +812,7 @@ run_defrag(void *pv_data)
 	while (CF_QUEUE_OK ==
 			cf_queue_pop(ssd->defrag_wblock_q, &wblock_id, CF_QUEUE_FOREVER)) {
 
-		int num_records = ssd_defrag_wblock(ssd, wblock_id);
-
-		// TODO - cf_debug or cf_detail.
-		cf_info(AS_DRV_SSD, "%s defragged wblock %u, %d records", ssd->name,
-				wblock_id, num_records);
-
+		ssd_defrag_wblock(ssd, wblock_id);
 		usleep(ssd->ns->storage_defrag_sleep);
 	}
 
@@ -990,32 +998,6 @@ ssd_load_wblock_queues(drv_ssds *ssds)
 		cf_info(AS_DRV_SSD, "%s init wblock free-q %d, defrag-q %d", ssd->name,
 				cf_queue_sz(ssd->free_wblock_q),
 				cf_queue_sz(ssd->defrag_wblock_q));
-	}
-}
-
-
-void
-ssd_block_get_free_size(drv_ssd *ssd, off_t *total_r, off_t *contiguous_r)
-{
-	if (total_r) {
-		// ssd->inuse_size does not include device header size.
-		uint64_t full_inuse_size =
-				cf_atomic64_get(ssd->inuse_size) + ssd->header_size;
-
-		if (full_inuse_size > ssd->file_size) {
-			// Should never happen!
-			cf_warning(AS_DRV_SSD, "%s used size (%lu) > total size (%lu)",
-					full_inuse_size, ssd->file_size);
-			*total_r = 0;
-		}
-		else {
-			*total_r = ssd->file_size - full_inuse_size;
-		}
-	}
-
-	if (contiguous_r) {
-		*contiguous_r = (uint64_t)cf_queue_sz(ssd->free_wblock_q) *
-				(uint64_t)ssd->write_block_size;
 	}
 }
 
@@ -2384,32 +2366,37 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 }
 
 
+#define MAINTENANCE_SLEEP 20
+
 void *
-ssd_track_free_thread(void *udata)
+run_ssd_maintenance(void *udata)
 {
 	drv_ssd *ssd = (drv_ssd*)udata;
+	uint64_t prev_n_writes = 0;
+	uint64_t prev_n_defrags = 0;
 
 	while (true) {
-		sleep(20);
+		sleep(MAINTENANCE_SLEEP);
 
-		off_t free;
-		off_t contig;
+		uint64_t n_writes = cf_atomic_int_get(ssd->ssd_write_buf_counter);
+		uint64_t n_defrags = cf_atomic_int_get(ssd->defrag_wblock_counter);
 
-		ssd_block_get_free_size(ssd, &free, &contig);
-		free /= (1000 * 1000);
-		contig /= (1000 * 1000);
+		uint64_t write_rate = (n_writes - prev_n_writes) / MAINTENANCE_SLEEP;
+		uint64_t defrag_rate = (n_defrags - prev_n_defrags) / MAINTENANCE_SLEEP;
 
-		cf_info(AS_DRV_SSD, "device %s: free %zuM contig %zuM w-q %d w-free %d swb-free %d w-tot %lu defrag-q %d defrag-tot %lu",
-				ssd->name, free, contig,
-				cf_queue_sz(ssd->swb_write_q),
+		cf_info(AS_DRV_SSD, "device %s: used %lu, contig-free %luM (%d wblocks), swb-free %d, w-q %d w-tot %lu (%lu/s), defrag-q %d defrag-tot %lu (%lu/s)",
+				ssd->name, ssd->inuse_size,
+				available_size(ssd) >> 20,
 				cf_queue_sz(ssd->free_wblock_q),
 				cf_queue_sz(ssd->swb_free_q),
-				cf_atomic_int_get(ssd->ssd_write_buf_counter),
-				cf_queue_sz(ssd->defrag_wblock_q),
-				cf_atomic_int_get(ssd->defrag_wblock_counter));
+				cf_queue_sz(ssd->swb_write_q), n_writes, write_rate,
+				cf_queue_sz(ssd->defrag_wblock_q), n_defrags, defrag_rate);
+
+		prev_n_writes = n_writes;
+		prev_n_defrags = n_defrags;
 
 		if (cf_queue_sz(ssd->free_wblock_q) == 0) {
-			cf_warning(AS_DRV_SSD, "Device %s out of storage space", ssd->name);
+			cf_warning(AS_DRV_SSD, "device %s: out of storage space", ssd->name);
 		}
 
 		// Try to recover swbs, 16 at a time, down to 16.
@@ -2431,14 +2418,15 @@ ssd_track_free_thread(void *udata)
 
 
 static void
-ssd_start_track_free_threads(drv_ssds *ssds)
+ssd_start_maintenance_threads(drv_ssds *ssds)
 {
-	cf_info(AS_DRV_SSD, "ns %s starting device tracker threads", ssds->ns->name);
+	cf_info(AS_DRV_SSD, "ns %s starting device maintenance threads",
+			ssds->ns->name);
 
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd* ssd = &ssds->ssds[i];
 
-		pthread_create(&ssd->free_tracker_thread, 0, ssd_track_free_thread, ssd);
+		pthread_create(&ssd->maintenance_thread, 0, run_ssd_maintenance, ssd);
 	}
 }
 
@@ -2671,8 +2659,6 @@ int
 ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 		uint64_t rblock_id, uint32_t n_rblocks)
 {
-	cf_atomic_int_incr(&g_config.stat_storage_startup_load);
-
 	as_partition_id pid = as_partition_getid(block->keyd);
 
 	// If this isn't a partition we're interested in, skip this record.
@@ -3092,6 +3078,8 @@ ssd_load_device_sweep(drv_ssds *ssds, drv_ssd *ssd)
 
 	int error_count = 0;
 
+	ssd->cold_start_block_counter = file_offset / LOAD_BUF_SIZE;
+
 	// Loop over all blocks in device.
 	while (true) {
 		ssize_t rlen = read(fd, buf, LOAD_BUF_SIZE);
@@ -3134,7 +3122,7 @@ ssd_load_device_sweep(drv_ssds *ssds, drv_ssd *ssd)
 			// TODO - check write_block_size boundaries!
 			if (next_block_offset > LOAD_BUF_SIZE) {
 				cf_warning(AS_DRV_SSD, "error: block extends over read size: foff %"PRIu64" boff %"PRIu64" blen %"PRIu64,
-					file_offset,block_offset, (uint64_t)block->length);
+					file_offset, block_offset, (uint64_t)block->length);
 
 				error_count++;
 				goto NextBlock;
@@ -3184,9 +3172,12 @@ NextBlock:
 		}
 
 		file_offset += LOAD_BUF_SIZE;
+		ssd->cold_start_block_counter++;
 	}
 
 Finished:
+
+	ssd->cold_start_block_counter = ssd->file_size / LOAD_BUF_SIZE;
 
 	if (fd != -1) {
 		close(fd);
@@ -3262,6 +3253,7 @@ ssd_load_devices_fn(void *udata)
 	if (0 == cf_rc_release(complete_rc)) {
 		// All drives are done reading.
 
+		ssds->ns->cold_start_loading = false;
 		ssd_load_wblock_queues(ssds);
 
 		pthread_mutex_destroy(&ssds->ns->cold_start_evict_lock);
@@ -3269,7 +3261,7 @@ ssd_load_devices_fn(void *udata)
 		cf_queue_push(complete_q, &complete_udata);
 		cf_rc_free(complete_rc);
 
-		ssd_start_track_free_threads(ssds);
+		ssd_start_maintenance_threads(ssds);
 		ssd_start_write_worker_threads(ssds);
 		ssd_start_defrag_threads(ssds);
 	}
@@ -3281,7 +3273,7 @@ ssd_load_devices_fn(void *udata)
 void
 ssd_load_devices_load(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 {
-	drv_ssd *ssd;
+	ssds->ns->cold_start_loading = true;
 
 	void *p = cf_rc_alloc(1);
 
@@ -3290,11 +3282,10 @@ ssd_load_devices_load(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 	}
 
 	for (int i = 0; i < ssds->n_ssds; i++) {
-		ssd = &ssds->ssds[i];
-
+		drv_ssd *ssd = &ssds->ssds[i];
 		ssd_load_devices_data *ldd = cf_malloc(sizeof(ssd_load_devices_data));
 
-		if (!ldd) {
+		if (! ldd) {
 			cf_crash(AS_DRV_SSD, "memory allocation in device load");
 		}
 
@@ -3303,7 +3294,8 @@ ssd_load_devices_load(drv_ssds *ssds, cf_queue *complete_q, void *udata)
 		ldd->complete_q = complete_q;
 		ldd->complete_udata = udata;
 		ldd->complete_rc = p;
-		pthread_create(& ssd->load_device_thread, 0, ssd_load_devices_fn, ldd);
+
+		pthread_create(&ssd->load_device_thread, 0, ssd_load_devices_fn, ldd);
 	}
 }
 
@@ -3869,12 +3861,38 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 
 		cf_queue_push(complete_q, &udata);
 
-		ssd_start_track_free_threads(ssds);
+		ssd_start_maintenance_threads(ssds);
 		ssd_start_write_worker_threads(ssds);
 		ssd_start_defrag_threads(ssds);
 	}
 
 	return 0;
+}
+
+
+void
+as_storage_cold_start_ticker_ssd()
+{
+	for (uint32_t i = 0; i < g_config.namespaces; i++) {
+		as_namespace *ns = g_config.namespace[i];
+
+		if (ns->cold_start_loading) {
+			char buf[2048];
+			int pos = 0;
+			drv_ssds *ssds = (drv_ssds*)ns->storage_private;
+
+			for (int j = 0; j < ssds->n_ssds; j++) {
+				drv_ssd *ssd = &ssds->ssds[j];
+				uint32_t pct = (ssd->cold_start_block_counter * 100) /
+						(ssd->file_size / LOAD_BUF_SIZE);
+
+				pos += sprintf(buf + pos, ", %s %u%%", ssd->name, pct);
+			}
+
+			cf_info(AS_DRV_SSD, "{%s} loaded %lu records%s", ns->name,
+					ns->n_objects, buf);
+		}
+	}
 }
 
 
@@ -4252,19 +4270,16 @@ as_storage_stats_ssd(as_namespace *ns, int *available_pct,
 {
 	drv_ssds *ssds = (drv_ssds*)ns->storage_private;
 
-	// Find the device with the lowest available percent.
 	if (available_pct) {
 		*available_pct = 100;
 
+		// Find the device with the lowest available percent.
 		for (int i = 0; i < ssds->n_ssds; i++) {
 			drv_ssd *ssd = &ssds->ssds[i];
-			off_t contig;
+			uint64_t pct = (available_size(ssd) * 100) / ssd->file_size;
 
-			ssd_block_get_free_size(ssd, NULL, &contig);
-			contig = (contig * 100) / ssd->file_size;
-
-			if (contig < *available_pct) {
-				*available_pct = contig;
+			if (pct < (uint64_t)*available_pct) {
+				*available_pct = pct;
 			}
 		}
 

@@ -959,6 +959,9 @@ struct as_namespace_s {
 	cf_atomic32		hwm_breached;
 	cf_atomic32		stop_writes;
 
+	// Flag for cold-start ticker and eviction threshold check.
+	bool			cold_start_loading;
+
 	// For cold-start eviction.
 	pthread_mutex_t	cold_start_evict_lock;
 	uint32_t		cold_start_record_add_count;

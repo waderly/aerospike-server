@@ -564,10 +564,7 @@ typedef struct as_config_s {
 	cf_atomic_int		err_sync_copy_null_master;
 
 	cf_atomic_int		err_storage_queue_full;
-	cf_atomic_int		stat_storage_startup_load;
-
 	cf_atomic_int		err_storage_defrag_corrupt_record;
-	cf_atomic_int		stat_storage_defrag_wait;
 
 	cf_atomic_int		err_write_fail_unknown;
 	cf_atomic_int		err_write_fail_key_exists;

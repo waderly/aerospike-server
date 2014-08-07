@@ -91,8 +91,7 @@ as_storage_init()
 		void *_t;
 
 		while (CF_QUEUE_OK != cf_queue_pop(complete_q, &_t, 2000)) {
-			cf_info(AS_STORAGE, "waiting for storage: %"PRIu64" objects, %"PRIu64" scanned",
-					thr_info_get_object_count(), g_config.stat_storage_startup_load);
+			as_storage_cold_start_ticker_ssd();
 		}
 	}
 

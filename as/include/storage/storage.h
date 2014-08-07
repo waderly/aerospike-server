@@ -213,6 +213,7 @@ extern int as_storage_stats_memory(as_namespace *ns, int *available_pct, uint64_
 //
 
 extern int as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q, void *udata);
+extern void as_storage_cold_start_ticker_ssd(); // called directly by as_storage_init()
 extern int as_storage_namespace_destroy_ssd(as_namespace *ns);
 extern int as_storage_namespace_attributes_get_ssd(as_namespace *ns, as_storage_attributes *attr);
 

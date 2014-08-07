@@ -668,8 +668,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 
 	cf_dyn_buf_append_string(db, ";storage_defrag_corrupt_record=");
 	APPEND_STAT_COUNTER(db, g_config.err_storage_defrag_corrupt_record);
-	cf_dyn_buf_append_string(db, ";storage_defrag_wait=");
-	APPEND_STAT_COUNTER(db, g_config.stat_storage_defrag_wait);
 	cf_dyn_buf_append_string(db, ";err_write_fail_prole_unknown=");
 	APPEND_STAT_COUNTER(db, g_config.err_write_fail_prole_unknown);
 	cf_dyn_buf_append_string(db, ";err_write_fail_prole_generation=");

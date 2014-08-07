@@ -171,6 +171,7 @@ typedef struct drv_ssd_s
 	bool			has_ldt;
 	bool			sub_sweep;
 
+	uint32_t		cold_start_block_counter;		// large blocks read
 	uint64_t		record_add_generation_counter;	// records not inserted due to generation
 	uint64_t		record_add_expired_counter;		// records not inserted due to expiration
 	uint64_t		record_add_max_ttl_counter;		// records not inserted due to max-ttl
@@ -179,7 +180,7 @@ typedef struct drv_ssd_s
 
 	ssd_alloc_table	*alloc_table;
 
-	pthread_t		free_tracker_thread;
+	pthread_t		maintenance_thread;
 	pthread_t		write_worker_thread[MAX_SSD_THREADS];
 	pthread_t		load_device_thread;
 	pthread_t		defrag_thread;
