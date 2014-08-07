@@ -196,7 +196,6 @@ typedef struct as_transaction_s {
 	// clients send the key without a digest, without intent to store the key.
 	// In such cases, we set this flag false and don't store the key.
 	uint8_t           flag;
-	bool              store_key;
 
 	// INTERNAL INTERNAL INTERNAL
 	/* start time of the transaction at the running node */
