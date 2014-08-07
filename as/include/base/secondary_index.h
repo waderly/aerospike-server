@@ -517,30 +517,20 @@ do {                                            \
 	if (ret) cf_warning(AS_SINDEX, "UNLOCK_ONLY (%d) %s:%d",ret, __FILE__, __LINE__); \
 } while(0);
 
-#define SINDEX_HIST_INSERT_DATA_POINT(si, type, start_time_ms)                          \
+#define SINDEX_HIST_INSERT_DATA_POINT(si, type, start_time_ns)                          \
 do {                                                                                    \
-	if (si->enable_histogram && start_time_ms != 0) {                                   \
+	if (si->enable_histogram && start_time_ns != 0) {                                   \
 		if (si->stats._ ##type) {                                                       \
-			histogram_insert_data_point(si->stats._ ##type, start_time_ms);             \
+			histogram_insert_data_point(si->stats._ ##type, start_time_ns);             \
 		}                                                                               \
 	}                                                                                   \
 } while(0);
 
-#define SINDEX_HIST_INSERT_DATA_POINT_US(si, type, start_time_us)                       \
-do {                                                                                    \
-	if (si->enable_histogram && start_time_us != 0) {                                   \
-		if (si->stats._ ##type) {                                                       \
-			histogram_insert_delta(si->stats._ ##type, cf_getus() - start_time_us);     \
-		}                                                                               \
-	}                                                                                   \
-} while(0);
-
-
-#define SINDEX_HIST_INSERT_DELTA(si, type, delta)                                       \
+#define SINDEX_HIST_INSERT_RAW(si, type, value)                                         \
 do {                                                                                    \
 	if (si->enable_histogram) {                                                         \
 		if (si->stats._ ##type) {                                                       \
-			histogram_insert_delta(si->stats._ ##type, delta);                          \
+			histogram_insert_raw(si->stats._ ##type, value);                            \
 		}                                                                               \
 	}                                                                                   \
 } while(0);

@@ -974,14 +974,14 @@ build_defrag_list_from_nbtr(as_namespace *ns, ai_obj *acol, bt *nbtr, long nofst
 
 	long      found             = 0;
 	long  processed             = 0;
-	uint64_t validation_time_ms = 0;
+	uint64_t validation_time_ns = 0;
 	while ((nbe = btRangeNext(nbi, 1))) {
 		ai_obj *akey = nbe->key;
 		// STEP 2: if this PK is to be deleted then add it to PKtoDeleteList
-		SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ms);
+		SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ns);
 		int ret = as_sindex_can_defrag_record(ns, (cf_digest *) (&akey->y));
-		SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
-		validation_time_ms = 0; 
+		SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ns);
+		validation_time_ns = 0; 
 
 		if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
 			*limit = 0;
@@ -1029,12 +1029,12 @@ build_defrag_list_from_arr(as_namespace *ns, ai_obj *acol, ai_arr *arr, long nof
 {
 	long     found              = 0;
 	long     processed          = 0;
-	uint64_t validation_time_ms = 0;
+	uint64_t validation_time_ns = 0;
 	for (int i = nofst; i < arr->used; i++) {
-		SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ms);	
+		SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ns);	
 		int ret = as_sindex_can_defrag_record(ns, (cf_digest *) &arr->data[i * CF_DIGEST_KEY_SZ]);
-		SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
-		validation_time_ms = 0;
+		SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ns);
+		validation_time_ns = 0;
 		if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
 			*limit = 0;
 			break;
@@ -1181,8 +1181,8 @@ ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *
 	as_namespace *ns = imd->si->ns;
 	// STEP 3: go thru the PKtoDeleteList and delete the keys
 	ulong bb = pimd->ibtr->msize + pimd->ibtr->nsize;
-	uint64_t validation_time_ms = 0;
-	uint64_t deletion_time_ms   = 0;
+	uint64_t validation_time_ns = 0;
+	uint64_t deletion_time_ns   = 0;
 	while (cf_ll_size(gc_list)) {
 		cf_ll_element        * ele  = cf_ll_get_head(gc_list);
 		ll_sindex_gc_element * node = (ll_sindex_gc_element * )ele;
@@ -1194,10 +1194,10 @@ ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *
 		int i = 0;
 		while (dt->num != 0) {
 			i = dt->num - 1;
-			SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ms);
+			SET_TIME_FOR_SINDEX_GC_HIST(validation_time_ns);
 			int ret = as_sindex_can_defrag_record(ns, &(dt->acol_digs[i].dig));
-			SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ms);
-			validation_time_ms = 0;
+			SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_validate_obj_hist, validation_time_ns);
+			validation_time_ns = 0;
 			if (ret == AS_SINDEX_GC_SKIP_ITERATION) {
 				goto END;
 			} else if (ret == AS_SINDEX_GC_OK) {
@@ -1206,12 +1206,12 @@ ai_btree_defrag_list(as_sindex_metadata *imd, as_sindex_pmetadata *pimd, cf_ll *
 				ai_obj          *acol = &(dt->acol_digs[i].acol);
 				cf_detail(AS_SINDEX, "Defragged %lu %ld", acol->l, *((uint64_t *)&apk.y));
 				
-				SET_TIME_FOR_SINDEX_GC_HIST(deletion_time_ms);
+				SET_TIME_FOR_SINDEX_GC_HIST(deletion_time_ns);
 				if (reduced_iRem(pimd->ibtr, acol, &apk) == AS_SINDEX_OK) {
 					success++;
-					SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_delete_obj_hist, deletion_time_ms);
+					SINDEX_GC_HIST_INSERT_DATA_POINT(sindex_gc_delete_obj_hist, deletion_time_ns);
 				}
-				deletion_time_ms = 0;
+				deletion_time_ns = 0;
 			}
 			dt->num -= 1;
 			n2del--;

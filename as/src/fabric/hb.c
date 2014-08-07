@@ -39,10 +39,10 @@
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_shash.h"
 
 #include "cf_str.h"
-#include "clock.h"
 #include "dynbuf.h"
 #include "fault.h"
 #include "msg.h"

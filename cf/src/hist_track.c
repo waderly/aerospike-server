@@ -127,9 +127,13 @@ static int thresholds_to_buckets(const char* thresholds, uint32_t buckets[]);
 // Create a cf_hist_track object.
 //
 cf_hist_track*
-cf_hist_track_create(const char* name)
+cf_hist_track_create(const char* name, histogram_scale scale)
 {
-	if (strlen(name) >= HISTOGRAM_NAME_SIZE) {
+	if (! (name && strlen(name) < HISTOGRAM_NAME_SIZE)) {
+		return NULL;
+	}
+
+	if (! (scale >= 0 && scale < HIST_SCALE_MAX_PLUS_1)) {
 		return NULL;
 	}
 
@@ -146,8 +150,21 @@ cf_hist_track_create(const char* name)
 
 	// Base histogram setup, same as in histogram_create():
 	strcpy(this->hist.name, name);
-	this->hist.n_counts = 0;
-	memset((void*)this->hist.count, 0, sizeof(this->hist.count));
+	memset((void*)this->hist.counts, 0, sizeof(this->hist.counts));
+
+	switch (scale) {
+	case HIST_MILLISECONDS:
+		this->hist.time_div = 1000 * 1000;
+		break;
+	case HIST_MICROSECONDS:
+		this->hist.time_div = 1000;
+		break;
+	default:
+		this->hist.time_div = 0;
+		// If cf_hist_track_insert_data_point() is called for a raw histogram,
+		// the divide by 0 will crash - consider that a high-performance assert.
+		break;
+	}
 
 	// Start with tracking off.
 	this->rows = NULL;
@@ -292,23 +309,28 @@ cf_hist_track_dump(cf_hist_track* this)
 	}
 
 	row* row_p = get_row(this, this->write_row_n);
+
+	// "Freeze" the histogram for consistency of total.
+	uint64_t counts[N_BUCKETS];
+	uint64_t total_count = 0;
+
+	for (int j = 0; j < N_BUCKETS; j++) {
+		counts[j] = cf_atomic64_get(this->hist.counts[j]);
+		total_count += counts[j];
+	}
+
 	uint64_t subtotal = 0;
-	uint64_t total_counts = cf_atomic_int_get(this->hist.n_counts);
 
 	// b's "over" is total minus sum of values in all buckets 0 thru b.
 	for (int i = 0, b = 0; i < this->num_cols; b++) {
-		subtotal += cf_atomic_int_get(this->hist.count[b]);
+		subtotal += counts[b];
 
 		if (this->buckets[i] == b) {
-			// Bucket counts may increment during this loop, so their sum can
-			// exceed total_counts. (This also means a bucket's "over" can be
-			// smaller than at previous dump, so we have to check that too.)
-			row_p->overs[i++] = total_counts > subtotal ?
-					total_counts - subtotal : 0;
+			row_p->overs[i++] = total_count - subtotal;
 		}
 	}
 
-	row_p->total = total_counts;
+	row_p->total = total_count;
 	row_p->timestamp = now_ts;
 
 	// Increment the current and oldest row indexes.
@@ -321,19 +343,22 @@ cf_hist_track_dump(cf_hist_track* this)
 	pthread_mutex_unlock(&this->rows_lock);
 }
 
+//------------------------------------------------
+// Pass-through to base histogram.
+//
 void
-cf_hist_track_insert_delta(cf_hist_track* this, uint64_t delta)
+cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_ns)
 {
-	histogram_insert_delta((histogram*)this, delta);
+	histogram_insert_data_point((histogram*)this, start_ns);
 }
 
 //------------------------------------------------
 // Pass-through to base histogram.
 //
 void
-cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_time)
+cf_hist_track_insert_raw(cf_hist_track* this, uint64_t value)
 {
-	histogram_insert_data_point((histogram*)this, start_time);
+	histogram_insert_raw((histogram*)this, value);
 }
 
 //------------------------------------------------
@@ -635,11 +660,10 @@ output_slice(cf_hist_track* this, row* prev_row_p, row* row_p,
 	write_p += snprintf(write_p, end_p - write_p, rate_fmt, ops_per_sec);
 
 	for (int i = 0; i < num_cols; i++) {
-		// It's possible for an "over" to be smaller than the one in the
-		// previous row - see comment in cf_hist_track_dump().
-		uint64_t diff_overs = row_p->overs[i] > prev_row_p->overs[i] ?
-				row_p->overs[i] - prev_row_p->overs[i] : 0;
-		double pcts_over_i = diff_total > 0 ?
+		// We "freeze" the histogram to calculate "overs", so it shouldn't be
+		// possible for an "over" to be less than the one in the previous row.
+		uint64_t diff_overs = row_p->overs[i] - prev_row_p->overs[i];
+		double pcts_over_i = diff_total != 0 ?
 				(double)(diff_overs * 100) / diff_total : 0;
 
 		write_p += snprintf(write_p, end_p - write_p, pcts_fmt, pcts_over_i);
@@ -706,9 +730,3 @@ thresholds_to_buckets(const char* thresholds, uint32_t buckets[])
 
 	return i;
 }
-
-
-
-
-
-

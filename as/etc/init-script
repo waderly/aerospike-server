@@ -14,6 +14,7 @@ CMD="$ASD --config-file $CONFIG_FILE"
 PIDDIR="/var/run/aerospike"
 ASD_USER="aerospike"
 ASD_GROUP=$ASD_USER
+STOP_TIMEOUT=${STOP_TIMEOUT-10}
 
 INITFNS=/etc/aerospike/initfns
 if [ -f $INITFNS ]; then . $INITFNS; fi
@@ -86,7 +87,7 @@ coldstart() {
 
 stop() {
 	echo -n $"Stopping aerospike: "
-	killproc $ASDN
+	killproc -d ${STOP_TIMEOUT} $ASDN
 	retval=$?
 	echo
 	[ $retval -eq 0 ] && rm -f $LOCKFILE

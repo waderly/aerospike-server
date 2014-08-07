@@ -35,10 +35,10 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_rchash.h"
 #include "citrusleaf/cf_shash.h"
 
-#include "clock.h"
 #include "msg.h"
 
 #include "base/cfg.h"

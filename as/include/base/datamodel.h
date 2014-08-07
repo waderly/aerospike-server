@@ -879,7 +879,6 @@ struct as_namespace_s {
 	uint32_t	storage_num_write_blocks;
 	bool		storage_data_in_memory;    // true if the DRAM copy is always kept
 	bool    	storage_signature;
-	bool		storage_readonly;
 	bool		storage_disable_odirect;
 	uint32_t	storage_defrag_period;
 	uint32_t	storage_defrag_max_blocks;
@@ -1088,7 +1087,6 @@ extern void as_namespace_get_bins_info(as_namespace *ns, cf_dyn_buf *db, bool sh
 extern void as_namespace_get_hist_info(as_namespace *ns, char *set_name, char *hist_name,
 		cf_dyn_buf *db, bool show_ns);
 extern int as_namespace_check_set_limits(as_set * p_set, as_namespace * ns);
-extern void as_namespace_histogram_append(as_namespace * ns, linear_histogram * h);
 
 #ifdef USE_JEM
 int as_namespace_set_jem_arena(char *ns, int arena);

@@ -590,19 +590,6 @@ int as_namespace_get_create_set(as_namespace *ns, const char *set_name, uint16_t
 	return 0;
 }
 
-// Append the namespace eviction histogram using the partition based histogram
-void as_namespace_histogram_append(as_namespace * ns, linear_histogram * h)
-{
-	cf_atomic_int_set(&ns->evict_hist->num_buckets, h->num_buckets);
-	cf_atomic_int_add(&ns->evict_hist->n_counts, h->n_counts);
-
-	for (int i = 0; i < h->num_buckets; i++) {
-		if (h->count[i] > 0) {
-			cf_atomic_int_add(&ns->evict_hist->count[i], h->count[i]);
-		}
-	}
-}
-
 as_set *as_namespace_init_set(as_namespace *ns, const char *set_name)
 {
 	if (! set_name) {

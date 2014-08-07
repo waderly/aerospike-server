@@ -30,6 +30,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "dynbuf.h"
+#include "hist.h"
 
 
 //==========================================================
@@ -51,7 +52,7 @@ typedef enum {
 //------------------------------------------------
 // Constructor/Destructor
 //
-cf_hist_track* cf_hist_track_create(const char* name);
+cf_hist_track* cf_hist_track_create(const char* name, histogram_scale scale);
 void cf_hist_track_destroy(cf_hist_track* this);
 
 //------------------------------------------------
@@ -67,9 +68,9 @@ void cf_hist_track_stop(cf_hist_track* this);
 void cf_hist_track_clear(cf_hist_track* this);
 void cf_hist_track_dump(cf_hist_track* this);
 
-// This is just a pass-through to histogram_insert_data_point():
-void cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_time);
-void cf_hist_track_insert_delta(cf_hist_track* this, uint64_t delta_time);
+// These are just pass-throughs to histogram insertion methods:
+void cf_hist_track_insert_data_point(cf_hist_track* this, uint64_t start_ns);
+void cf_hist_track_insert_raw(cf_hist_track* this, uint64_t value);
 
 //------------------------------------------------
 // Get Statistics from Cached Data

@@ -39,10 +39,10 @@
 #include "aerospike/mod_lua_config.h"
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
+#include "citrusleaf/cf_clock.h"
 #include "citrusleaf/cf_shash.h"
 
 #include "cf_str.h"
-#include "clock.h"
 #include "fault.h"
 #include "hist.h"
 #include "hist_track.h"
@@ -139,7 +139,7 @@ cfg_set_defaults()
 	c->scan_sleep = 1; // amount of time scan thread will sleep between two context switch
 	c->storage_benchmarks = false;
 	c->ticker_interval = 10;
-	c->transaction_max_ms = 1000;
+	c->transaction_max_ns = 1000 * 1000 * 1000; // 1 second
 	c->transaction_pending_limit = 20;
 	c->transaction_repeatable_read = false;
 	c->transaction_retry_ms = 1000;
@@ -476,13 +476,13 @@ typedef enum {
 	CASE_NAMESPACE_STORAGE_DEVICE_MAX_WRITE_CACHE,
 	CASE_NAMESPACE_STORAGE_DEVICE_MIN_AVAIL_PCT,
 	CASE_NAMESPACE_STORAGE_DEVICE_POST_WRITE_QUEUE,
-	CASE_NAMESPACE_STORAGE_DEVICE_READONLY,
 	CASE_NAMESPACE_STORAGE_DEVICE_SIGNATURE,
 	CASE_NAMESPACE_STORAGE_DEVICE_WRITE_SMOOTHING_PERIOD,
 	CASE_NAMESPACE_STORAGE_DEVICE_WRITE_THREADS,
 	// Deprecated:
 	CASE_NAMESPACE_STORAGE_DEVICE_LOAD_AT_STARTUP,
 	CASE_NAMESPACE_STORAGE_DEVICE_PERSIST,
+	CASE_NAMESPACE_STORAGE_DEVICE_READONLY,
 
 	// Namespace storage-engine kv options:
 	CASE_NAMESPACE_STORAGE_KV_DEVICE,
@@ -814,12 +814,12 @@ const cfg_opt NAMESPACE_STORAGE_DEVICE_OPTS[] = {
 		{ "max-write-cache",				CASE_NAMESPACE_STORAGE_DEVICE_MAX_WRITE_CACHE },
 		{ "min-avail-pct",					CASE_NAMESPACE_STORAGE_DEVICE_MIN_AVAIL_PCT },
 		{ "post-write-queue",				CASE_NAMESPACE_STORAGE_DEVICE_POST_WRITE_QUEUE },
-		{ "readonly",						CASE_NAMESPACE_STORAGE_DEVICE_READONLY },
 		{ "signature",						CASE_NAMESPACE_STORAGE_DEVICE_SIGNATURE },
 		{ "write-smoothing-period",			CASE_NAMESPACE_STORAGE_DEVICE_WRITE_SMOOTHING_PERIOD },
 		{ "write-threads",					CASE_NAMESPACE_STORAGE_DEVICE_WRITE_THREADS },
 		{ "load-at-startup",				CASE_NAMESPACE_STORAGE_DEVICE_LOAD_AT_STARTUP },
 		{ "persist",						CASE_NAMESPACE_STORAGE_DEVICE_PERSIST },
+		{ "readonly",						CASE_NAMESPACE_STORAGE_DEVICE_READONLY },
 		{ "}",								CASE_CONTEXT_END }
 };
 
@@ -1822,7 +1822,7 @@ as_config_init(const char *config_file)
 				c->n_transaction_duplicate_threads = cfg_int_no_checks(&line);
 				break;
 			case CASE_SERVICE_TRANSACTION_MAX_MS:
-				c->transaction_max_ms = cfg_u32_no_checks(&line);
+				c->transaction_max_ns = cfg_u64_no_checks(&line) * 1000000;
 				break;
 			case CASE_SERVICE_TRANSACTION_PENDING_LIMIT:
 				c->transaction_pending_limit = cfg_u32_no_checks(&line);
@@ -2383,9 +2383,6 @@ as_config_init(const char *config_file)
 			case CASE_NAMESPACE_STORAGE_DEVICE_POST_WRITE_QUEUE:
 				ns->storage_post_write_queue = cfg_u32(&line, 0, 2 * 1024);
 				break;
-			case CASE_NAMESPACE_STORAGE_DEVICE_READONLY:
-				ns->storage_readonly = cfg_bool(&line);
-				break;
 			case CASE_NAMESPACE_STORAGE_DEVICE_SIGNATURE:
 				ns->storage_signature = cfg_bool(&line);
 				break;
@@ -2397,6 +2394,7 @@ as_config_init(const char *config_file)
 				break;
 			case CASE_NAMESPACE_STORAGE_DEVICE_LOAD_AT_STARTUP:
 			case CASE_NAMESPACE_STORAGE_DEVICE_PERSIST:
+			case CASE_NAMESPACE_STORAGE_DEVICE_READONLY:
 				cfg_deprecated_name_tok(&line);
 				break;
 			case CASE_CONTEXT_END:
@@ -2996,9 +2994,10 @@ cfg_obj_size_hist_max(uint32_t hist_max)
 //
 
 static void
-create_and_check_hist_track(cf_hist_track** h, const char* name)
+create_and_check_hist_track(cf_hist_track** h, const char* name,
+		histogram_scale scale)
 {
-	if (NULL == (*h = cf_hist_track_create(name))) {
+	if (NULL == (*h = cf_hist_track_create(name, scale))) {
 		cf_crash(AS_AS, "couldn't create histogram: %s", name);
 	}
 
@@ -3013,7 +3012,7 @@ create_and_check_hist_track(cf_hist_track** h, const char* name)
 static void
 create_and_check_hist(histogram** h, const char* name)
 {
-	if (NULL == (*h = histogram_create(name))) {
+	if (NULL == (*h = histogram_create(name, HIST_MILLISECONDS))) {
 		cf_crash(AS_AS, "couldn't create histogram: %s", name);
 	}
 }
@@ -3023,13 +3022,13 @@ cfg_create_all_histograms()
 {
 	as_config* c = &g_config;
 
-	create_and_check_hist_track(&c->rt_hist, "reads");
-	create_and_check_hist_track(&c->q_hist, "query");
-	create_and_check_hist_track(&c->q_rcnt_hist, "query_rec_count");
-	create_and_check_hist_track(&c->ut_hist, "udf");
-	create_and_check_hist_track(&c->wt_hist, "writes_master");
-	create_and_check_hist_track(&c->px_hist, "proxy");
-	create_and_check_hist_track(&c->wt_reply_hist, "writes_reply");
+	create_and_check_hist_track(&c->rt_hist, "reads", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->q_hist, "query", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->q_rcnt_hist, "query_rec_count", HIST_RAW);
+	create_and_check_hist_track(&c->ut_hist, "udf", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->wt_hist, "writes_master", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->px_hist, "proxy", HIST_MILLISECONDS);
+	create_and_check_hist_track(&c->wt_reply_hist, "writes_reply", HIST_MILLISECONDS);
 
 	create_and_check_hist(&c->rt_cleanup_hist, "reads_cleanup");
 	create_and_check_hist(&c->rt_net_hist, "reads_net");
