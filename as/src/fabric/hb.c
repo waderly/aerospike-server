@@ -415,13 +415,6 @@ as_hb_nodes_discovered_hash_create()
 	return(0);
 }
 
-static int
-as_hb_nodes_discovered_hash_dstry()
-{
-	//clean up code still to implemented
-	return(0);
-}
-
 static bool
 as_hb_nodes_discovered_hash_is_conn(cf_node node)
 {
