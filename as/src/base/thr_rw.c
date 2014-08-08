@@ -939,10 +939,12 @@ internal_rw_start(as_transaction *tr, write_request *wr, bool *delete)
 		// Ideally we should roll back.
 		if ((g_config.self_node != tr->rsv.p->replica[0])
 				&& (as_paxos_get_cluster_key() == tr->rsv.cluster_key)
-				&& !(tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP)) { 
+				&& !(tr->flag & AS_TRANSACTION_FLAG_SHIPPED_OP)
+				&& (tr->rsv.p->target == 0)) { 
 			cf_warning(AS_RW, "internal_rw_start called from non-master "
-					"node %"PRIx64", with TRANSACTION_FLAG_SHIPPED_OP not set and without any cluster key "
-					"mismatch too. Cluster key is %d", g_config.self_node, tr->rsv.cluster_key);
+				"node %"PRIx64", with TRANSACTION_FLAG_SHIPPED_OP not set and without any cluster key "
+				"mismatch too. Cluster key is %"PRIx64", cluster size = %d my id %"PRIx64"", 
+				g_config.self_node, tr->rsv.cluster_key, g_config.paxos->cluster_size , g_config.self_node);
 		}
 
 		if ((!qnode_found) && (tr->rsv.p->qnode != tr->rsv.p->replica[0])) {
@@ -3372,7 +3374,9 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 			return -1;
 		}
 	}
-	else if (tr->store_key) {
+	// If we got a key without a digest, it's an old client, not a cue to store
+	// the key. (Remove this check when we're sure all old C clients are gone.)
+	else if (as_msg_field_get(m, AS_MSG_FIELD_TYPE_DIGEST_RIPE)) {
 		// Key not stored for this record - store one if sent from client. For
 		// data-in-memory, don't allocate the key until we reach the point of no
 		// return. Also don't set AS_INDEX_FLAG_KEY_STORED flag until then.

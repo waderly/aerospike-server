@@ -80,7 +80,6 @@ as_transaction_init(as_transaction *tr, cf_digest *keyd, cl_msg *msgp)
 		tr->keyd                  = cf_digest_zero;
 		tr->preprocessed          = false;
 	}
-	tr->store_key                 = true;
 	tr->incoming_cluster_key      = 0;
 	tr->trid                      = 0;
 	tr->flag                      = 0;
@@ -205,10 +204,6 @@ Compute:		;
 						&tr->keyd);
 			// cf_info(AS_PROTO, "computing set with key for sz %d %"PRIx64" bytes %d %d",as_msg_field_get_value_sz(kfp),*(uint64_t *)&tr->keyd,kfp->data[0],kfp->data[1],kfp->data[2],kfp->data[3]);
 		}
-
-		// If we got a key without a digest, it's an old client, not a cue to
-		// store the key.
-		tr->store_key = false;
 	}
 
 	return(0);
