@@ -906,11 +906,7 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 		}
 		else {
 			// If the message has a key, apply it to the record.
-			as_msg_field* f = as_msg_field_get(m, AS_MSG_FIELD_TYPE_KEY);
-			if (f) {
-				rd.key_size = as_msg_field_get_value_sz(f);
-				rd.key = f->data;
-			}
+			get_msg_key(m, &rd);
 		}
 
 
