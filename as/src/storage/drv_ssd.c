@@ -2376,10 +2376,12 @@ run_ssd_maintenance(void *udata)
 		uint64_t n_writes = cf_atomic_int_get(ssd->ssd_write_buf_counter);
 		uint64_t n_defrags = cf_atomic_int_get(ssd->defrag_wblock_counter);
 
-		uint64_t write_rate = (n_writes - prev_n_writes) / MAINTENANCE_SLEEP;
-		uint64_t defrag_rate = (n_defrags - prev_n_defrags) / MAINTENANCE_SLEEP;
+		float write_rate =
+				(float)(n_writes - prev_n_writes) / (float)MAINTENANCE_SLEEP;
+		float defrag_rate =
+				(float)(n_defrags - prev_n_defrags) / (float)MAINTENANCE_SLEEP;
 
-		cf_info(AS_DRV_SSD, "device %s: used %lu, contig-free %luM (%d wblocks), swb-free %d, w-q %d w-tot %lu (%lu/s), defrag-q %d defrag-tot %lu (%lu/s)",
+		cf_info(AS_DRV_SSD, "device %s: used %lu, contig-free %luM (%d wblocks), swb-free %d, w-q %d w-tot %lu (%.1f/s), defrag-q %d defrag-tot %lu (%.1f/s)",
 				ssd->name, ssd->inuse_size,
 				available_size(ssd) >> 20,
 				cf_queue_sz(ssd->free_wblock_q),
