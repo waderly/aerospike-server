@@ -641,8 +641,8 @@ struct as_partition_s {
 	pthread_mutex_t lock;
 
 	cf_node replica[AS_CLUSTER_SZ];
-	/* origin: the node that is replicating to us
-	 * target: an actual that we're migrating to */
+	/* origin: the node that is replicating to us. For master, origin could be "acting master" during migration.
+	 * target: an actual master that we're migrating to */
 	cf_node origin, target;
 	as_partition_state state;  // used to be consistency
 	as_partition_mig_rx_state rxstate;
