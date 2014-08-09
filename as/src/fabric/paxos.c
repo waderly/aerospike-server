@@ -1042,10 +1042,25 @@ as_paxos_succession_setdeceased(cf_node n)
 			break;
 		}
 	}
-
-	return;
 }
 
+/* as_paxos_succession_setrevived
+ * Mark a node in the succession list as alive */
+void
+as_paxos_succession_setrevived(cf_node n)
+{
+	as_paxos *p = g_config.paxos;
+
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		if (n == p->succession[i]) {
+			if (! p->alive[i]) {
+				cf_info(AS_PAXOS, "Node %"PRIx64" revived", n);
+				p->alive[i] = true;
+			}
+			break;
+		}
+	}
+}
 
 /* as_paxos_succession_quorum
  * Return true if a quorum of the nodes in the succession list are alive */
@@ -1783,17 +1798,19 @@ as_paxos_spark(as_paxos_change *c)
 	 * for quorum visibility; this lets us stop-the-world quickly if
 	 * the cluster has collapsed
 	 */
-	for (int i = 0; i < t.c.n_change; i++)
-		if (t.c.type[i] == AS_PAXOS_CHANGE_SUCCESSION_REMOVE)
-		{
+	for (int i = 0; i < t.c.n_change; i++) {
+		if (t.c.type[i] == AS_PAXOS_CHANGE_SUCCESSION_REMOVE) {
+			cf_debug(AS_PAXOS, "Node departure %"PRIx64"", t.c.id[i]);
 			as_paxos_succession_setdeceased(t.c.id[i]);
-			if (false == as_paxos_succession_quorum())
+			if (false == as_paxos_succession_quorum()) {
 				/*
 				 * TODO: Quorum collapse needs to not happen anymore
 				cf_crash(AS_PAXOS, "quorum visibility lost!");
 				 */
 				cf_warning(AS_PAXOS, "quorum visibility lost! Continuing anyway ...");
+			}
 		}
+	}
 
 	/*
 	 * If this is not the principal, we are done
@@ -1819,7 +1836,6 @@ as_paxos_spark(as_paxos_change *c)
 	}
 	if (0 != as_fabric_send_list(NULL, 0, m, AS_FABRIC_PRIORITY_HIGH))
 		as_fabric_msg_put(m);
-
 }
 
 
@@ -1952,6 +1968,10 @@ void as_paxos_process_heartbeat_event(msg *m)
 		{
 			case FABRIC_NODE_ARRIVE:
 			case FABRIC_NODE_UNDUN:
+
+				// Mark the node as alive if it is already in the succession list.
+				as_paxos_succession_setrevived(events[i].nodeid);
+
 				/*
 				 * Check if this pulse came from a node whose principal is different than ours
 				 * This means two clusters are merging - figure out who wins
@@ -1967,12 +1987,12 @@ void as_paxos_process_heartbeat_event(msg *m)
 							 * We lose. We wait to be assimilated by the other
 							 * TODO: Should we send a sync message to the other principal
 							 */
-							cf_info (AS_PAXOS, "Skip node arrival %"PRIx64" cluster principal %"PRIx64" pulse principal %"PRIx64"",
+							cf_info(AS_PAXOS, "Skip node arrival %"PRIx64" cluster principal %"PRIx64" pulse principal %"PRIx64"",
 									 events[i].nodeid, principal, events[i].p_node);
 							//if (true == as_paxos_succession_ismember(events[i].nodeid))
-							//	cf_warning (AS_PAXOS, "Skipped arrival node %"PRIx64" is in succession list!", events[i].nodeid);
+							//	cf_warning(AS_PAXOS, "Skipped arrival node %"PRIx64" is in succession list!", events[i].nodeid);
 							//if (true == as_paxos_succession_ismember(events[i].p_node))
-							//	cf_warning (AS_PAXOS, "Skipped arrival node's principal %"PRIx64" is in succession list!", events[i].p_node);
+							//	cf_warning(AS_PAXOS, "Skipped arrival node's principal %"PRIx64" is in succession list!", events[i].p_node);
 							break; // skip this event
 						}
 					}
@@ -2031,7 +2051,7 @@ void as_paxos_process_heartbeat_event(msg *m)
 	if (c.n_change > 0)
 		as_paxos_spark(&c);
 	else
-		cf_debug (AS_PAXOS, "Skipping call as_paxos_spark");
+		cf_debug(AS_PAXOS, "Skipping call as_paxos_spark");
 
 	return;
 }
