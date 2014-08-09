@@ -1024,7 +1024,8 @@ void
 fabric_buffer_shift(fabric_buffer *fb, uint32_t parsable_size)
 {
 	if (fb->r_parse != fb->r_buf) {
-		memcpy(fb->r_buf, fb->r_parse, parsable_size);
+		// Can overlap. (Though r_buf < r_parse, so memcpy() would work here.)
+		memmove(fb->r_buf, fb->r_parse, parsable_size);
 		fb->r_parse = fb->r_buf;
 		fb->r_append = fb->r_parse + parsable_size;
 	}
