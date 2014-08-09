@@ -800,7 +800,7 @@ as_paxos_partition_sync_msg_apply(msg *m)
 }
 
 /* as_paxos_succession_insert
- * Insert a node into the tail of the succession list; return 0 on success */
+ * Insert a node into the succession list, maintaining descending sorted order; return 0 on success */
 int
 as_paxos_succession_insert(cf_node n)
 {
@@ -808,13 +808,22 @@ as_paxos_succession_insert(cf_node n)
 	int i;
 
 	for (i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		// Node already exists - May happen in some rare error cases.
 		if (n == p->succession[i]) {
-			// Node already exists - this happens during some rare error cases
-			cf_warning(AS_PAXOS, "New node %"PRIx64" already found in paxos succession list", n);
+			cf_warning(AS_PAXOS, "New node %"PRIx64" already found in Paxos succession list", n);
 			p->alive[i] = true;
 			break;
 		}
+		// Found the end of the list - Insert node here.
 		if (0 == p->succession[i]) {
+			p->succession[i] = n;
+			p->alive[i] = true;
+			break;
+		}
+		// Found where this node belongs - Shift the other nodes down and insert node here.
+		if (n > p->succession[i]) {
+			memmove(&p->succession[i + 1], &p->succession[i], (g_config.paxos_max_cluster_size - i) * sizeof(cf_node));
+			memmove(&p->alive[i + 1], &p->alive[i], (g_config.paxos_max_cluster_size - i) * sizeof(bool));
 			p->succession[i] = n;
 			p->alive[i] = true;
 			break;
