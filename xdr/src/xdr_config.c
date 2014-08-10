@@ -44,6 +44,15 @@ const xdr_cfg_opt XDR_NS_OPTS[] = {
 		{ "xdr-remote-datacenter",			XDR_CASE_NS_XDR_REMOTE_DATACENTER },
 		{ "default-ttl",					XDR_CASE_NS_DEFAULT_TTL },
 		{ "max-ttl",						XDR_CASE_NS_MAX_TTL },
+		{ "storage-engine",					XDR_CASE_NS_STORAGE_ENGINE_BEGIN },
+		{ "}",								XDR_CASE_CONTEXT_END }
+};
+
+const xdr_cfg_opt XDR_NS_STORAGE_OPTS[] = {
+		{ "memory",							XDR_CASE_NS_STORAGE_MEMORY },
+		{ "ssd",							XDR_CASE_NS_STORAGE_SSD },
+		{ "device",							XDR_CASE_NS_STORAGE_DEVICE },
+		{ "kv",								XDR_CASE_NS_STORAGE_KV },
 		{ "}",								XDR_CASE_CONTEXT_END }
 };
 
@@ -96,11 +105,12 @@ const xdr_cfg_opt XDR_DC_OPTS[] = {
 		{ "}",								XDR_CASE_CONTEXT_END }
 };
 
-const int NUM_XDR_GLOBAL_OPTS	= sizeof(XDR_GLOBAL_OPTS) / sizeof(xdr_cfg_opt);
-const int NUM_XDR_SERVICE_OPTS	= sizeof(XDR_SERVICE_OPTS) / sizeof(xdr_cfg_opt);
-const int NUM_XDR_NS_OPTS		= sizeof(XDR_NS_OPTS) / sizeof(xdr_cfg_opt);
-const int NUM_XDR_OPTS			= sizeof(XDR_OPTS) / sizeof(xdr_cfg_opt);
-const int NUM_XDR_DC_OPTS		= sizeof(XDR_DC_OPTS) / sizeof(xdr_cfg_opt);
+const int NUM_XDR_GLOBAL_OPTS		= sizeof(XDR_GLOBAL_OPTS) / sizeof(xdr_cfg_opt);
+const int NUM_XDR_SERVICE_OPTS		= sizeof(XDR_SERVICE_OPTS) / sizeof(xdr_cfg_opt);
+const int NUM_XDR_NS_OPTS			= sizeof(XDR_NS_OPTS) / sizeof(xdr_cfg_opt);
+const int NUM_XDR_NS_STORAGE_OPTS	= sizeof(XDR_NS_STORAGE_OPTS) / sizeof(xdr_cfg_opt);
+const int NUM_XDR_OPTS				= sizeof(XDR_OPTS) / sizeof(xdr_cfg_opt);
+const int NUM_XDR_DC_OPTS			= sizeof(XDR_DC_OPTS) / sizeof(xdr_cfg_opt);
 
 // N.B.:  Default to false.
 const bool g_xdr_supported;
