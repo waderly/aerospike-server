@@ -89,10 +89,11 @@ extern int as_hb_set_protocol(hb_protocol_enum protocol);
 int as_hb_nodes_str_to_cf_nodes(char *nodes_str, int nodes_str_len, cf_node *nodes, int *num_nodes);
 
 /*
- *  as_hb_log_error
- *  Log the number of heartbeat-related errors of each type.
+ *  as_hb_stats
+ *  Return a string summarizing the number of heartbeat-related errors of each type.
+ *  Use long format messages if "verbose" is true, otherwise use short format messages.
  */
-void as_hb_log_errors();
+const char *as_hb_stats(bool verbose);
 
 /*
  *  as_dump_hb

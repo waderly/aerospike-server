@@ -242,6 +242,10 @@ static void as_hb_init_socket();
 static void as_hb_reinit(int socket, bool isudp);
 static int as_hb_endpoint_add(int socket, bool isudp, cf_node node_id);
 
+/*
+ * Enumeration of the types of heartbeat error events.
+ * (Occurrence counts for these event types are incremented by calling "as_hb_error()".)
+ */
 typedef enum as_hb_err_type_e
 {
 	AS_HB_ERR_BAD_TYPE = 0,
@@ -265,37 +269,51 @@ typedef enum as_hb_err_type_e
 	AS_HB_ERR_MAX_TYPE
 } as_hb_err_type;
 
-// NOTE:  Must match the number and order of "as_hb_err_type".
-static char *as_hb_error_msg[AS_HB_ERR_MAX_TYPE] =
+// Message formats for logging heartbeat error event.
+typedef enum as_hb_err_msg_format_e
 {
-	"bad type",
-	"bad pulse fd",
-	"no type",
-	"no id",
-	"no node in pulse",
-	"no node in info request",
-	"no anv length",
-	"sendto fail 1",
-	"sendto fail 2",
-	"sendto fail 3",
-	"sendto fail 4",
-	"sendto fail 5",
-	"sendto fail 6",
-	"missing required field",
-	"expire hb",
-	"expire fab dead",
-	"expire fab alive",
-	"unparsable msg"
+	LONG_FORMAT = 0,
+	SHORT_FORMAT
+} as_hb_err_msg_format;
+
+/*
+ * Names of the types of heartbeat error events.
+ * NOTE:  Must match the number and order of "as_hb_err_type".
+ */
+static char *as_hb_error_msg[AS_HB_ERR_MAX_TYPE][2] =
+{
+	{ "bad type", "bt", },
+	{ "bad pulse fd", "bf", },
+	{ "no type", "nt", },
+	{ "no id", "ni", },
+	{ "no node in pulse", "nn", },
+	{ "no node in info request", "nnir", },
+	{ "no anv length", "nal", },
+	{ "sendto fail 1", "sf1", },
+	{ "sendto fail 2", "sf2", },
+	{ "sendto fail 3", "sf3", },
+	{ "sendto fail 4", "sf4", },
+	{ "sendto fail 5", "sf5", },
+	{ "sendto fail 6", "sf6", },
+	{ "missing required field", "mrf", },
+	{ "expire hb", "eh", },
+	{ "expire fab dead", "efd", },
+	{ "expire fab alive", "efa", },
+	{ "unparsable msg", "um" }
 };
 
+// Occurrence counts for each type of heartbeat error detected.
 static uint64_t as_hb_error_count[AS_HB_ERR_MAX_TYPE] = { 0 };
 
-// Maxiumum line length.
+// Maxiumum line length for logging heartbeat errors.
 #define MAX_LINE_LEN  (512)
+
+// Module-global log message line for printing heartbeat errors.
+static char g_line[MAX_LINE_LEN];
 
 /*
  *  as_hb_error
- *  Report a heartbeat-related error of the given type.
+ *  Increment the occurrence count for a heartbeat-related error of the given type.
  */
 static void
 as_hb_error(as_hb_err_type type)
@@ -306,23 +324,24 @@ as_hb_error(as_hb_err_type type)
 }
 
 /*
- *  as_hb_log_error
- *  Log the number of heartbeat-related errors of each type.
+ *  as_hb_stats
+ *  Return a string summarizing the number of heartbeat-related errors of each type.
+ *  Use long format messages if "verbose" is true, otherwise use short format messages.
  */
-void
-as_hb_log_errors()
+const char *
+as_hb_stats(bool verbose)
 {
-	char line[MAX_LINE_LEN], msg[MAX_LINE_LEN];
+	char msg[MAX_LINE_LEN];
 	int pos = 0;
-	line[pos] = '\0';
+	g_line[pos] = '\0';
 
 	for (int i = 0; i < AS_HB_ERR_MAX_TYPE; i++) {
 		msg[0] = '\0';
-		snprintf(msg, sizeof(msg), "%s = %lu ; ", as_hb_error_msg[i], as_hb_error_count[i]);
-		strncat(line, msg, sizeof(line) - pos);
+		snprintf(msg, sizeof(msg), "%s %lu ", as_hb_error_msg[i][verbose ? LONG_FORMAT : SHORT_FORMAT], as_hb_error_count[i]);
+		strncat(g_line, msg, sizeof(g_line) - pos);
 	}
 
-	cf_warning(AS_HB, "HB Error Stats: %s", line);
+	return g_line;
 }
 
 /* as_hb_register
@@ -521,7 +540,6 @@ as_hb_nodes_discovered_hash_put_conn(cf_node node, int fd)
 	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_put_conn node %"PRIx64" fd:[%d] num curr conn after addition %d", node, fd, p_hval->num_conn);
 	return ret;
 }
-
 
 void
 as_hb_process_fabric_heartbeat(cf_node node, int fd, cf_sockaddr socket, uint32_t addr, uint32_t port, cf_node *buf, size_t bufsz)

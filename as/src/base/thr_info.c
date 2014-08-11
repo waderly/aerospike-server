@@ -4524,6 +4524,7 @@ info_debug_ticker_fn(void *gcc_is_ass)
 					);
 
 			cf_info(AS_INFO, "   heartbeat_received: self %lu : foreign %lu", g_config.heartbeat_received_self, g_config.heartbeat_received_foreign);
+			cf_info(AS_INFO, "   heartbeat_stats: %s", as_hb_stats(false));
 
 			cf_info(AS_INFO, "   tree_counts: nsup %"PRIu64" scan %"PRIu64" batch %"PRIu64" dup %"PRIu64" wprocess %"PRIu64" migrx %"PRIu64" migtx %"PRIu64" ssdr %"PRIu64" ssdw %"PRIu64" rw %"PRIu64"",
 					cf_atomic_int_get(g_config.nsup_tree_count),
@@ -4751,9 +4752,6 @@ info_debug_ticker_fn(void *gcc_is_ass)
 			if (g_config.fabric_dump_msgs) {
 				as_fabric_msg_queue_dump();
 			}
-
-			as_hb_log_errors();
-
 		}
 
 	} while(1);
