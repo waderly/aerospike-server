@@ -161,7 +161,7 @@ cfg_set_defaults()
 	c->hb_interval = 150;
 	c->hb_timeout = 10;
 	c->hb_protocol = AS_HB_PROTOCOL_V2; // default to the latest heartbeat protocol version
-	c->hb_mesh_read_write_retry_wait = 100;
+	c->hb_mesh_rw_retry_timeout = 500;
 
 	// Network info defaults.
 	c->info_fastpath_enabled = true; // by default, don't force Info requests to go through the transaction queue
@@ -392,7 +392,7 @@ typedef enum {
 	CASE_NETWORK_HEARTBEAT_INTERFACE_ADDRESS,
 	CASE_NETWORK_HEARTBEAT_MCAST_TTL,
 	CASE_NETWORK_HEARTBEAT_PROTOCOL,
-	CASE_NETWORK_HEARTBEAT_MESH_READ_WRITE_RETRY_WAIT, 
+	CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT, 
 
 	// Network heartbeat mode options (value tokens):
 	CASE_NETWORK_HEARTBEAT_MODE_MESH,
@@ -729,7 +729,7 @@ const cfg_opt NETWORK_HEARTBEAT_OPTS[] = {
 		{ "interface-address",				        CASE_NETWORK_HEARTBEAT_INTERFACE_ADDRESS },
 		{ "mcast-ttl",						CASE_NETWORK_HEARTBEAT_MCAST_TTL },
 		{ "protocol",						CASE_NETWORK_HEARTBEAT_PROTOCOL },
-		{ "mesh-read_write_retry-wait",			        CASE_NETWORK_HEARTBEAT_MESH_READ_WRITE_RETRY_WAIT },
+		{ "mesh-rw-retry-timeout",			        CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT },
 		{ "}",								CASE_CONTEXT_END }
 };
 
@@ -2113,8 +2113,8 @@ as_config_init(const char *config_file)
 					break;
 				}
 				break;
-			case CASE_NETWORK_HEARTBEAT_MESH_READ_WRITE_RETRY_WAIT:
-				c->hb_mesh_read_write_retry_wait = cfg_u32_no_checks(&line);
+			case CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT:
+				c->hb_mesh_rw_retry_timeout = cfg_u32_no_checks(&line);
 				break;
 			case CASE_CONTEXT_END:
 				cfg_end_context(&state);

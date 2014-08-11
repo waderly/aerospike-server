@@ -1380,6 +1380,7 @@ as_hb_tcp_send(int fd, byte * buff, size_t msg_size)
 	int retry = 0;
 	const int max_retry = 3;
 	size_t orig_size = msg_size;
+	cf_clock start = cf_getus();
 	do {
 		cf_detail(AS_HB, "cf_socket_sendto() fd %d retry count:%d msg_size:%d", fd, retry, msg_size);
 		ret =  cf_socket_sendto(fd, buff, msg_size, 0, 0);
@@ -1394,12 +1395,12 @@ as_hb_tcp_send(int fd, byte * buff, size_t msg_size)
 
 		if (msg_size > 0) {
 			retry++;
-			usleep(g_config.hb_mesh_read_write_retry_wait);
+			usleep(g_config.hb_mesh_rw_retry_timeout/3);
 		} else {
 			cf_detail(AS_HB, "cf_socket_sendto() fd %d retry count:%d msg_size:%d complete msg sent", fd, retry, msg_size);
 			break;
 		}
-	} while ( retry < max_retry );
+	} while ( ((start + g_config.hb_mesh_rw_retry_timeout) > cf_getus()) && (retry < max_retry) );
 
 	if ( (msg_size != 0)  && (msg_size != orig_size) ) {
 		cf_warning(AS_HB, "as_hb_tcp_send cf_socket_sendto() fd %d incomplete msg sent", fd);
@@ -1435,12 +1436,13 @@ as_hb_tcp_recv(int fd, byte * buff, size_t msg_size)
 	int try = 0;
 	const int max_try = 3;
 	int read_so_far = 0;
-	while (try < max_try ) {
+	cf_clock start = cf_getus();
+	do {
 		cf_detail(AS_HB, "as_hb_tcp_recv() fd %d try %d len %d", fd, try, len);
 		if (0 >= (ret = recv(fd, (buff + read_so_far), len - read_so_far, MSG_NOSIGNAL))) {
 			if(errno == EAGAIN || errno == EWOULDBLOCK) {
 				try++;
-				usleep(g_config.hb_mesh_read_write_retry_wait);
+				usleep(g_config.hb_mesh_rw_retry_timeout/3);
 				continue;
 			}
 			cf_info(AS_HB, "as_hb_tcp_recv() fd %d recv error try %d", fd, try);
@@ -1451,12 +1453,12 @@ as_hb_tcp_recv(int fd, byte * buff, size_t msg_size)
 		if(read_so_far < len) {
 			cf_detail(AS_HB, "as_hb_tcp_recv() recv success fd %d try %d read_so_far %d ", fd, try, read_so_far);
 			try++;
-			usleep(g_config.hb_mesh_read_write_retry_wait);
+			usleep(g_config.hb_mesh_rw_retry_timeout/3);
 		} else {
 			cf_detail(AS_HB, "as_hb_tcp_recv() recv success fd %d try %d len %d ", fd, try, len);
 			return len;
 		}
-	}
+	} while ( (try < max_try) && ((start + g_config.hb_mesh_rw_retry_timeout) > cf_getus()) );
 	cf_info(AS_HB, "as_hb_tcp_recv() fd %d returning error try %d len %d read_so_far %d", fd, try, len, read_so_far);
 	return -1;
 }
