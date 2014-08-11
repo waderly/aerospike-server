@@ -5,7 +5,7 @@ Welcome to the Aerospike Database Server source code tree!
 ## Build Prerequisites
 
 The Aerospike Database Server can be built and deployed on various
-current GNU/Linux platform versions, such as the Red Hat family (e.g.,
+current 64-bit GNU/Linux platform versions, such as the Red Hat family (e.g.,
 CentOS 6 or later), Debian 6 or later, and Ubuntu 10.04 or later.
 
 ### Dependencies
