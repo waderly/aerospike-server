@@ -624,9 +624,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";system_free_mem_pct=");
 	cf_dyn_buf_append_int(db, freepct);
 
-	cf_dyn_buf_append_string(db, ";system_sindex_data_memory_used=");
-	APPEND_STAT_COUNTER(db, g_config.sindex_data_memory_used);
-	
 	cf_dyn_buf_append_string(db, ";sindex_ucgarbage_found=");
 	APPEND_STAT_COUNTER(db, g_config.query_false_positives);
 	
