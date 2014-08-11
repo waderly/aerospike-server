@@ -66,6 +66,13 @@ typedef enum {
 	XDR_CASE_NS_XDR_REMOTE_DATACENTER,
 	XDR_CASE_NS_DEFAULT_TTL,
 	XDR_CASE_NS_MAX_TTL,
+	XDR_CASE_NS_STORAGE_ENGINE_BEGIN,
+
+	// Namespace storage options:
+	XDR_CASE_NS_STORAGE_MEMORY,
+	XDR_CASE_NS_STORAGE_SSD,
+	XDR_CASE_NS_STORAGE_DEVICE,
+	XDR_CASE_NS_STORAGE_KV,
 
 	// Main XDR options:
 	XDR_CASE_ENABLE_XDR,
@@ -121,6 +128,7 @@ extern const xdr_cfg_opt XDR_SERVICE_OPTS[];
 extern const xdr_cfg_opt XDR_OPTS[];
 extern const xdr_cfg_opt XDR_DC_OPTS[];
 extern const xdr_cfg_opt XDR_NS_OPTS[];
+extern const xdr_cfg_opt XDR_NS_STORAGE_OPTS[];
 
 /* The various xdr_cfg_opt array counts. The server (cfg.c) needs to see these.
  */
@@ -129,6 +137,7 @@ extern const int NUM_XDR_SERVICE_OPTS;
 extern const int NUM_XDR_OPTS;
 extern const int NUM_XDR_DC_OPTS;
 extern const int NUM_XDR_NS_OPTS;
+extern const int NUM_XDR_NS_STORAGE_OPTS;
 
 // Some static knobs shared between XDR and asd
 #define XDR_TIME_ADJUST	300000 // 5 min (ms) time value. Base macro for XDR(for LST adjustment in failure cases) and asd (as parameter for printing warrnings).
