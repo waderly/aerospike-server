@@ -467,23 +467,25 @@ fabric_buffer *
 fabric_buffer_create(int fd)
 {
 	fabric_buffer *fb = cf_rc_alloc(sizeof(fabric_buffer));
-	memset(fb, 0, sizeof(fabric_buffer) );
-	fb->fd = fd;
 
+	fb->fd = fd;
+	fb->worker_id = -1; // no worker assigned yet
+	fb->nodelay_isset = false;
+	fb->fne = NULL;
+	fb->connected = false; // not in the connected_fb_hash yet
 	fb->status = FB_STATUS_IDLE;
 
+	fb->w_total_len = 0;
+	fb->w_len = 0;
 	fb->w_in_place = true;
+	fb->w_buf = NULL;
+
+	fb->r_msg_size = 0;
+	fb->r_type = M_TYPE_FABRIC; // since we don't have an "invalid"
 	fb->r_buf = fb->r_stack_buf;
 	fb->r_append = fb->r_buf;
 	fb->r_parse = fb->r_buf;
 	fb->r_end = fb->r_buf + FB_INPLACE_SZ;
-	fb->nodelay_isset = false;
-
-	// No worker assigned yet.
-	fb->worker_id = -1;
-
-	// Not in the connected_fb_hash yet.
-	fb->connected = false;
 
 	int value = 0; // (Arbitrary & unused.)
 #ifdef CONNECTED_FB_HASH_USE_PUT_UNIQUE
