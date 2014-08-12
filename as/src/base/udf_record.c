@@ -808,6 +808,30 @@ udf_record_set_ttl(const as_rec * rec,  uint32_t  ttl)
 	return 0;
 }
 
+static int
+udf_record_drop_key(const as_rec * rec)
+{
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	if (ret) {
+		return ret;
+	}
+
+	udf_record * urecord = (udf_record *) as_rec_source(rec);
+	if (!(urecord->flag & UDF_RECORD_FLAG_ALLOW_UPDATES)) {
+		return -1;
+	}
+
+	// Flag the key to be dropped.
+	if (urecord->rd->key) {
+		urecord->rd->key = NULL;
+		urecord->rd->key_size = 0;
+	}
+
+	urecord->flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
+
+	return 0;
+}
+
 /* Keep this for reference.
  * typedef enum {
 	// The first two values -- do NOT used in single bin mode
@@ -959,5 +983,6 @@ const as_rec_hooks udf_record_hooks = {
 	.set_flags	= udf_record_set_flags,	// @LDT:: added for control over LDT Bins from Lua
 	.set_type	= udf_record_set_type,	// @LDT:: added for control over Rec Types from Lua
 	.set_ttl	= udf_record_set_ttl,
+	.drop_key	= udf_record_drop_key,
 	.numbins	= NULL,
 };
