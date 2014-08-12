@@ -2661,11 +2661,10 @@ static int as_smd_invoke_merge_reduce_fn(void *key, uint32_t keylen, void *objec
 
 		shash *module_item_count_hash = NULL;
 		if (SHASH_OK != shash_get(smd->scoreboard, &node_id, &module_item_count_hash)) {
-			// DEBUG 
-			cf_warning(AS_SMD, "***Cluster Size Is: %d ; Scoreboard size is %d***", g_config.paxos->cluster_size, shash_get_size(smd->scoreboard));
+			cf_debug(AS_SMD, "***Cluster Size Is: %d ; Scoreboard size is %d***", g_config.paxos->cluster_size, shash_get_size(smd->scoreboard));
 
 			// Node may be in succession but not officially in cluster yet....
-			cf_warning(AS_SMD, "failed to get module item count hash for node %016lX ~~ Skipping!", node_id);
+			cf_debug(AS_SMD, "failed to get module item count hash for node %016lX ~~ Skipping!", node_id);
 			continue;
 		}
 
@@ -2791,15 +2790,15 @@ static int as_smd_receive_metadata(as_smd_t *smd, as_smd_msg_t *smd_msg)
 
 	// Only the Paxos principal receives other node's metadata.)
 	if (as_paxos_succession_getprincipal() != g_config.self_node) {
-		cf_warning(AS_SMD, "non-principal node %016lX received metadata from node %016lX ~~ Ignoring!", g_config.self_node, smd_msg->node_id);
+		cf_debug(AS_SMD, "non-principal node %016lX received metadata from node %016lX ~~ Ignoring!", g_config.self_node, smd_msg->node_id);
 		return -1;
 	}
 
 	cf_debug(AS_SMD, "System Metadata thread - received %d metadata items from node %016lX", smd_msg->num_items, smd_msg->node_id);
 
 	if (as_paxos_get_cluster_key() != smd_msg->cluster_key) {
-		cf_warning(AS_SMD, "received SMD with non-current cluster key (%016lx != %016lx) from node %016lX ~~ Ignoring!",
-				   smd_msg->cluster_key, as_paxos_get_cluster_key(), smd_msg->node_id);
+		cf_debug(AS_SMD, "received SMD with non-current cluster key (%016lx != %016lx) from node %016lX ~~ Ignoring!",
+				 smd_msg->cluster_key, as_paxos_get_cluster_key(), smd_msg->node_id);
 		return -1;
 	}
 
