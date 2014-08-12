@@ -1196,6 +1196,7 @@ Next:
 	}
 
 	fb->r_parse += fb->r_msg_size;
+	fb->r_msg_size = 0;
 
 	if (fb->r_parse < fb->r_append) {
 		// This wasn't the last message in available bytes. (Note - can't get
@@ -1213,7 +1214,6 @@ Next:
 		fb->r_end = fb->r_buf + FB_INPLACE_SZ;
 	}
 
-	fb->r_msg_size = 0;
 	fb->r_append = fb->r_buf;
 	fb->r_parse = fb->r_buf;
 
