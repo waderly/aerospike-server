@@ -2,10 +2,19 @@
 
 Welcome to the Aerospike Database Server source code tree!
 
+Aerospike is a distributed, scalable NoSQL database. It is architected with three key objectives:
+
+- To create a high-performance, scalable platform that would meet the needs of today’s web-scale applications
+- To provide the robustness and reliability (ie, ACID) expected from traditional databases.
+- To provide operational efficiency (minimal manual involvement)
+
+For more information on Aerospike, please visit: [http://aerospike.com](http://aerospike.com)
+
+
 ## Build Prerequisites
 
 The Aerospike Database Server can be built and deployed on various
-current GNU/Linux platform versions, such as the Red Hat family (e.g.,
+current 64-bit GNU/Linux platform versions, such as the Red Hat family (e.g.,
 CentOS 6 or later), Debian 6 or later, and Ubuntu 10.04 or later.
 
 ### Dependencies

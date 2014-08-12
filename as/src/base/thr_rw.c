@@ -3020,7 +3020,7 @@ check_msg_set_name(as_msg* m, const char* set_name)
 	return true;
 }
 
-static bool
+bool
 get_msg_key(as_msg* m, as_storage_rd* rd)
 {
 	as_msg_field* f = as_msg_field_get(m, AS_MSG_FIELD_TYPE_KEY);

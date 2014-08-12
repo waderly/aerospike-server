@@ -319,9 +319,9 @@ as_cold_start_evict_if_needed(as_namespace* ns)
 	}
 
 	// Evaluate whether or not we need to evict.
-	bool lwm_breached = false, hwm_breached = false, stop_writes = false;
+	bool hwm_breached = false, stop_writes = false;
 
-	as_namespace_eval_write_state(ns, &lwm_breached, &hwm_breached, &stop_writes, true/*chk_mem*/, false/*chk_disk*/);
+	as_namespace_eval_write_state(ns, &hwm_breached, &stop_writes);
 
 	// Are we out of control?
 	if (stop_writes) {
@@ -1377,9 +1377,9 @@ thr_nsup(void *arg)
 
 			// Check whether or not we need to do general eviction.
 
-			bool lwm_breached = false, hwm_breached = false, stop_writes = false;
+			bool hwm_breached = false, stop_writes = false;
 
-			as_namespace_eval_write_state(ns, &lwm_breached, &hwm_breached, &stop_writes, true /*chk_mem*/, true /*chk_disk*/);
+			as_namespace_eval_write_state(ns, &hwm_breached, &stop_writes);
 
 			// Store the state of the threshold breaches.
 			cf_atomic32_set(&ns->stop_writes, stop_writes ? 1 : 0);

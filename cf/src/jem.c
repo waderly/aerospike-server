@@ -63,7 +63,7 @@
  *          the "MALLOC_CONF" environment variable and/or the "name" of
  *          the "/etc/malloc.conf" symbolic link.
  */
-const char *malloc_conf = "narenas:150";
+JEMALLOC_ALIGNED(16) const char *malloc_conf = "narenas:150";
 
 /*
  *  Is the JEMalloc interface enabled?  (By default, no.)
