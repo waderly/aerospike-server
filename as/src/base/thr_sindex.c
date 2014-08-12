@@ -174,17 +174,16 @@ as_sindex__destroy_fn(void *param)
 		snprintf(iname, strlen(imd->iname) + 1, "%s", imd->iname);
 		shash_delete(si->ns->sindex_iname_hash, (void *)iname);
 
-		// add 14 for number of characters in any uint32
-		char set_binid[AS_SET_NAME_MAX_SIZE + 14];
-		memset(set_binid, 0, AS_SET_NAME_MAX_SIZE + 14);
+		// add 14 + 6 for number of characters in any uint32
+		char si_prop[AS_SET_NAME_MAX_SIZE + 20];
+		memset(si_prop, 0, AS_SET_NAME_MAX_SIZE + 20);
 		if (imd->set == NULL) {
-			sprintf(set_binid, "_%d", imd->binid[0]);
+			sprintf(si_prop, "_%d_%d", imd->binid[0], imd->btype[0]);
 		}
 		else {
-			sprintf(set_binid, "%s_%d", imd->set, imd->binid[0]);
+			sprintf(si_prop, "%s_%d_%d", imd->set, imd->binid[0], imd->btype[0]);
 		}
-
-		shash_delete(si->ns->sindex_set_binid_hash, (void *)set_binid);
+		shash_delete(si->ns->sindex_property_hash, (void *)si_prop);
 		si->ns      = NULL;
 		si->simatch = -1;
 

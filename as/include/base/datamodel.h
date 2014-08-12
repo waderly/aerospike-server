@@ -953,7 +953,7 @@ struct as_namespace_s {
 	struct as_sindex_s	*sindex;  // array with AS_MAX_SINDEX meta data
 	uint64_t			sindex_data_max_memory;
 	cf_atomic_int		sindex_data_memory_used;
-	shash				*sindex_set_binid_hash;
+	shash				*sindex_property_hash;  // set_binid_type
 	shash				*sindex_iname_hash;
 
 	// Current state of threshold breaches.
