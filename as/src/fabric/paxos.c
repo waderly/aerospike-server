@@ -489,9 +489,6 @@ as_paxos_partition_sync_request_msg_apply(msg *m, int n_pos)
 				   gen.sequence, p->gen.sequence, gen.proposal, p->gen.proposal);
 		return(-1);
 	}
-	/*
-	 * reset the values of this node's partition version in the global list
-	 */
 
 	size_t array_size = g_config.namespaces;
 
@@ -508,7 +505,6 @@ as_paxos_partition_sync_request_msg_apply(msg *m, int n_pos)
 	/*
 	 * reset the values of this node's partition version in the global list
 	 */
-
 	size_t elem = 0;
 	for (int i = 0; i < g_config.namespaces; i++) {
 		byte *bufp = NULL;
@@ -710,6 +706,7 @@ as_paxos_partition_sync_msg_apply(msg *m)
 		cf_warning(AS_PAXOS, "unpacking succession list from partition sync message failed");
 		return(-1);
 	}
+
 	/*
 	 * Make sure that the bits are identical
 	 */
@@ -754,7 +751,6 @@ as_paxos_partition_sync_msg_apply(msg *m)
 	/*
 	 * reset the values of this node's partition version in the global list
 	 */
-
 	size_t elem = 0;
 	for (int i = 0; i < g_config.namespaces; i++)
 		for (int j = 0; j < g_config.paxos_max_cluster_size; j++) {
@@ -2571,12 +2567,13 @@ as_paxos_thr(void *arg)
 				 * send a commit message and reset the vote count */
 				switch(as_paxos_transaction_vote(s, qm->id, &t)) {
 					case AS_PAXOS_TRANSACTION_VOTE_ACCEPT:
-						cf_warning(AS_PAXOS, "received %d from %"PRIx64"", AS_PAXOS_TRANSACTION_VOTE_ACCEPT, qm->id);
+						cf_debug(AS_PAXOS, "received ACCEPT vote from %"PRIx64"", qm->id);
 						break;
 					case AS_PAXOS_TRANSACTION_VOTE_REJECT:
-						cf_warning(AS_PAXOS, "received %d from %"PRIx64"", AS_PAXOS_TRANSACTION_VOTE_REJECT, qm->id);
+						cf_debug(AS_PAXOS, "received REJECT vote from %"PRIx64"", qm->id);
 						break;
 					case AS_PAXOS_TRANSACTION_VOTE_QUORUM:
+						cf_debug(AS_PAXOS, "received ACCEPT vote from %"PRIx64" and reached quorum", qm->id);
 						reply = as_paxos_msg_wrap(s, as_paxos_state_next(c, ACK));
 						if (0 != as_fabric_send_list(NULL, 0, reply, AS_FABRIC_PRIORITY_HIGH))
 							as_fabric_msg_put(reply);
@@ -2595,31 +2592,6 @@ as_paxos_thr(void *arg)
 					cf_warning(AS_PAXOS, "received negative acknowledgment for unknown transaction");
 					break;
 				}
-
-				/* JOEY FIX [11/2011] - Disable retry code - this code sends two messages
-				 * where it should send one, and quickly fills the transaction table. */
-
-				/*
-				// Establish a transaction for the contents of the rejection
-				// message: increment the proposal ID and transmit
-				t.gen.proposal++;
-				if (NULL == (s = as_paxos_transaction_establish(&t))) {
-					cf_warning(AS_PAXOS, "unable to establish transaction");
-				    break;
-				}
-				reply = as_paxos_msg_wrap(s, AS_PAXOS_MSG_COMMAND_PREPARE);
-				if (0 != as_fabric_send_list(NULL, 0, reply, AS_FABRIC_PRIORITY_HIGH))
-					as_fabric_msg_put(reply);
-
-				// Establish a new transaction with the change we were trying
-				// to perform; the easiest way to do this is just to go back
-				// to the beginning...
-				as_paxos_spark(&r->c);
-
-
-				// Destroy the rejected transaction
-				as_paxos_transaction_destroy(r);
-				*/
 
 				break;
 			case AS_PAXOS_MSG_COMMAND_CONFIRM:
@@ -2776,7 +2748,7 @@ as_paxos_thr(void *arg)
 							cf_warning(AS_PAXOS, "unable to construct partition sync message to node %"PRIx64"", p->succession[npos]);
 						else if (0 != as_fabric_send(p->succession[npos], reply, AS_FABRIC_PRIORITY_HIGH)) {
 							as_fabric_msg_put(reply);
-							cf_warning(AS_PAXOS, "unable to sent partition sync message to node %"PRIx64"", p->succession[npos]);
+							cf_warning(AS_PAXOS, "unable to send partition sync message to node %"PRIx64"", p->succession[npos]);
 						}
 					}
 					else { //sending partition sync message to all nodes
@@ -2788,7 +2760,7 @@ as_paxos_thr(void *arg)
 									cf_warning(AS_PAXOS, "unable to construct partition sync message to node %"PRIx64"", p->succession[i]);
 								else if (0 != as_fabric_send(p->succession[i], reply, AS_FABRIC_PRIORITY_HIGH)) {
 									as_fabric_msg_put(reply);
-									cf_warning(AS_PAXOS, "unable to sent partition sync message to node %"PRIx64"", p->succession[i]);
+									cf_warning(AS_PAXOS, "unable to send partition sync message to node %"PRIx64"", p->succession[i]);
 								}
 							}
 						}

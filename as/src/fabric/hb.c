@@ -1796,7 +1796,7 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
 					cf_debug(AS_HB, "info reply: initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
 				} else {
-					cf_warning(AS_HB, "info reply: failed initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
+					cf_warning(AS_HB, "info reply: failed (errno %d) to initiate new connection to mesh host at %s:%d socket %d from %s:%d", errno, s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
 				}
 			}
 			break;

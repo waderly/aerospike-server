@@ -346,7 +346,7 @@ cf_socket_init_client(cf_socket_cfg *s)
 						} else {
 							// (Note:  ERR and HUP events are automatically waited for as well.)
 							if (events[0].events & (EPOLLERR | EPOLLHUP)) {
-								cf_warning(CF_SOCKET, "epoll_wait() on client socket detected failure event 0x%x ~~ Failing!", events[0].events);
+								cf_debug(CF_SOCKET, "epoll_wait() on client socket detected failure event 0x%x ~~ Failing!", events[0].events);
 							} else {
 								cf_warning(CF_SOCKET, "epoll_wait() on client socket detected non-write events 0x%x ~~ Failing!", events[0].events);
 							}
