@@ -112,9 +112,9 @@ int
 as_sindex__simatch_by_property(as_namespace *ns, char * set, int binid, as_sindex_ktype type)
 {
 	int simatch = -1;
-	// add 14 + 6 for number of characters in any uint32
-	char si_prop[AS_SET_NAME_MAX_SIZE + 20];
-	memset(si_prop, 0, AS_SET_NAME_MAX_SIZE + 20);
+	
+	char si_prop[AS_SINDEX_PROP_KEY_SIZE];
+	memset(si_prop, 0, AS_SINDEX_PROP_KEY_SIZE);
 	if (set == NULL) {
 		sprintf(si_prop, "_%d_%d", binid, type);
 	}
@@ -414,7 +414,7 @@ as_sindex__get_simatches_by_sbin(as_namespace *ns, const char *set,
 
 	SINDEX_GRLOCK();
 	int nmatch = 0;
-	for (int k = 0; k < num_bins; k++) {	
+	for (int k = 0; k < num_bins; k++) {
 		as_sindex  *si = as_sindex__lookup_lockfree(ns, NULL, sbin[k].id,
 							(char *)set, as_sindex_sktype_from_pktype(sbin[k].type), 
 							AS_SINDEX_LOOKUP_FLAG_ISACTIVE
@@ -1166,9 +1166,8 @@ as_sindex_create(as_namespace *ns, as_sindex_metadata *imd, bool user_create)
 	// Reason for doing it upfront is to fail fast. Without doing
 	// whole bunch of Aerospike Index work
 
-	// add 14 for number of characters in any uint32
-	char si_prop[AS_SET_NAME_MAX_SIZE + 20];
-	memset(si_prop, 0, AS_SET_NAME_MAX_SIZE + 20);
+	char si_prop[AS_SINDEX_PROP_KEY_SIZE];
+	memset(si_prop, 0, AS_SINDEX_PROP_KEY_SIZE);
 
 	if (imd->set == NULL ) {
 		// sindex can be over a NULL set
