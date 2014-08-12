@@ -926,6 +926,9 @@ fabric_process_writable(fabric_buffer *fb)
 	else {
 		// cf_assert(fb->fd, AS_FABRIC, CF_WARNING, "attempted write to fd 0");
 		if (0 > (w_sz = send(fb->fd, fb->w_buf + fb->w_len, w_len, MSG_NOSIGNAL))) {
+			if (errno == EAGAIN) {
+				return 0;
+			}
 			cf_debug(AS_FABRIC, "fabric_process_writable: return less than 0 %d", errno);
 			return(-1);
 		}
