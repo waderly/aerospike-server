@@ -166,7 +166,7 @@ ldt_record_pickle(ldt_record *lrecord,
 
 
 	if (is_delete) {
-		*pickled_buf = false;
+		*pickled_buf = 0;
 		*pickled_sz  = 0;
 	} else {
 		size_t sz     = 0;
@@ -565,6 +565,7 @@ ldt_crec_create(ldt_record *lrecord)
 
 	cf_debug_digest(AS_LDT, &(lchunk->c_urecord.keyd), "Crec Create:Ptr(%p) Digest: ", lchunk->c_urec_p);
 
+	as_val_reserve(lchunk->c_urec_p);
 	return lchunk->c_urec_p;
 }
 
@@ -778,6 +779,7 @@ ldt_aerospike_crec_open(const as_aerospike * as, const as_rec *rec, const char *
 		cf_detail(AS_LDT, "Failed to open Sub Record rv=%d", rv);
 		return NULL;
 	} else {
+		as_val_reserve(lrecord->chunk[slot].c_urec_p);
 		return lrecord->chunk[slot].c_urec_p;
 	}
 }

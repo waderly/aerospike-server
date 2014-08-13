@@ -290,12 +290,13 @@ typedef struct {
 	byte		*w_buf;
 
 	// This is the read section
-	uint32_t	r_len_required; 	// the length we're going to need to complete the msg
-	msg_type	r_type;             // type that will be incoming
-	size_t		r_len;  			// length currently read into the buffer
-	bool 		r_in_place; 		// if true, using the inplace buffer
-	byte 		r_data[ FB_INPLACE_SZ ];
-	byte 		*r_buf;
+	uint32_t	r_msg_size; 		// size of the incoming message
+	msg_type	r_type;             // type of the incoming message
+	byte		*r_append;			// read from socket to here
+	byte		*r_parse;			// parse from here
+	byte		*r_end;				// the end of r_buf
+	byte 		r_stack_buf[ FB_INPLACE_SZ ];
+	byte 		*r_buf;				// may be r_stack_buf or allocated big buffer
 
 } fabric_buffer;
 
@@ -466,20 +467,25 @@ fabric_buffer *
 fabric_buffer_create(int fd)
 {
 	fabric_buffer *fb = cf_rc_alloc(sizeof(fabric_buffer));
-	memset(fb, 0, sizeof(fabric_buffer) );
-	fb->fd = fd;
 
+	fb->fd = fd;
+	fb->worker_id = -1; // no worker assigned yet
+	fb->nodelay_isset = false;
+	fb->fne = NULL;
+	fb->connected = false; // not in the connected_fb_hash yet
 	fb->status = FB_STATUS_IDLE;
 
+	fb->w_total_len = 0;
+	fb->w_len = 0;
 	fb->w_in_place = true;
-	fb->r_in_place = true;
-	fb->nodelay_isset = false;
+	fb->w_buf = NULL;
 
-	// No worker assigned yet.
-	fb->worker_id = -1;
-
-	// Not in the connected_fb_hash yet.
-	fb->connected = false;
+	fb->r_msg_size = 0;
+	fb->r_type = M_TYPE_FABRIC; // since we don't have an "invalid"
+	fb->r_buf = fb->r_stack_buf;
+	fb->r_append = fb->r_buf;
+	fb->r_parse = fb->r_buf;
+	fb->r_end = fb->r_buf + FB_INPLACE_SZ;
 
 	int value = 0; // (Arbitrary & unused.)
 #ifdef CONNECTED_FB_HASH_USE_PUT_UNIQUE
@@ -564,14 +570,16 @@ fabric_buffer_release(fabric_buffer *fb)
 		if (fb->w_total_len != fb->w_len)
 			cf_debug(AS_FABRIC, "dropping message: TCP connection close with writable bytes %d", fb->w_total_len - fb->w_len);
 
-		if (fb->r_in_place == false && fb->r_buf) cf_free(fb->r_buf);
+		if (fb->r_buf != fb->r_stack_buf) {
+			cf_free(fb->r_buf);
+		}
 
 		if (fb->w_in_place == false && fb->w_buf) cf_free(fb->w_buf);
 
-//#ifdef EXTRA_CHECKS
+#ifdef EXTRA_CHECKS
 		// DEBUG - this is a large memset - not good for production
 		memset(fb, 0xff, sizeof(fabric_buffer));
-//#endif
+#endif
 
 		if (SHASH_OK != shash_delete(g_fb_hash, &fb))
 			cf_crash(AS_FABRIC, "failed to fb %p delete from hash table", fb);
@@ -918,6 +926,9 @@ fabric_process_writable(fabric_buffer *fb)
 	else {
 		// cf_assert(fb->fd, AS_FABRIC, CF_WARNING, "attempted write to fd 0");
 		if (0 > (w_sz = send(fb->fd, fb->w_buf + fb->w_len, w_len, MSG_NOSIGNAL))) {
+			if (errno == EAGAIN) {
+				return 0;
+			}
 			cf_debug(AS_FABRIC, "fabric_process_writable: return less than 0 %d", errno);
 			return(-1);
 		}
@@ -1014,6 +1025,17 @@ as_fabric_msg_put(msg *m)
 //	}
 }
 
+void
+fabric_buffer_shift(fabric_buffer *fb, uint32_t parsable_size)
+{
+	if (fb->r_parse != fb->r_buf) {
+		// Can overlap. (Though r_buf < r_parse, so memcpy() would work here.)
+		memmove(fb->r_buf, fb->r_parse, parsable_size);
+		fb->r_parse = fb->r_buf;
+		fb->r_append = fb->r_parse + parsable_size;
+	}
+}
+
 //
 // Helper function
 // Return true if you need to be called again on this buffer
@@ -1023,39 +1045,41 @@ as_fabric_msg_put(msg *m)
 bool
 fabric_process_read_msg(fabric_buffer *fb)
 {
+	uint32_t parsable_size = (uint32_t)(fb->r_append - fb->r_parse);
 
-	if (fb->r_len_required == 0) {
-		// Happen to know that len_required=0 means you're still reading
-		// off the in_place data
-		if (0 != msg_get_initial(&fb->r_len_required, &fb->r_type, fb->r_data, fb->r_len)) {
-			return(false);
+	if (fb->r_msg_size == 0) {
+		if (0 != msg_get_initial(&fb->r_msg_size, &fb->r_type, fb->r_parse, parsable_size)) {
+			fabric_buffer_shift(fb, parsable_size);
+			return false;
 		}
-		cf_detail(AS_FABRIC, "length required: %d", fb->r_len_required);
 
-		if (fb->r_len_required > FB_INPLACE_SZ) {
-			fb->r_buf = cf_malloc(fb->r_len_required);
-			memcpy(fb->r_buf, fb->r_data, fb->r_len);
-			fb->r_in_place = false;
-			cf_detail(AS_FABRIC, "len required greater than inplace: allocating %d new buf %p previous size %d", fb->r_len_required, fb->r_buf, fb->r_len);
+		cf_detail(AS_FABRIC, "length required: %u", fb->r_msg_size);
+
+		if (fb->r_msg_size > FB_INPLACE_SZ) {
+			fb->r_buf = cf_malloc(fb->r_msg_size);
+			fb->r_end = fb->r_buf + fb->r_msg_size;
+			fabric_buffer_shift(fb, parsable_size);
+			return false;
 		}
 	}
 
-	// return quick if we can't parse a message
-	if (fb->r_len_required > fb->r_len) {
-		return(false);
+	// Return quick if we can't parse a full message.
+	if (fb->r_msg_size > parsable_size) {
+		fabric_buffer_shift(fb, parsable_size);
+		return false;
 	}
 
-	// We have not yet associated this incoming connection with an endpoint,
-	// so we need to read in the special fabric message that contains the
-	// unique fabric address.
 	if (fb->fne == 0) {
-
+		// We have not yet associated this incoming connection with an endpoint,
+		// so we need to read in the special fabric message that contains the
+		// unique fabric address.
 		msg *m = as_fabric_msg_get(M_TYPE_FABRIC);
-		if (msg_parse(m, fb->r_data, fb->r_len_required, true) != 0) {
+
+		if (msg_parse(m, fb->r_parse, fb->r_msg_size, true) != 0) {
 			cf_warning(AS_FABRIC, "fabric_process_read: msg_parse failed fabric msg");
 			// TODO: Should never happen, because the first message in a connection should be short
 			// abandon this connection is OK
-			return(false);
+			return false;
 		}
 
 		int rv;
@@ -1123,7 +1147,7 @@ Next:
 			if (RCHASH_OK != rv) {
 				// I get a connection.
 				cf_debug(AS_FABRIC, "fabric_process_read_msg: cf_node unknown, can't create new endpoint descriptor odd %d", rv);
-				return(false);
+				return false;
 			}
 		}
 
@@ -1134,25 +1158,23 @@ Next:
 		fb->status = FB_STATUS_IDLE;
 	}
 	else {
-
 		// Standard path - parse into a regular message
 		msg *m = as_fabric_msg_get(fb->r_type);
+
 		if (! m) {
 			// this can happen if the TCP stream gets horribly out of sync
 			// or if we're way out of memory --- close the connection and let
 			// the error paths take care of it
 			cf_warning(AS_FABRIC, "msg_parse could not parse message, for type %d", fb->r_type);
 			shutdown(fb->fd, SHUT_WR);
-			return(false);
-		}
-		if (msg_parse(m, fb->r_in_place ? fb->r_data : fb->r_buf, fb->r_len_required, true) != 0) {
-			cf_warning(AS_FABRIC, "msg_parse failed regular message, not supposed to happen: fb %p inp %d", fb, fb->r_in_place);
-			shutdown(fb->fd, SHUT_WR);
-			return(false);
+			return false;
 		}
 
-//		cf_debug(AS_FABRIC,"PARSED MESSAGE");
-//		msg_dump(fb->r_m);
+		if (msg_parse(m, fb->r_parse, fb->r_msg_size, true) != 0) {
+			cf_warning(AS_FABRIC, "msg_parse failed regular message, not supposed to happen: fb %p", fb);
+			shutdown(fb->fd, SHUT_WR);
+			return false;
+		}
 
 		// todo: have a full message, call the callback with the message
 
@@ -1173,31 +1195,29 @@ Next:
 		}
 	}
 
-	// Shift down any remaining bytes
-	if (fb->r_len_required < fb->r_len) {
-		// bug if on an inplace buffer
-		if (! fb->r_in_place) cf_warning(AS_FABRIC, "shift-down on an inplace buffer, fail fail");
+	fb->r_parse += fb->r_msg_size;
+	fb->r_msg_size = 0;
 
-		// this could be an overlapping copy
-		memmove(&fb->r_data[0], &fb->r_data[fb->r_len_required], fb->r_len - fb->r_len_required );
-		fb->r_len -= fb->r_len_required;
-		fb->r_len_required = 0;
-		return(true);
+	if (fb->r_parse < fb->r_append) {
+		// This wasn't the last message in available bytes. (Note - can't get
+		// here with an allocated big buffer.)
+		return true;
 	}
 
 	fb->status = FB_STATUS_IDLE;
 
-	// Else - r_len_requires is equal to fb->r_len
-	// Free up big buffer
-	if (fb->r_in_place == false) {
+	// If we used an allocated big buffer, we're done with it here - free it and
+	// restore stack buffer mode.
+	if (fb->r_buf != fb->r_stack_buf) {
 		cf_free(fb->r_buf);
-		fb->r_buf = 0;
-		fb->r_in_place = true;
+		fb->r_buf = fb->r_stack_buf;
+		fb->r_end = fb->r_buf + FB_INPLACE_SZ;
 	}
 
-	fb->r_len_required = 0;
-	fb->r_len = 0;
-	return(false);
+	fb->r_append = fb->r_buf;
+	fb->r_parse = fb->r_buf;
+
+	return false;
 }
 
 int
@@ -1205,30 +1225,15 @@ fabric_process_readable(fabric_buffer *fb)
 {
 	int32_t	rsz;
 
-	if (fb->r_in_place) {
-		if ( 0 >= (rsz = read(fb->fd, fb->r_data + fb->r_len,  FB_INPLACE_SZ - fb->r_len ))) {
-			cf_debug(AS_FABRIC, "read returned %d, broken connection? %d %s", rsz, errno, cf_strerror(errno));
-			return(-1);
-		}
-		fb->r_len += rsz;
-
-		cf_detail(AS_FABRIC, "readable: fd %d read %d buffer now %d", fb->fd, rsz, fb->r_len);
-
-		while (	fabric_process_read_msg(fb) ) ;
-
+	if (0 >= (rsz = read(fb->fd, fb->r_append, fb->r_end - fb->r_append))) {
+		cf_debug(AS_FABRIC, "read returned %d, broken connection? %d %s", rsz, errno, cf_strerror(errno));
+		return -1;
 	}
-	else { // long message, read exactly what we need
-		if ( 0 >= (rsz = read(fb->fd, fb->r_buf + fb->r_len, fb->r_len_required - fb->r_len))) {
-			cf_info(AS_FABRIC, "read2 returned 0, broken connection");
-			return(-1);
-		}
-		fb->r_len += rsz;
 
-		cf_detail(AS_FABRIC, "readable (!inplace) : fd %d read %d buffer now %d", fb->fd, rsz, fb->r_len);
+	fb->r_append += rsz;
 
-		if (fb->r_len_required == fb->r_len)
-			fabric_process_read_msg(fb);
-
+	while (fabric_process_read_msg(fb)) {
+		;
 	}
 
 	if (rsz < 500)
@@ -1238,8 +1243,7 @@ fabric_process_readable(fabric_buffer *fb)
 	else
 		cf_atomic_int_incr(&g_config.fabric_read_long);
 
-
-	return(0);
+	return 0;
 }
 
 //

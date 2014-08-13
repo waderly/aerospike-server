@@ -101,10 +101,6 @@ cfg_set_defaults()
 	c->batch_max_requests = 5000; // maximum requests/digests in a single batch
 	c->batch_priority = 200; // # of rows between a quick context switch?
 	c->n_batch_threads = 4;
-	c->defrag_queue_escape = 10; // don't wait longer than this
-	c->defrag_queue_hwm = 500; // enter waiting if write queue backs up to this
-	c->defrag_queue_lwm = 1; // continue waiting until it clears to this
-	c->defrag_queue_priority = 1; // sleep this many milliseconds between defragging consecutive wblocks
 	c->n_fabric_workers = 16;
 	c->fb_health_bad_pct = 0; // percent of successful messages in a burst at/below which node is deemed bad
 	c->fb_health_good_pct = 50; // percent of successful messages in a burst at/above which node is deemed ok
@@ -123,7 +119,6 @@ cfg_set_defaults()
 	c->migrate_xmit_lwm = 5; // because the monitor the queue depth
 	c->migrate_xmit_priority = 40; // # of rows between a quick context switch? not a great way to tune
 	c->migrate_xmit_sleep = 500; // # of rows between a quick context switch? not a great way to tune
-	c->nsup_auto_hwm_pct = 15;  // where auto-hwm kicks in
 	c->nsup_period = 120; // run nsup once every 2 minutes
 	c->nsup_queue_escape = 10; // continue waiting until this limit is reached
 	c->nsup_queue_hwm = 500; // enter waiting if tsvc backs up
@@ -255,10 +250,6 @@ typedef enum {
 	CASE_SERVICE_BATCH_MAX_REQUESTS,
 	CASE_SERVICE_BATCH_PRIORITY,
 	CASE_SERVICE_BATCH_THREADS,
-	CASE_SERVICE_DEFRAG_QUEUE_ESCAPE,
-	CASE_SERVICE_DEFRAG_QUEUE_HWM,
-	CASE_SERVICE_DEFRAG_QUEUE_LWM,
-	CASE_SERVICE_DEFRAG_QUEUE_PRIORITY,
 	CASE_SERVICE_FABRIC_WORKERS,
 	CASE_SERVICE_FB_HEALTH_BAD_PCT,
 	CASE_SERVICE_FB_HEALTH_GOOD_PCT,
@@ -280,7 +271,6 @@ typedef enum {
 	CASE_SERVICE_MIGRATE_PRIORITY, // renamed
 	CASE_SERVICE_MIGRATE_XMIT_PRIORITY,
 	CASE_SERVICE_MIGRATE_XMIT_SLEEP,
-	CASE_SERVICE_NSUP_AUTO_HWM_PCT,
 	CASE_SERVICE_NSUP_PERIOD,
 	CASE_SERVICE_NSUP_QUEUE_HWM,
 	CASE_SERVICE_NSUP_QUEUE_LWM,
@@ -321,7 +311,12 @@ typedef enum {
 	// Deprecated:
 	CASE_SERVICE_BATCH_RETRANSMIT,
 	CASE_SERVICE_CLIB_LIBRARY,
+	CASE_SERVICE_DEFRAG_QUEUE_ESCAPE,
+	CASE_SERVICE_DEFRAG_QUEUE_HWM,
+	CASE_SERVICE_DEFRAG_QUEUE_LWM,
+	CASE_SERVICE_DEFRAG_QUEUE_PRIORITY,
 	CASE_SERVICE_NSUP_AUTO_HWM,
+	CASE_SERVICE_NSUP_AUTO_HWM_PCT,
 	CASE_SERVICE_NSUP_MAX_DELETES,
 	CASE_SERVICE_NSUP_REDUCE_PRIORITY,
 	CASE_SERVICE_NSUP_REDUCE_SLEEP,
@@ -434,7 +429,6 @@ typedef enum {
 	CASE_NAMESPACE_HIGH_WATER_DISK_PCT,
 	CASE_NAMESPACE_HIGH_WATER_MEMORY_PCT,
 	CASE_NAMESPACE_HIGH_WATER_PCT,
-	CASE_NAMESPACE_LOW_WATER_PCT,
 	CASE_NAMESPACE_MAX_TTL,
 	CASE_NAMESPACE_OBJ_SIZE_HIST_MAX,
 	CASE_NAMESPACE_SET_BEGIN,
@@ -447,6 +441,7 @@ typedef enum {
 	// Deprecated:
 	CASE_NAMESPACE_DEMO_READ_MULTIPLIER,
 	CASE_NAMESPACE_DEMO_WRITE_MULTIPLIER,
+	CASE_NAMESPACE_LOW_WATER_PCT,
 
 	// Namespace conflict-resolution-policy options (value tokens):
 	CASE_NAMESPACE_CONFLICT_RESOLUTION_GENERATION,
@@ -469,8 +464,7 @@ typedef enum {
 	CASE_NAMESPACE_STORAGE_DEVICE_DATA_IN_MEMORY,
 	// Normally hidden:
 	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_LWM_PCT,
-	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_MAX_BLOCKS,
-	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_PERIOD,
+	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_SLEEP,
 	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_STARTUP_MINIMUM,
 	CASE_NAMESPACE_STORAGE_DEVICE_DISABLE_ODIRECT,
 	CASE_NAMESPACE_STORAGE_DEVICE_MAX_WRITE_CACHE,
@@ -480,6 +474,8 @@ typedef enum {
 	CASE_NAMESPACE_STORAGE_DEVICE_WRITE_SMOOTHING_PERIOD,
 	CASE_NAMESPACE_STORAGE_DEVICE_WRITE_THREADS,
 	// Deprecated:
+	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_MAX_BLOCKS,
+	CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_PERIOD,
 	CASE_NAMESPACE_STORAGE_DEVICE_LOAD_AT_STARTUP,
 	CASE_NAMESPACE_STORAGE_DEVICE_PERSIST,
 	CASE_NAMESPACE_STORAGE_DEVICE_READONLY,
@@ -590,10 +586,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "batch-threads",					CASE_SERVICE_BATCH_THREADS },
 		{ "batch-max-requests",				CASE_SERVICE_BATCH_MAX_REQUESTS },
 		{ "batch-priority",					CASE_SERVICE_BATCH_PRIORITY },
-		{ "defrag-queue-escape",			CASE_SERVICE_DEFRAG_QUEUE_ESCAPE },
-		{ "defrag-queue-hwm",				CASE_SERVICE_DEFRAG_QUEUE_HWM },
-		{ "defrag-queue-lwm",				CASE_SERVICE_DEFRAG_QUEUE_LWM },
-		{ "defrag-queue-priority",			CASE_SERVICE_DEFRAG_QUEUE_PRIORITY },
 		{ "fabric-workers",					CASE_SERVICE_FABRIC_WORKERS },
 		{ "fb-health-bad-pct",				CASE_SERVICE_FB_HEALTH_BAD_PCT },
 		{ "fb-health-good-pct",				CASE_SERVICE_FB_HEALTH_GOOD_PCT },
@@ -615,7 +607,6 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "migrate-priority",				CASE_SERVICE_MIGRATE_PRIORITY },
 		{ "migrate-xmit-priority",			CASE_SERVICE_MIGRATE_XMIT_PRIORITY },
 		{ "migrate-xmit-sleep",				CASE_SERVICE_MIGRATE_XMIT_SLEEP },
-		{ "nsup-auto-hwm-pct",				CASE_SERVICE_NSUP_AUTO_HWM_PCT },
 		{ "nsup-period",					CASE_SERVICE_NSUP_PERIOD },
 		{ "nsup-queue-escape",				CASE_SERVICE_NSUP_QUEUE_ESCAPE },
 		{ "nsup-queue-hwm",					CASE_SERVICE_NSUP_QUEUE_HWM },
@@ -654,7 +645,12 @@ const cfg_opt SERVICE_OPTS[] = {
 		{ "prole-extra-ttl",				CASE_SERVICE_PROLE_EXTRA_TTL },
 		{ "batch-retransmit",				CASE_SERVICE_BATCH_RETRANSMIT },
 		{ "clib-library",					CASE_SERVICE_CLIB_LIBRARY },
+		{ "defrag-queue-escape",			CASE_SERVICE_DEFRAG_QUEUE_ESCAPE },
+		{ "defrag-queue-hwm",				CASE_SERVICE_DEFRAG_QUEUE_HWM },
+		{ "defrag-queue-lwm",				CASE_SERVICE_DEFRAG_QUEUE_LWM },
+		{ "defrag-queue-priority",			CASE_SERVICE_DEFRAG_QUEUE_PRIORITY },
 		{ "nsup-auto-hwm",					CASE_SERVICE_NSUP_AUTO_HWM },
+		{ "nsup-auto-hwm-pct",				CASE_SERVICE_NSUP_AUTO_HWM_PCT },
 		{ "nsup-max-deletes",				CASE_SERVICE_NSUP_MAX_DELETES },
 		{ "nsup-reduce-priority",			CASE_SERVICE_NSUP_REDUCE_PRIORITY },
 		{ "nsup-reduce-sleep",				CASE_SERVICE_NSUP_REDUCE_SLEEP },
@@ -772,7 +768,6 @@ const cfg_opt NAMESPACE_OPTS[] = {
 		{ "high-water-disk-pct",			CASE_NAMESPACE_HIGH_WATER_DISK_PCT },
 		{ "high-water-memory-pct",			CASE_NAMESPACE_HIGH_WATER_MEMORY_PCT },
 		{ "high-water-pct",					CASE_NAMESPACE_HIGH_WATER_PCT },
-		{ "low-water-pct",					CASE_NAMESPACE_LOW_WATER_PCT },
 		{ "max-ttl",						CASE_NAMESPACE_MAX_TTL },
 		{ "obj-size-hist-max",				CASE_NAMESPACE_OBJ_SIZE_HIST_MAX },
 		{ "set",							CASE_NAMESPACE_SET_BEGIN },
@@ -783,6 +778,7 @@ const cfg_opt NAMESPACE_OPTS[] = {
 		{ "sindex",							CASE_NAMESPACE_SINDEX_BEGIN },
 		{ "demo-read-multiplier",			CASE_NAMESPACE_DEMO_READ_MULTIPLIER },
 		{ "demo-write-multiplier",			CASE_NAMESPACE_DEMO_WRITE_MULTIPLIER },
+		{ "low-water-pct",					CASE_NAMESPACE_LOW_WATER_PCT },
 		{ "}",								CASE_CONTEXT_END }
 };
 
@@ -807,8 +803,7 @@ const cfg_opt NAMESPACE_STORAGE_DEVICE_OPTS[] = {
 		{ "memory-all",						CASE_NAMESPACE_STORAGE_DEVICE_MEMORY_ALL },
 		{ "data-in-memory",					CASE_NAMESPACE_STORAGE_DEVICE_DATA_IN_MEMORY },
 		{ "defrag-lwm-pct",					CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_LWM_PCT },
-		{ "defrag-max-blocks",				CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_MAX_BLOCKS },
-		{ "defrag-period",					CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_PERIOD },
+		{ "defrag-sleep",					CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_SLEEP },
 		{ "defrag-startup-minimum",			CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_STARTUP_MINIMUM },
 		{ "disable-odirect",				CASE_NAMESPACE_STORAGE_DEVICE_DISABLE_ODIRECT },
 		{ "max-write-cache",				CASE_NAMESPACE_STORAGE_DEVICE_MAX_WRITE_CACHE },
@@ -817,6 +812,8 @@ const cfg_opt NAMESPACE_STORAGE_DEVICE_OPTS[] = {
 		{ "signature",						CASE_NAMESPACE_STORAGE_DEVICE_SIGNATURE },
 		{ "write-smoothing-period",			CASE_NAMESPACE_STORAGE_DEVICE_WRITE_SMOOTHING_PERIOD },
 		{ "write-threads",					CASE_NAMESPACE_STORAGE_DEVICE_WRITE_THREADS },
+		{ "defrag-max-blocks",				CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_MAX_BLOCKS },
+		{ "defrag-period",					CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_PERIOD },
 		{ "load-at-startup",				CASE_NAMESPACE_STORAGE_DEVICE_LOAD_AT_STARTUP },
 		{ "persist",						CASE_NAMESPACE_STORAGE_DEVICE_PERSIST },
 		{ "readonly",						CASE_NAMESPACE_STORAGE_DEVICE_READONLY },
@@ -1657,18 +1654,6 @@ as_config_init(const char *config_file)
 			case CASE_SERVICE_BATCH_THREADS:
 				c->n_batch_threads = cfg_int(&line, 1, MAX_BATCH_THREADS);
 				break;
-			case CASE_SERVICE_DEFRAG_QUEUE_ESCAPE:
-				c->defrag_queue_escape = cfg_u32_no_checks(&line);
-				break;
-			case CASE_SERVICE_DEFRAG_QUEUE_HWM:
-				c->defrag_queue_hwm = cfg_u32_no_checks(&line);
-				break;
-			case CASE_SERVICE_DEFRAG_QUEUE_LWM:
-				c->defrag_queue_lwm = cfg_u32_no_checks(&line);
-				break;
-			case CASE_SERVICE_DEFRAG_QUEUE_PRIORITY:
-				c->defrag_queue_priority = cfg_u32_no_checks(&line);
-				break;
 			case CASE_SERVICE_FABRIC_WORKERS:
 				c->n_fabric_workers = cfg_int(&line, 1, MAX_FABRIC_WORKERS);
 				break;
@@ -1732,9 +1717,6 @@ as_config_init(const char *config_file)
 				break;
 			case CASE_SERVICE_MIGRATE_XMIT_SLEEP:
 				c->migrate_xmit_sleep = cfg_u32_no_checks(&line);
-				break;
-			case CASE_SERVICE_NSUP_AUTO_HWM_PCT:
-				c->nsup_auto_hwm_pct = cfg_u32_no_checks(&line);
 				break;
 			case CASE_SERVICE_NSUP_PERIOD:
 				c->nsup_period = cfg_u32_no_checks(&line);
@@ -1889,7 +1871,12 @@ as_config_init(const char *config_file)
 				break;
 			case CASE_SERVICE_BATCH_RETRANSMIT:
 			case CASE_SERVICE_CLIB_LIBRARY:
+			case CASE_SERVICE_DEFRAG_QUEUE_ESCAPE:
+			case CASE_SERVICE_DEFRAG_QUEUE_HWM:
+			case CASE_SERVICE_DEFRAG_QUEUE_LWM:
+			case CASE_SERVICE_DEFRAG_QUEUE_PRIORITY:
 			case CASE_SERVICE_NSUP_AUTO_HWM:
+			case CASE_SERVICE_NSUP_AUTO_HWM_PCT:
 			case CASE_SERVICE_NSUP_MAX_DELETES:
 			case CASE_SERVICE_NSUP_REDUCE_PRIORITY:
 			case CASE_SERVICE_NSUP_REDUCE_SLEEP:
@@ -2257,9 +2244,6 @@ as_config_init(const char *config_file)
 			case CASE_NAMESPACE_HIGH_WATER_PCT:
 				ns->hwm_memory = ns->hwm_disk = (float)cfg_pct_fraction(&line);
 				break;
-			case CASE_NAMESPACE_LOW_WATER_PCT:
-				ns->lwm = (float)cfg_pct_fraction(&line);
-				break;
 			case CASE_NAMESPACE_MAX_TTL:
 				ns->max_ttl = cfg_seconds(&line);
 				break;
@@ -2294,6 +2278,9 @@ as_config_init(const char *config_file)
 				break;
 			case CASE_NAMESPACE_DEMO_WRITE_MULTIPLIER:
 				ns->demo_write_multiplier = cfg_int_no_checks(&line);
+				break;
+			case CASE_NAMESPACE_LOW_WATER_PCT:
+				cfg_deprecated_name_tok(&line);
 				break;
 			case CASE_CONTEXT_END:
 				if (ns->allow_versions && ns->single_bin) {
@@ -2362,11 +2349,8 @@ as_config_init(const char *config_file)
 			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_LWM_PCT:
 				ns->storage_defrag_lwm_pct = cfg_u32_no_checks(&line);
 				break;
-			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_MAX_BLOCKS:
-				ns->storage_defrag_max_blocks = cfg_u32_no_checks(&line);
-				break;
-			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_PERIOD:
-				ns->storage_defrag_period = cfg_u32_no_checks(&line);
+			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_SLEEP:
+				ns->storage_defrag_sleep = cfg_u32_no_checks(&line);
 				break;
 			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_STARTUP_MINIMUM:
 				ns->storage_defrag_startup_minimum = cfg_int(&line, 1, 99);
@@ -2392,6 +2376,8 @@ as_config_init(const char *config_file)
 			case CASE_NAMESPACE_STORAGE_DEVICE_WRITE_THREADS:
 				ns->storage_write_threads = cfg_u32_no_checks(&line);
 				break;
+			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_MAX_BLOCKS:
+			case CASE_NAMESPACE_STORAGE_DEVICE_DEFRAG_PERIOD:
 			case CASE_NAMESPACE_STORAGE_DEVICE_LOAD_AT_STARTUP:
 			case CASE_NAMESPACE_STORAGE_DEVICE_PERSIST:
 			case CASE_NAMESPACE_STORAGE_DEVICE_READONLY:

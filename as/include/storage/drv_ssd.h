@@ -145,11 +145,13 @@ typedef struct drv_ssd_s
 	cf_queue		*fd_q;				// queue of open fds
 
 	cf_queue		*free_wblock_q;		// IDs of free wblocks
+	cf_queue		*defrag_wblock_q;	// IDs of wblocks to defrag
 
 	cf_queue		*swb_write_q;		// pointers to swbs ready to write
 	cf_queue		*swb_free_q;		// pointers to swbs free and waiting
 	cf_queue		*post_write_q;		// pointers to swbs that have been written but are cached
 
+	cf_atomic_int	defrag_wblock_counter; // total number of wblocks added to the defrag_wblock_q
 	cf_atomic_int	ssd_write_buf_counter; // total number of swbs added to the swb_write_q
 
 	off_t			file_size;
@@ -169,15 +171,17 @@ typedef struct drv_ssd_s
 	bool			has_ldt;
 	bool			sub_sweep;
 
+	uint32_t		cold_start_block_counter;		// large blocks read
 	uint64_t		record_add_generation_counter;	// records not inserted due to generation
 	uint64_t		record_add_expired_counter;		// records not inserted due to expiration
 	uint64_t		record_add_max_ttl_counter;		// records not inserted due to max-ttl
-	uint64_t		record_add_success_counter;		// records inserted or reinserted
+	uint64_t		record_add_replace_counter;		// records reinserted
+	uint64_t		record_add_unique_counter;		// records inserted
 	uint64_t		record_add_sigfail_counter;
 
 	ssd_alloc_table	*alloc_table;
 
-	pthread_t		free_tracker_thread;
+	pthread_t		maintenance_thread;
 	pthread_t		write_worker_thread[MAX_SSD_THREADS];
 	pthread_t		load_device_thread;
 	pthread_t		defrag_thread;
@@ -211,15 +215,12 @@ typedef struct drv_ssds_s
 // Private API - for enterprise separation only
 //
 
-void push_wblock_to_queue(drv_ssd *ssd, uint32_t wblock_id, e_free_to free_to);
 void ssd_resume_devices(drv_ssds *ssds);
 
 //
 // Conversions between bytes and rblocks.
 //
 
-// Fills an rblock_id with '1' bits:
-#define STORAGE_INVALID_RBLOCK			0x3FFFFffff // 34 bits (see index.h)
 #define STORAGE_RBLOCK_IS_VALID(__x)	((__x) != STORAGE_INVALID_RBLOCK)
 #define STORAGE_RBLOCK_IS_INVALID(__x)	((__x) == STORAGE_INVALID_RBLOCK)
 

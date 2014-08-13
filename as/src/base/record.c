@@ -101,8 +101,8 @@ void as_record_initialize(as_index_ref *r_ref, as_namespace *ns)
 	// layer violation, refactor sometime
 	if (AS_STORAGE_ENGINE_SSD == ns->storage_type) {
 		r->storage_key.ssd.file_id = STORAGE_INVALID_FILE_ID;
+		r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
 		r->storage_key.ssd.n_rblocks = 0;
-		r->storage_key.ssd.rblock_id = 0;
 	}
 	else if (AS_STORAGE_ENGINE_KV == ns->storage_type) {
 		r->storage_key.kv.file_id = STORAGE_INVALID_FILE_ID;
