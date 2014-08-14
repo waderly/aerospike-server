@@ -631,9 +631,10 @@ int rw_cleanup(write_request *wr, as_transaction *tr, bool first_time,
 	if (first_time) {
 		if ((wr->msgp != NULL) || wr->rsv_valid) {
 			cf_warning(AS_RW,
-					"{%s:%d} rw_cleanup: Illegal state write request set "
-					" in first call for %s request %d %"PRIx64" %d [%p %p %d]",
-					tr->rsv.ns->name, tr->rsv.pid, (wr->is_read) ? "Read" : "Write", tr->rsv.n_dupl, tr->rsv.dupl_nodes[0], wr->msgp, tr->msgp, wr->rsv_valid);
+					"{%s:%d} rw_cleanup: illegal state write-request set in first call for %s-request n-dupl %u dupl-nodes[0] %lx [%p %p %d]",
+					tr->rsv.ns->name, tr->rsv.pid, wr->is_read ? "read" : "write",
+					(uint32_t)tr->rsv.n_dupl, tr->rsv.dupl_nodes[0],
+					wr->msgp, tr->msgp, wr->rsv_valid);
 		}
 		// ATTENTION PLEASE... The msgp and partition reservation
 		// is not moved but copied to the running transaction from wr. So
@@ -649,9 +650,10 @@ int rw_cleanup(write_request *wr, as_transaction *tr, bool first_time,
 	} else {
 		if ((wr->msgp != tr->msgp) || !wr->rsv_valid) {
 			cf_warning(AS_RW,
-					"{%s:%d} rw_cleanup: Illegal state write request set "
-					" in second call for %s request %d %"PRIx64" %d [%p %p %d]",
-					tr->rsv.ns->name, tr->rsv.pid, (wr->is_read) ? "Read" : "Write", tr->rsv.n_dupl, tr->rsv.dupl_nodes[0], wr->msgp, tr->msgp, wr->rsv_valid);
+					"{%s:%d} rw_cleanup: illegal state write-request set in second call for %s-request n-dupl %u dupl-nodes[0] %lx [%p %p %d]",
+					tr->rsv.ns->name, tr->rsv.pid, wr->is_read ? "read" : "write",
+					(uint32_t)tr->rsv.n_dupl, tr->rsv.dupl_nodes[0],
+					wr->msgp, tr->msgp, wr->rsv_valid);
 		}
 	}
 
@@ -2185,6 +2187,11 @@ write_local_pickled(cf_digest *keyd, as_partition_reservation *rsv,
 
 	int rv = as_record_get_create(tree, keyd, &r_ref, rsv->ns);
 	as_index *r = r_ref.r;
+
+	if (rv < 0) {
+		cf_warning(AS_RW, "{%s}: write_local_pickled: fail as_record_get_create()", rsv->ns->name);
+		return -1;
+	}
 
 	if (rv == 1) {
 		as_storage_record_create(rsv->ns, r, &rd, keyd);
@@ -4773,14 +4780,18 @@ static void release_proto_fd_h(as_file_handle *proto_fd_h) {
 	AS_RELEASE_FILE_HANDLE(proto_fd_h);
 }
 
+typedef struct now_times_s {
+	uint64_t now_ns;
+	uint64_t now_ms;
+} now_times;
+
 int
 rw_retransmit_reduce_fn(void *key, uint32_t keylen, void *data, void *udata)
 {
 	write_request *wr = data;
+	now_times *p_now = (now_times*)udata;
 
-	cf_clock *now = (cf_clock *) udata;
-
-	if (*now > cf_atomic64_get(wr->end_time)) {
+	if (p_now->now_ns > cf_atomic64_get(wr->end_time)) {
 
 		if (!wr->ready) {
 			cf_detail(AS_RW, "Timing out never-ready wr %p", wr);
@@ -4822,7 +4833,7 @@ rw_retransmit_reduce_fn(void *key, uint32_t keylen, void *data, void *udata)
 		return (0);
 	}
 
-	if (wr->xmit_ms < *now) {
+	if (wr->xmit_ms < p_now->now_ms) {
 
 		bool finished = false;
 
@@ -4836,7 +4847,7 @@ rw_retransmit_reduce_fn(void *key, uint32_t keylen, void *data, void *udata)
 					"{%s:%d} rw retransmit reduce fn: RETRANSMITTING %"PRIx64" %s",
 					wr->rsv.ns->name, wr->rsv.pid, *(uint64_t *) & (wr->keyd), wr->is_read ? "READ" : "WRITE");
 
-		wr->xmit_ms = *now + wr->retry_interval_ms;
+		wr->xmit_ms = p_now->now_ms + wr->retry_interval_ms;
 		wr->retry_interval_ms *= 2;
 
 		WR_TRACK_INFO(wr, "rw_retransmit_reduce_fn: retransmitting ");
@@ -4868,7 +4879,9 @@ rw_retransmit_fn(void *gcc_is_ass)
 
 		usleep(130 * 1000);
 
-		cf_clock now = cf_getns();
+		now_times now;
+		now.now_ns = cf_getns();
+		now.now_ms = now.now_ns / 1000000;
 
 		rchash_reduce_delete(g_write_hash, rw_retransmit_reduce_fn, &now);
 
