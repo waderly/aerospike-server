@@ -2246,6 +2246,7 @@ info_command_config_get(char *name, char *params, cf_dyn_buf *db)
 		int context_len = sizeof(context);
 		if (0 == as_info_parameter_get(params, "context", context, &context_len)) {
 			if (strcmp(context, "namespace") == 0) {
+				context_len = sizeof(context);
 				if (0 != as_info_parameter_get(params, "id", context, &context_len)) {
 					cf_dyn_buf_append_string(db, "Error:invalid id");
 					return(0);
