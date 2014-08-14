@@ -111,6 +111,7 @@ void as_record_initialize(as_index_ref *r_ref, as_namespace *ns)
 		// The storage_key struct shouldn't be used, but for now is accessed
 		// when making the (useless for memory-only) object size histogram.
 		*(uint64_t*)&r->storage_key.ssd = 0;
+		r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
 	}
 	else {
 		cf_crash(AS_RECORD, "unknown storage engine type: %d", ns->storage_type);
