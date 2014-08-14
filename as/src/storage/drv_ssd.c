@@ -405,7 +405,8 @@ ssd_block_free(drv_ssd *ssd, uint64_t rblock_id, uint64_t n_rblocks, char *msg)
 	ssd_alloc_table *at = ssd->alloc_table;
 
 	// Sanity-checks.
-	if (! (wblock_id < at->n_wblocks && wblock_id == end_wblock_id)) {
+	if (! (start_byte >= ssd->header_size && wblock_id < at->n_wblocks &&
+			wblock_id == end_wblock_id)) {
 		cf_warning(AS_DRV_SSD, "%s: %s: invalid range to free, rblock_id %lu, n_rblocks %lu",
 				ssd->name, msg, rblock_id, n_rblocks);
 		return;
@@ -619,7 +620,7 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 
 
 int
-ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id)
+ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 {
 	if (! as_storage_has_space_ssd(ssd->ns)) {
 		cf_warning(AS_DRV_SSD, "{%s}: defrag: drives full", ssd->ns->name);
@@ -631,7 +632,6 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id)
 	int num_deleted_records = 0;
 	int record_err_count = 0;
 	int fd = -1;
-	uint8_t *read_buf = NULL;
 
 	ssd_wblock_state* p_wblock_state = &ssd->alloc_table->wblock_state[wblock_id];
 
@@ -660,14 +660,6 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id)
 				ssd->name, errno);
 		close(fd);
 		fd = -1;
-		goto Finished;
-	}
-
-	read_buf = cf_valloc(ssd->write_block_size);
-
-	if (! read_buf) {
-		cf_warning(AS_DRV_SSD, "device %s: wblock-id %u defrag valloc failed",
-				ssd->name, wblock_id);
 		goto Finished;
 	}
 
@@ -757,10 +749,6 @@ Finished:
 		ssd_fd_put(ssd, fd);
 	}
 
-	if (read_buf) {
-		cf_free(read_buf);
-	}
-
 	// Note - usually wblock's inuse_sz is 0 here, but may legitimately be non-0
 	// e.g. if a dropped partition's tree is not done purging. In this case, we
 	// may have found deleted records in the wblock whose used-size contribution
@@ -810,13 +798,21 @@ run_defrag(void *pv_data)
 {
 	drv_ssd *ssd = (drv_ssd*)pv_data;
 	uint32_t wblock_id;
+	uint8_t *read_buf = cf_valloc(ssd->write_block_size);
+
+	if (! read_buf) {
+		cf_crash(AS_DRV_SSD, "device %s: defrag valloc failed", ssd->name);
+	}
 
 	while (CF_QUEUE_OK ==
 			cf_queue_pop(ssd->defrag_wblock_q, &wblock_id, CF_QUEUE_FOREVER)) {
 
-		ssd_defrag_wblock(ssd, wblock_id);
+		ssd_defrag_wblock(ssd, wblock_id, read_buf);
 		usleep(ssd->ns->storage_defrag_sleep);
 	}
+
+	// Although we ever expect to get here...
+	cf_free(read_buf);
 
 	return NULL;
 }
@@ -958,7 +954,6 @@ run_load_queues(void *pv_data)
 		}
 	}
 
-	// TODO - keep this?
 	defrag_pens_dump(pens, lwm_pct, ssd->name);
 
 	for (uint32_t n = 0; n < lwm_pct; n++) {
@@ -1313,15 +1308,8 @@ as_storage_record_get_key_ssd(as_storage_rd *rd)
 // Write-smoother.
 //
 
-// TODO - really don't need ssds - deprecate this struct.
-typedef struct {
-	drv_ssds *ssds;
-	drv_ssd *ssd;
-} write_worker_arg;
-
 typedef struct as_write_smoothing_arg_s {
 	drv_ssd *ssd;
-	drv_ssds *ssds;
 	as_namespace *ns;
 
 	int budget_usecs_for_this_second;
@@ -1334,7 +1322,6 @@ typedef struct as_write_smoothing_arg_s {
 	int lbw_to_process_per_second_recent_max; // max from last 5 seconds
 	int lbw_catchup_calculation_cnt; // counter used to help calculate recent max
 
-	uint32_t smoothing_period;
 	uint32_t last_smoothing_period;
 
 	uint64_t last_time_ms;
@@ -1342,12 +1329,10 @@ typedef struct as_write_smoothing_arg_s {
 } as_write_smoothing_arg;
 
 int
-as_write_smoothing_arg_initialize(as_write_smoothing_arg *awsa,
-		write_worker_arg *wwa)
+as_write_smoothing_arg_initialize(as_write_smoothing_arg *awsa, drv_ssd *ssd)
 {
-	awsa->ssd = wwa->ssd;
-	awsa->ssds = wwa->ssds;
-	awsa->ns = awsa->ssds->ns;
+	awsa->ssd = ssd;
+	awsa->ns = ssd->ns;
 
 	awsa->budget_usecs_for_this_second = 0;
 
@@ -1359,8 +1344,7 @@ as_write_smoothing_arg_initialize(as_write_smoothing_arg *awsa,
 	awsa->lbw_to_process_per_second_recent_max = 0;
 	awsa->lbw_catchup_calculation_cnt = 0;
 
-	awsa->smoothing_period = awsa->ssds->ns->storage_write_smoothing_period;
-	awsa->last_smoothing_period = awsa->smoothing_period;
+	awsa->last_smoothing_period = awsa->ns->storage_write_smoothing_period;
 
 	awsa->last_time_ms = cf_getms();
 	awsa->last_second = awsa->last_time_ms / 1000;
@@ -1440,7 +1424,7 @@ as_write_smoothing_fn(as_write_smoothing_arg *awsa)
 	// Write throttling algorithm - look at smoothing_period seconds back of
 	// data and slow writes accordingly.
 
-	uint32_t smoothing_period = awsa->ssds->ns->storage_write_smoothing_period;
+	uint32_t smoothing_period = awsa->ns->storage_write_smoothing_period;
 
 	if (smoothing_period != awsa->last_smoothing_period) {
 		// We've changed the smoothing period, so shorten the
@@ -1606,13 +1590,10 @@ as_write_smoothing_fn(as_write_smoothing_arg *awsa)
 void *
 ssd_write_worker(void *arg)
 {
-	write_worker_arg *wwa = (write_worker_arg*)arg;
-	drv_ssd *ssd = wwa->ssd;
+	drv_ssd *ssd = (drv_ssd*)arg;
 
 	as_write_smoothing_arg awsa;
-	as_write_smoothing_arg_initialize(&awsa, wwa);
-
-	cf_free(wwa);
+	as_write_smoothing_arg_initialize(&awsa, ssd);
 
 	while (ssd->running) {
 		ssd_write_buf *swb;
@@ -1722,10 +1703,8 @@ ssd_start_write_worker_threads(drv_ssds *ssds)
 		drv_ssd *ssd = &ssds->ssds[i];
 
 		for (uint32_t j = 0; j < ssds->ns->storage_write_threads; j++) {
-			write_worker_arg *wwa = cf_malloc(sizeof(write_worker_arg));
-			wwa->ssd = ssd;
-			wwa->ssds = ssds;
-			pthread_create(&ssd->write_worker_thread[j], 0, ssd_write_worker, wwa);
+			pthread_create(&ssd->write_worker_thread[j], 0, ssd_write_worker,
+					(void*)ssd);
 		}
 	}
 }
@@ -3535,8 +3514,7 @@ ssd_set_scheduler_mode(const char* device_name, const char* mode)
 
 	fclose(scheduler_file);
 
-	// TODO - shouldn't this be promoted to info?
-	cf_debug(AS_DRV_SSD, "storage: set %s scheduler mode to %s",
+	cf_info(AS_DRV_SSD, "storage: set device %s scheduler mode to %s",
 			device_name, mode);
 
 	return 0;
@@ -3983,10 +3961,6 @@ as_storage_record_open_ssd(as_namespace *ns, as_record *r, as_storage_rd *rd,
 {
 	drv_ssds *ssds = (drv_ssds*)ns->storage_private;
 
-	if (r->storage_key.ssd.file_id == STORAGE_INVALID_FILE_ID) {
-		r->storage_key.ssd.file_id = ssd_get_file_id(ssds, keyd);
-	}
-
 	rd->u.ssd.block = 0;
 	rd->u.ssd.must_free_block = NULL;
 	rd->u.ssd.ssd = &ssds->ssds[r->storage_key.ssd.file_id];
@@ -4311,17 +4285,9 @@ as_storage_ticker_stats_ssd(as_namespace *ns)
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
 
-		if (ssd->hist_read) {
-			histogram_dump(ssd->hist_read);
-		}
-
-		if (ssd->hist_large_block_read) {
-			histogram_dump(ssd->hist_large_block_read);
-		}
-
-		if (ssd->hist_write) {
-			histogram_dump(ssd->hist_write);
-		}
+		histogram_dump(ssd->hist_read);
+		histogram_dump(ssd->hist_large_block_read);
+		histogram_dump(ssd->hist_write);
 	}
 
 	return 0;
