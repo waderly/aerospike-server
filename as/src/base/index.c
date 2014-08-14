@@ -218,7 +218,8 @@ as_index_get_insert_vlock(as_index_tree *tree, cf_digest *key, as_index_ref *ind
 	/* Allocate memory for the new node and set the node parameters */
 	n_h = cf_arenax_alloc(tree->arena);
 	if (0 == n_h) {
-		// cf_debug(AS_INDEX," malloc failed ");
+		cf_warning(AS_INDEX, "arenax alloc failed");
+		pthread_mutex_unlock(&tree->lock);
 		return(-1);
 	}
 	n = RESOLVE_H(n_h);
@@ -227,6 +228,9 @@ as_index_get_insert_vlock(as_index_tree *tree, cf_digest *key, as_index_ref *ind
 	n->left_h = n->right_h = tree->sentinel_h;
 	n->color = CF_RCRB_RED;
 	n->parent_h = s_h;
+
+	// Make sure we can detect that the record isn't initialized.
+	n->storage_key.ssd.rblock_id = 0;
 
 	// bookkeeping the index
 	index_ref->r = n;
