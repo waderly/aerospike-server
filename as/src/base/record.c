@@ -101,8 +101,8 @@ void as_record_initialize(as_index_ref *r_ref, as_namespace *ns)
 	// layer violation, refactor sometime
 	if (AS_STORAGE_ENGINE_SSD == ns->storage_type) {
 		r->storage_key.ssd.file_id = STORAGE_INVALID_FILE_ID;
+		r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
 		r->storage_key.ssd.n_rblocks = 0;
-		r->storage_key.ssd.rblock_id = 0;
 	}
 	else if (AS_STORAGE_ENGINE_KV == ns->storage_type) {
 		r->storage_key.kv.file_id = STORAGE_INVALID_FILE_ID;
@@ -111,6 +111,7 @@ void as_record_initialize(as_index_ref *r_ref, as_namespace *ns)
 		// The storage_key struct shouldn't be used, but for now is accessed
 		// when making the (useless for memory-only) object size histogram.
 		*(uint64_t*)&r->storage_key.ssd = 0;
+		r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
 	}
 	else {
 		cf_crash(AS_RECORD, "unknown storage engine type: %d", ns->storage_type);
@@ -134,21 +135,27 @@ as_record_get_create(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, 
 			as_index_ref_initialize(tree, keyd, r_ref, true, ns) :
 			as_index_get_insert_vlock(tree, keyd, r_ref));
 
-	if (rv == 1) {
+	if (rv == 0) {
+		cf_detail(AS_RECORD, "record get_create: digest %"PRIx64" found record %p", *(uint64_t *)keyd , r_ref->r);
+
+		if (r_ref->r->storage_key.ssd.rblock_id == 0) {
+			cf_warning_digest(AS_DRV_SSD, keyd, "fail as_record_get_create(): rblock_id 0 ");
+			r_ref->r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
+			as_record_done(r_ref, ns);
+			rv = -1;
+		}
+	}
+	else if (rv == 1) {
+		cf_detail(AS_RECORD, "record get_create: digest %"PRIx64" new record %p", *(uint64_t *)keyd, r_ref->r);
 
 		// new record, have to initialize bits
 		as_record_initialize(r_ref, ns);
 
 		// this is decremented by the destructor here, so best tracked on the constructor
 		cf_atomic_int_add( &ns->n_objects, 1);
-
-		cf_detail(AS_RECORD, "record get_create: digest %"PRIx64" new record %p", *(uint64_t *)keyd, r_ref->r);
-		return(1);
 	}
 
-	cf_detail(AS_RECORD, "record get_create: digest %"PRIx64" found record %p", *(uint64_t *)keyd , r_ref->r);
-
-	return(0);
+	return rv;
 }
 
 void
@@ -230,15 +237,21 @@ as_record_get(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, as_name
 			  ? (!as_index_ref_initialize(tree, keyd, r_ref, false, ns) ? 0 : -1)
 			  : as_index_get_vlock(tree, keyd, r_ref));
 
-	if (rv == -1) {
-		cf_detail(AS_RECORD, "record get: digest %"PRIx64" not found", *(uint64_t *)keyd);
+	if (rv == 0) {
+		cf_detail(AS_RECORD, "record get: digest %"PRIx64" found record %p", *(uint64_t *)keyd, r_ref->r);
 
-		return(-1);
+		if (r_ref->r->storage_key.ssd.rblock_id == 0) {
+			cf_warning_digest(AS_DRV_SSD, keyd, "fail as_record_get(): rblock_id 0 ");
+			r_ref->r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
+			as_record_done(r_ref, ns);
+			rv = -1; // masquerade as a not-found, which is handled everywhere
+		}
+	}
+	else if (rv == -1) {
+		cf_detail(AS_RECORD, "record get: digest %"PRIx64" not found", *(uint64_t *)keyd);
 	}
 
-	cf_detail(AS_RECORD, "record get: digest %"PRIx64" found record %p", *(uint64_t *)keyd, *r_ref);
-
-	return(0);
+	return rv;
 }
 
 /* as_record_exists

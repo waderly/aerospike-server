@@ -618,6 +618,7 @@ udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op, u
 	*lrecord_op           = UDF_OPTYPE_READ;
 	udf_record *h_urecord = as_rec_source(lrecord->h_urec);
 	bool is_ldt           = false;
+	int  ret              = 0;
 
 	udf_rw_post_processing(h_urecord, &urecord_op, set_id);
 
@@ -645,10 +646,13 @@ udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op, u
 
 		if (is_ldt) {
 			// Create the multiop pickled buf for thr_rw.c
-			ldt_record_pickle(lrecord, &wr->pickled_buf, &wr->pickled_sz, &wr->pickled_void_time);
+			ret = ldt_record_pickle(lrecord, &wr->pickled_buf, &wr->pickled_sz, &wr->pickled_void_time);
 			FOR_EACH_SUBRECORD(i, lrecord) {
 				udf_record *c_urecord = &lrecord->chunk[i].c_urecord;
-				udf_record_cleanup(c_urecord, false);
+				// Cleanup in case pickle code bailed out	
+				// 1. either because this single node run no replica
+				// 2. failed to pack stuff up.
+				udf_record_cleanup(c_urecord, true);
 			}
 		} else {
 			// Normal UDF case simply pass on pickled buf created for the record
@@ -660,8 +664,15 @@ udf_rw_finish(ldt_record *lrecord, write_request *wr, udf_optype * lrecord_op, u
 			udf_record_cleanup(h_urecord, false);
 		}
 	}
-	udf_record_cleanup(h_urecord, false);
+	udf_record_cleanup(h_urecord, true);
+	if (ret) {
+		cf_warning(AS_LDT, "Pickeling failed with %d", ret);
+		return false;
+	
+	} else {
 	return true;
+
+	}
 }
 
 /*
@@ -944,7 +955,11 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 
 	if (ret_value == 0) {
 
-		udf_rw_finish(&lrecord, wr, op, set_id);
+		if (udf_rw_finish(&lrecord, wr, op, set_id) == false) {
+			// replication did not happen what to do now ??
+			cf_warning(AS_UDF, "Investigate udf_rw_finish() result");
+		}
+
 		if (UDF_OP_IS_READ(*op)) {
 			send_result(res, call, NULL);
 			as_result_destroy(res);
