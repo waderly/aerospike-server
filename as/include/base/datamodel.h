@@ -288,6 +288,12 @@ as_bin_inuse(as_bin *b)
 	return (((as_particle_iparticle *)b)->state);
 }
 
+static inline uint8_t
+as_bin_state(as_bin *b)
+{
+	return ((as_particle_iparticle *)b)->state;
+}
+
 static inline void
 as_bin_state_set(as_bin *b, uint8_t val)
 {
