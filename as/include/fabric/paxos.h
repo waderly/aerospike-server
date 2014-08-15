@@ -127,6 +127,7 @@ static const msg_template as_paxos_msg_template[] = {
 #define AS_PAXOS_MSG_COMMAND_PARTITION_SYNC 11
 #define AS_PAXOS_MSG_COMMAND_HEARTBEAT_EVENT 12
 #define AS_PAXOS_MSG_COMMAND_RETRANSMIT_CHECK 13
+#define AS_PAXOS_MSG_COMMAND_SET_SUCC_LIST 14
 
 
 /* as_paxos_generation
@@ -256,6 +257,10 @@ extern void as_paxos_start();
 extern cf_node as_paxos_succession_getprincipal(void);
 extern bool as_paxos_succession_ismember(cf_node n);
 
+/* as_paxos_succession_getprincipal
+ * Get the head of the Paxos succession list, or zero if there is none */
+extern cf_node as_paxos_succession_getprincipal();
+
 // Set the Paxos protocol version.
 extern int as_paxos_set_protocol(paxos_protocol_enum protocol);
 
@@ -268,8 +273,24 @@ extern bool as_paxos_get_cluster_integrity(as_paxos *p);
 // Set the Paxos cluster integrity state.
 extern void as_paxos_set_cluster_integrity(as_paxos *p, bool state);
 
-// Print info. about the Paxos state to the log.
-// (Verbose true prints partition map as well.)
-extern void as_paxos_dump(bool verbose);
+/* Paxos Info. command functions. */
 
-extern cf_node as_paxos_succession_getprincipal();
+/*
+ * Print info. about the Paxos state to the log.
+ * (Verbose true prints partition map as well.)
+ */
+void as_paxos_dump(bool verbose);
+
+/*
+ * Get the Paxos succession list and log it to the given "cf_dyn_buf *".
+ * The first element of the list will become the Paxos principal.
+ * Returns 0 if successful, -1 otherwise.
+ */
+int as_paxos_get_succession_list(cf_dyn_buf *db);
+
+/*
+ * Set the Paxos succession list from list of node IDs.
+ * The first element of the list will become the Paxos principal.
+ * Returns 0 if successful, -1 otherwise.
+ */
+int as_paxos_set_succession_list(char *nodes_str, int nodes_str_len);

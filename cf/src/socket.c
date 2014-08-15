@@ -91,6 +91,14 @@ cf_socket_set_nonblocking(int s)
 	return(1);
 }
 
+void
+cf_socket_set_nodelay(int s)
+{
+	int flag = 1;
+	setsockopt(s, SOL_TCP, TCP_NODELAY, &flag, sizeof(flag));
+}
+
+
 /* cf_socket_recv
  * Read from a service socket */
 int
@@ -121,7 +129,7 @@ cf_socket_send(int sock, void *buf, size_t buflen, int flags)
 	int i;
 	flags |= MSG_NOSIGNAL;
 	if (0 >= (i = send(sock, buf, buflen, flags))) {
-		cf_warning(CF_SOCKET, "send() failed: %d %s", errno, cf_strerror(errno));
+		cf_debug(CF_SOCKET, "send() failed: %d %s", errno, cf_strerror(errno));
 	}
 
 	return(i);
@@ -146,7 +154,7 @@ cf_socket_recvfrom(int sock, void *buf, size_t buflen, int flags, cf_sockaddr *f
 	flags |= MSG_NOSIGNAL;
 
 	if (0 >= (i = recvfrom(sock, buf, buflen, flags, (struct sockaddr *)fp, &fl))) {
-		cf_warning(CF_SOCKET, "recvfrom() failed: %d %s", errno, cf_strerror(errno));
+		cf_debug(CF_SOCKET, "recvfrom() failed: %d %s", errno, cf_strerror(errno));
 		if (from) memset(from, 0, sizeof(cf_sockaddr));
 	}
 	else{
@@ -173,7 +181,7 @@ cf_socket_sendto(int sock, void *buf, size_t buflen, int flags, cf_sockaddr to)
 	flags |= MSG_NOSIGNAL;
 
 	if (0 >= (i = sendto(sock, buf, buflen, flags, (struct sockaddr *)sp, sizeof(const struct sockaddr))))
-		cf_info(CF_SOCKET, "sendto() failed: %d %s", errno, cf_strerror(errno));
+		cf_debug(CF_SOCKET, "sendto() failed: %d %s", errno, cf_strerror(errno));
 
 	return(i);
 }
@@ -338,7 +346,7 @@ cf_socket_init_client(cf_socket_cfg *s)
 						} else {
 							// (Note:  ERR and HUP events are automatically waited for as well.)
 							if (events[0].events & (EPOLLERR | EPOLLHUP)) {
-								cf_warning(CF_SOCKET, "epoll_wait() on client socket detected failure event 0x%x ~~ Failing!", events[0].events);
+								cf_debug(CF_SOCKET, "epoll_wait() on client socket detected failure event 0x%x ~~ Failing!", events[0].events);
 							} else {
 								cf_warning(CF_SOCKET, "epoll_wait() on client socket detected non-write events 0x%x ~~ Failing!", events[0].events);
 							}
@@ -388,6 +396,7 @@ Success:	;
 
 	return(0);
 }
+
 
 /* cf_socket_close
  * Close a socket originally opened listening
