@@ -3,14 +3,8 @@
 # This script must be run as root or sudo.
 
 #------------------
-# Process arguments
+# Verify User
 #------------------
-if [ $# -eq 0 ]
-then
-	args="-ivh"
-else
-	args="$@"
-fi
 
 if [ $EUID -ne 0 ]
 then
@@ -22,5 +16,14 @@ fi
 # Install server
 #---------------
 echo Installing server
-rpm $args aerospike-server-*.rpm
+
+# Use default arguments if none passed in.
+if [ $# -eq 0 ]
+then
+	echo rpm -ivh aerospike-server-*.rpm
+	rpm -ivh aerospike-server-*.rpm
+else
+	echo rpm "$@" aerospike-server-*.rpm
+	rpm "$@" aerospike-server-*.rpm
+fi
 
