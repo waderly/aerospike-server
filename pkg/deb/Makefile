@@ -70,7 +70,6 @@ endif
 	sed -i 's/@SIZE@/'$(SIZE)'/g' $(BUILD_ROOT)/DEBIAN/control
 
 package:
-	cp $(PKG)/rpm/install_server $(PKG)/packages
 	fakeroot dpkg-deb --build $(BUILD_ROOT) $(DEB)
 
 clean:

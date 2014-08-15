@@ -1,0 +1,34 @@
+#!/bin/bash
+# Install python bcrypt on RHEL/Fedora/Centos 6.  
+# This script must be run as root or sudo.
+
+#------------------
+# Verify User
+#------------------
+
+if [ $EUID -ne 0 ]
+then
+	echo "This script requires root or sudo privileges."
+	exit 1
+fi
+
+#---------------
+# Check bcrypt
+#---------------
+cat <<EOF >$fn
+try:
+	import bcrypt
+	print(1)
+except:
+	print(0)
+EOF
+
+has_bcrypt=`python $fn`
+rm $fn
+
+if [ "$has_bcrypt" = "0" ]
+then
+	echo Installing py-bcrypt
+	rpm -ivh py-bcrypt-0.3-1.el6.x86_64.rpm
+fi
+
