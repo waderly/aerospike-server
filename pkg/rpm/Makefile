@@ -67,7 +67,6 @@ ifeq ($(USE_XDR),1)
 	cat $(EEREPO)/pkg/rpm/xdr-files >> $(PKG)/rpm/aerospike.spec
 endif
 	cat $(PKG)/rpm/server-spec-scripts >> $(PKG)/rpm/aerospike.spec
-	cp $(PKG)/rpm/install_server $(PKG)/packages
 
 	sed -i 's/@RELEASE@/'$(OS)'/g' $(PKG)/rpm/aerospike.spec
 	sed -i 's/@EDITION@/'$(EDITION)'/g' $(PKG)/rpm/aerospike.spec
