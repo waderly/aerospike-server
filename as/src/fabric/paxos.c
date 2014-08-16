@@ -74,8 +74,6 @@
  * weird state structure in _thr!!!
  */
 
-// Used for debugging/tracing
-// static char * MOD = "paxos.c::06/28/13";
 
 /* Function forward references: */
 
@@ -129,15 +127,34 @@ void as_partition_balance_new(cf_node *succession, bool *alive, bool migrate, as
 static uint64_t g_cluster_key;
 
 // Set the cluster key
-void as_paxos_set_cluster_key(uint64_t cluster_key) {
+void
+as_paxos_set_cluster_key(uint64_t cluster_key)
+{
 	g_cluster_key = cluster_key;
-	return;
 }
 
 // Get the cluster key
-uint64_t as_paxos_get_cluster_key() {
+uint64_t
+as_paxos_get_cluster_key()
+{
 	return (g_cluster_key);
 }
+
+// Get the cluster key and cluster size
+uint64_t
+as_paxos_get_cluster_key_and_size(size_t *cluster_size)
+{
+	if (cluster_size) {
+		*cluster_size = g_config.paxos->cluster_size;
+	}
+
+	if (!g_config.paxos->cluster_size) {
+		cf_warning(AS_PAXOS, ">>>>cluster size is zero!!!<<<<");
+	}
+
+	return (g_cluster_key);
+}
+
 
 /* as_paxos_state_next
  * This is just a little bit of syntactic sugar around the transitions in
@@ -170,10 +187,12 @@ as_paxos_state_next(int s, int next)
  * Show the results of the succession list.
  * Stop after the first ZERO entry, but go no longer than AS_CLUSTER_SZ.
  */
-void as_paxos_dump_succession_list( char * msg, cf_node slist[], int index ) {
+void
+as_paxos_dump_succession_list(char *msg, cf_node slist[], int index)
+{
 	// Use the smaller one
-	int list_size = (g_config.paxos_max_cluster_size < AS_CLUSTER_SZ) ?
-					g_config.paxos_max_cluster_size : AS_CLUSTER_SZ;
+	int list_size = ((g_config.paxos_max_cluster_size < AS_CLUSTER_SZ) ?
+					 g_config.paxos_max_cluster_size : AS_CLUSTER_SZ);
 	int i;
 	cf_debug(AS_PAXOS, "DUMP SUCCESSION LIST:(%s):Index:%d\n", msg, index );
 	for( i = 0; i < list_size; i++ ) {
@@ -187,7 +206,8 @@ void as_paxos_dump_succession_list( char * msg, cf_node slist[], int index ) {
 } // end as_paxos_dump_succession_list()
 
 
-void dump_partition_state()
+void
+dump_partition_state()
 {
 	/*
 	 * Print out the data loss statistics
@@ -232,11 +252,10 @@ void dump_partition_state()
 			printbuf[0] = '\0';
 		}
 	}
-
-	return;
 } // end dump_partition_state()
 
-void as_paxos_print_cluster_key(const char *message)
+void
+as_paxos_print_cluster_key(const char *message)
 {
 	cf_debug(AS_PAXOS, "%s: cluster key %"PRIx64"", message, as_paxos_get_cluster_key());
 }
@@ -469,9 +488,6 @@ as_paxos_partition_sync_request_msg_apply(msg *m, int n_pos)
 				   gen.sequence, p->gen.sequence, gen.proposal, p->gen.proposal);
 		return(-1);
 	}
-	/*
-	 * reset the values of this node's partition version in the global list
-	 */
 
 	size_t array_size = g_config.namespaces;
 
@@ -488,7 +504,6 @@ as_paxos_partition_sync_request_msg_apply(msg *m, int n_pos)
 	/*
 	 * reset the values of this node's partition version in the global list
 	 */
-
 	size_t elem = 0;
 	for (int i = 0; i < g_config.namespaces; i++) {
 		byte *bufp = NULL;
@@ -690,6 +705,7 @@ as_paxos_partition_sync_msg_apply(msg *m)
 		cf_warning(AS_PAXOS, "unpacking succession list from partition sync message failed");
 		return(-1);
 	}
+
 	/*
 	 * Make sure that the bits are identical
 	 */
@@ -734,7 +750,6 @@ as_paxos_partition_sync_msg_apply(msg *m)
 	/*
 	 * reset the values of this node's partition version in the global list
 	 */
-
 	size_t elem = 0;
 	for (int i = 0; i < g_config.namespaces; i++)
 		for (int j = 0; j < g_config.paxos_max_cluster_size; j++) {
@@ -1218,7 +1233,6 @@ as_paxos_transaction_update(as_paxos_transaction *oldt, as_paxos_transaction *ne
 	oldt->gen.sequence = newt->gen.sequence;
 	oldt->gen.proposal = newt->gen.proposal;
 	memcpy(&oldt->c, &newt->c, sizeof(oldt->c));
-	return;
 }
 
 
@@ -1290,8 +1304,6 @@ as_paxos_transaction_confirm(as_paxos_transaction *t)
 			break;
 		}
 	}
-
-	return;
 }
 
 
@@ -1303,8 +1315,6 @@ as_paxos_transaction_retire(as_paxos_transaction *t)
 	cf_assert(t, AS_PAXOS, CF_CRITICAL, "invalid argument");
 
 	t->retired = true;
-
-	return;
 }
 
 
@@ -1315,8 +1325,6 @@ as_paxos_transaction_destroy(as_paxos_transaction *t)
 {
 	cf_assert(t, AS_PAXOS, CF_CRITICAL, "invalid argument");
 	memset(t, 0, sizeof(as_paxos_transaction));
-
-	return;
 }
 
 
@@ -1378,8 +1386,6 @@ as_paxos_transaction_vote_reset(as_paxos_transaction *t)
 
 	for (int i = 0; i < g_config.paxos_max_cluster_size; i++)
 		t->votes[i] = false;
-
-	return;
 }
 
 
@@ -1574,8 +1580,6 @@ as_paxos_transaction_apply(cf_node from_id)
 	}
 
 	as_paxos_start_second_phase();
-
-	return;
 }
 
 /* as_paxos_wire_change_create
@@ -1752,8 +1756,8 @@ as_paxos_msg_unwrap(msg *m, as_paxos_transaction *t)
 	 * allocated directly within the as_paxos_transaction */
 	e += msg_get_uint32(m, AS_PAXOS_MSG_COMMAND, &c);
 	if (c != AS_PAXOS_MSG_COMMAND_SYNC_REQUEST && c != AS_PAXOS_MSG_COMMAND_SYNC &&
-			c != AS_PAXOS_MSG_COMMAND_PARTITION_SYNC_REQUEST && c != AS_PAXOS_MSG_COMMAND_PARTITION_SYNC  &&
-			c != AS_PAXOS_MSG_COMMAND_HEARTBEAT_EVENT && c != AS_PAXOS_MSG_COMMAND_RETRANSMIT_CHECK) {
+		c != AS_PAXOS_MSG_COMMAND_PARTITION_SYNC_REQUEST && c != AS_PAXOS_MSG_COMMAND_PARTITION_SYNC  &&
+		c != AS_PAXOS_MSG_COMMAND_HEARTBEAT_EVENT && c != AS_PAXOS_MSG_COMMAND_RETRANSMIT_CHECK) {
 		e += msg_get_uint32(m, AS_PAXOS_MSG_GENERATION_SEQUENCE, &t->gen.sequence);
 		e += msg_get_uint32(m, AS_PAXOS_MSG_GENERATION_PROPOSAL, &t->gen.proposal);
 		size_t orig_bufsz = sizeof(as_paxos_wire_change) + (sizeof(uint8_t) + sizeof(cf_node)) * g_config.paxos_max_cluster_size;
@@ -1834,6 +1838,7 @@ as_paxos_spark(as_paxos_change *c)
 		cf_warning(AS_PAXOS, "unable to construct message");
 		return;
 	}
+
 	if (0 != as_fabric_send_list(NULL, 0, m, AS_FABRIC_PRIORITY_HIGH))
 		as_fabric_msg_put(m);
 }
@@ -1900,10 +1905,56 @@ as_paxos_event(int nevents, as_fabric_event_node *events, void *udata)
 	}
 
 	return (as_paxos_msgq_push(g_config.self_node, m, NULL));
-
 }
 
-void as_paxos_process_heartbeat_event(msg *m)
+/*
+ *  Forcibly set the Paxos succession list to the given list of node IDs
+ *  and then trigger new cluster formation if this node is the principal node
+ *  (i.e., the first entry of the nodes list.)
+ */
+void
+as_paxos_process_set_succession_list(cf_node *nodes)
+{
+	cf_debug(AS_PAXOS, "Paxos thread processing Set Succession List event:");
+
+	if (nodes) {
+		cf_node node, *nodes_p = nodes;
+		int i = 0;
+		while ((node = *nodes_p++)) {
+			cf_debug(AS_PAXOS, "SLNode[%d] = %"PRIx64"", i, node);
+			i++;
+		}
+	}
+
+	// Halt migrations before forcibly modifying the succession list.
+	// [Note:  This is also done on the principal when the second phase is started below.]
+	as_partition_disallow_migrations();
+
+	as_paxos *p = g_config.paxos;
+	bool list_end = false;
+	cf_node *nodes_p = nodes;
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		if (!list_end) {
+			if (!(p->succession[i] = *nodes_p++)) {
+				list_end = true;
+			}
+			p->alive[i] = true;
+		} else {
+			p->succession[i] = 0;
+			p->alive[i] = false;
+		}
+	}
+
+	if (g_config.self_node == nodes[0]) {
+		cf_warning(AS_PAXOS, "[I am the principal node ~~ Forcing a cluster SYNC event.]");
+		as_paxos_start_second_phase();
+	} else {
+		cf_warning(AS_PAXOS, "[I am not the principal node ~~ Waiting for a SYNC event.]");
+	}
+}
+
+void
+as_paxos_process_heartbeat_event(msg *m)
 {
 	int e = 0;
 	uint32_t nevents = 0;
@@ -2052,23 +2103,20 @@ void as_paxos_process_heartbeat_event(msg *m)
 		as_paxos_spark(&c);
 	else
 		cf_debug(AS_PAXOS, "Skipping call as_paxos_spark");
-
-	return;
 }
 
-void as_paxos_send_partition_sync_request(cf_node p_node) {
+void
+as_paxos_send_partition_sync_request(cf_node p_node) {
 	msg *reply = NULL;
 	if (NULL == (reply = as_paxos_partition_sync_request_msg_generate())) {
 		cf_warning(AS_PAXOS, "unable to construct partition sync request message to node %"PRIx64"", p_node);
 		return;
-	}
-	else if (0 != as_fabric_send(p_node, reply, AS_FABRIC_PRIORITY_HIGH)) {
+	} else if (0 != as_fabric_send(p_node, reply, AS_FABRIC_PRIORITY_HIGH)) {
 		cf_warning(AS_PAXOS, "unable to send partition sync message to node %"PRIx64"", p_node);
 		as_fabric_msg_put(reply);
 		return;
 	}
 	cf_info(AS_PAXOS, "Sent partition sync request to node %"PRIx64"", p_node);
-	return;
 }
 
 /* as_paxos_retransmit_check
@@ -2109,7 +2157,9 @@ as_paxos_retransmit_check()
 #define NODE_IS_MISSING 0
 #define NODE_IS_NOT_MISSING -1
 
-int as_paxos_add_missing_node(cf_node *missing_nodes, cf_node node) {
+int
+as_paxos_add_missing_node(cf_node *missing_nodes, cf_node node)
+{
 	int i = 0;
 	for (i = 0; i < g_config.paxos_max_cluster_size; i++) {
 		// find node in succ_list that is not in succession
@@ -2127,7 +2177,9 @@ int as_paxos_add_missing_node(cf_node *missing_nodes, cf_node node) {
 	return (NODE_IS_MISSING);
 }
 
-void as_paxos_add_missing_nodes(cf_node *missing_nodes, cf_node *succ_list, bool *are_nodes_not_dunned) {
+void
+as_paxos_add_missing_nodes(cf_node *missing_nodes, cf_node *succ_list, bool *are_nodes_not_dunned)
+{
 	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
 		// find node in succ_list that is not in succession
 		cf_node curr = succ_list[i];
@@ -2142,7 +2194,8 @@ void as_paxos_add_missing_nodes(cf_node *missing_nodes, cf_node *succ_list, bool
 	}
 }
 
-void as_paxos_process_retransmit_check()
+void
+as_paxos_process_retransmit_check()
 {
 	as_paxos *p = g_config.paxos;
 
@@ -2183,7 +2236,6 @@ void as_paxos_process_retransmit_check()
 			}
 		}
 		cf_debug(AS_PAXOS, sbuf);
-		// Comment out the Succession list check -- for now
 		if (memcmp(p->succession, succ_list[i], sizeof(succ_list[i])) != 0) {
 			cf_info(AS_PAXOS, "Cluster Integrity Check: Detected succession list discrepancy between node %"PRIx64" and self %"PRIx64"",
 					succ_list_index[i], g_config.self_node);
@@ -2399,6 +2451,11 @@ as_paxos_thr(void *arg)
 
 		cf_debug(AS_PAXOS, "unwrapped | received paxos message from node %"PRIx64" command %d", qm->id, c);
 
+		if (c == AS_PAXOS_MSG_COMMAND_SET_SUCC_LIST) {
+			as_paxos_process_set_succession_list(t.c.id);
+			c = AS_PAXOS_MSG_COMMAND_SYNC;
+			goto cleanup;
+		}
 
 		if (c == AS_PAXOS_MSG_COMMAND_HEARTBEAT_EVENT) {
 			as_paxos_process_heartbeat_event(qm->m);
@@ -2539,10 +2596,13 @@ as_paxos_thr(void *arg)
 				 * send a commit message and reset the vote count */
 				switch(as_paxos_transaction_vote(s, qm->id, &t)) {
 					case AS_PAXOS_TRANSACTION_VOTE_ACCEPT:
+						cf_debug(AS_PAXOS, "received ACCEPT vote from %"PRIx64"", qm->id);
+						break;
 					case AS_PAXOS_TRANSACTION_VOTE_REJECT:
-						/* FIXME What happens in the rejected vote case? */
+						cf_debug(AS_PAXOS, "received REJECT vote from %"PRIx64"", qm->id);
 						break;
 					case AS_PAXOS_TRANSACTION_VOTE_QUORUM:
+						cf_debug(AS_PAXOS, "received ACCEPT vote from %"PRIx64" and reached quorum", qm->id);
 						reply = as_paxos_msg_wrap(s, as_paxos_state_next(c, ACK));
 						if (0 != as_fabric_send_list(NULL, 0, reply, AS_FABRIC_PRIORITY_HIGH))
 							as_fabric_msg_put(reply);
@@ -2561,31 +2621,6 @@ as_paxos_thr(void *arg)
 					cf_warning(AS_PAXOS, "received negative acknowledgment for unknown transaction");
 					break;
 				}
-
-				/* JOEY FIX [11/2011] - Disable retry code - this code sends two messages
-				 * where it should send one, and quickly fills the transaction table. */
-
-				/*
-				// Establish a transaction for the contents of the rejection
-				// message: increment the proposal ID and transmit
-				t.gen.proposal++;
-				if (NULL == (s = as_paxos_transaction_establish(&t))) {
-					cf_warning(AS_PAXOS, "unable to establish transaction");
-				    break;
-				}
-				reply = as_paxos_msg_wrap(s, AS_PAXOS_MSG_COMMAND_PREPARE);
-				if (0 != as_fabric_send_list(NULL, 0, reply, AS_FABRIC_PRIORITY_HIGH))
-					as_fabric_msg_put(reply);
-
-				// Establish a new transaction with the change we were trying
-				// to perform; the easiest way to do this is just to go back
-				// to the beginning...
-				as_paxos_spark(&r->c);
-
-
-				// Destroy the rejected transaction
-				as_paxos_transaction_destroy(r);
-				*/
 
 				break;
 			case AS_PAXOS_MSG_COMMAND_CONFIRM:
@@ -2742,7 +2777,7 @@ as_paxos_thr(void *arg)
 							cf_warning(AS_PAXOS, "unable to construct partition sync message to node %"PRIx64"", p->succession[npos]);
 						else if (0 != as_fabric_send(p->succession[npos], reply, AS_FABRIC_PRIORITY_HIGH)) {
 							as_fabric_msg_put(reply);
-							cf_warning(AS_PAXOS, "unable to sent partition sync message to node %"PRIx64"", p->succession[npos]);
+							cf_warning(AS_PAXOS, "unable to send partition sync message to node %"PRIx64"", p->succession[npos]);
 						}
 					}
 					else { //sending partition sync message to all nodes
@@ -2754,7 +2789,7 @@ as_paxos_thr(void *arg)
 									cf_warning(AS_PAXOS, "unable to construct partition sync message to node %"PRIx64"", p->succession[i]);
 								else if (0 != as_fabric_send(p->succession[i], reply, AS_FABRIC_PRIORITY_HIGH)) {
 									as_fabric_msg_put(reply);
-									cf_warning(AS_PAXOS, "unable to sent partition sync message to node %"PRIx64"", p->succession[i]);
+									cf_warning(AS_PAXOS, "unable to send partition sync message to node %"PRIx64"", p->succession[i]);
 								}
 							}
 						}
@@ -3034,7 +3069,7 @@ as_paxos_deregister_change_callback(as_paxos_change_callback cb, void *udata)
 	return (found ? 0 : -1);
 }
 
-/* as_paxos_sup
+/* as_paxos_sup_thr
  * paxos supervisor logic for retransmission */
 void *
 as_paxos_sup_thr(void *arg)
@@ -3092,8 +3127,7 @@ as_paxos_set_cluster_integrity(as_paxos *p, bool state)
 	p->cluster_has_integrity = state;
 }
 
-/*
- * as_paxos_dump
+/* as_paxos_dump
  * Print info. about the Paxos state to the log.
  * (Verbose true prints partition map as well.)
  */
@@ -3105,7 +3139,13 @@ as_paxos_dump(bool verbose)
 
 	cf_info(AS_PAXOS, "Paxos Cluster Size: %d [soft max: %d ; hard max: %d]", p->cluster_size, g_config.paxos_max_cluster_size, AS_CLUSTER_SZ);
 
+	cf_info(AS_PAXOS, "Cluster Key: %"PRIx64"", as_paxos_get_cluster_key());
+
+	cf_info(AS_PAXOS, "Cluster Generation: [%d.%d]", p->gen.sequence, p->gen.proposal);
+
 	cf_info(AS_PAXOS, "Cluster State: Has Integrity %s", (p->cluster_has_integrity ? "" : "FAULT"));
+
+	cf_info(AS_PAXOS, "Migrations are%s allowed.", (as_partition_get_migration_flag() ? "" : " NOT"));
 
 	// Print the succession list.
 	cf_node principal_node = as_paxos_succession_getprincipal();
@@ -3117,4 +3157,63 @@ as_paxos_dump(bool verbose)
 		principal = (node == principal_node);
 		cf_info(AS_PAXOS, "SuccessionList[%d]: Node %"PRIx64" %s%s", i, node, (self ? "[Self]" : ""), (principal ? "[Principal]" : ""));
 	}
+}
+
+/* as_paxos_get_succession_list
+ * Get the Paxos succession list and log it to the given "cf_dyn_buf *".
+ * The first element of the list will become the Paxos principal.
+ * Returns 0 if successful, -1 otherwise.
+ */
+int as_paxos_get_succession_list(cf_dyn_buf *db)
+{
+	as_paxos *p = g_config.paxos;
+	char hex_node_id[18];
+	bool need_comma = false;
+	char line[AS_CLUSTER_SZ * 17];
+	int pos = 0;
+
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		cf_node node = p->succession[i];
+
+		if ((cf_node) 0 == node)
+			continue;
+
+		snprintf(hex_node_id, 17 + (need_comma ? 1 : 0), "%s%"PRIx64"", (need_comma ? "," : ""), node);
+		pos += snprintf(&line[pos], 17 + (need_comma ? 1 : 0), "%s%"PRIx64"", (need_comma ? "," : ""), node);
+		cf_dyn_buf_append_string(db, hex_node_id);
+
+		need_comma = true;
+	}
+	cf_dyn_buf_append_string(db, "\n");
+	cf_info(AS_PAXOS, "Paxos Succession List: %s", line);
+
+	return 0;
+}
+
+/* as_paxos_set_succession_list
+ * Set the Paxos succession list from list of node IDs.
+ * The first element of the list will become the Paxos principal.
+ * Returns 0 if successful, -1 otherwise.
+ */
+int
+as_paxos_set_succession_list(char *nodes_str, int nodes_str_len)
+{
+	cf_info(AS_PAXOS, "Paxos set succ list: nodes = \"%s\"", nodes_str);
+
+	as_paxos_transaction px_trans;
+	int num_nodes = 0;
+	if (as_hb_nodes_str_to_cf_nodes(nodes_str, nodes_str_len, px_trans.c.id, &num_nodes)) {
+		cf_warning(AS_PAXOS, "set-sl command: failed to parse node list string (\"%s\") to nodes", nodes_str);
+		return -1;
+	}
+
+	// Send a Set Succession List event to Paxos.
+
+	msg *px_msg;
+	if (!(px_msg = as_paxos_msg_wrap(&px_trans, AS_PAXOS_MSG_COMMAND_SET_SUCC_LIST))) {
+		cf_warning(AS_PAXOS, "failed to wrap Set Succ List msg");
+		return -1;
+	}
+
+	return as_paxos_msgq_push(g_config.self_node, px_msg, NULL);
 }

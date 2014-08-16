@@ -75,8 +75,9 @@ typedef enum {
 // For sizing the storage API "v-tables".
 #define AS_STORAGE_ENGINE_TYPES 4
 
-// For invalidating the ssd.file_id bits in as_index.
-#define STORAGE_INVALID_FILE_ID 0x3F // 6 bits
+// For invalidating the ssd.file_id and ssd.rblock_id bits in as_index.
+#define STORAGE_INVALID_FILE_ID	0x3F // 6 bits
+#define STORAGE_INVALID_RBLOCK	0x3FFFFffff // 34 bits
 
 // Forward declarations.
 struct drv_ssd_s;
@@ -213,6 +214,7 @@ extern int as_storage_stats_memory(as_namespace *ns, int *available_pct, uint64_
 //
 
 extern int as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q, void *udata);
+extern void as_storage_cold_start_ticker_ssd(); // called directly by as_storage_init()
 extern int as_storage_namespace_destroy_ssd(as_namespace *ns);
 extern int as_storage_namespace_attributes_get_ssd(as_namespace *ns, as_storage_attributes *attr);
 

@@ -763,24 +763,28 @@ as_proxy_send_response(cf_node dst, msg *m, uint32_t result_code, uint32_t gener
 // RETRANSMIT FUNCTIONS
 //
 
+typedef struct now_times_s {
+	uint64_t now_ns;
+	uint64_t now_ms;
+} now_times;
+
 // Reduce through the outstanding requests and retransmit sometime.
 int
 proxy_retransmit_reduce_fn(void *key, void *data, void *udata)
 {
 	proxy_request *pr = data;
+	now_times *p_now = (now_times*)udata;
 
-	cf_clock *now = (cf_clock *)udata;
+	if (pr->xmit_ms < p_now->now_ms) {
 
-	if (pr->xmit_ms < *now) {
-
-		cf_debug(AS_PROXY, "proxy_retransmit: now %"PRIu64" xmit_ms %"PRIu64" m %p", *now, pr->xmit_ms, pr->fab_msg);
+		cf_debug(AS_PROXY, "proxy_retransmit: now %"PRIu64" xmit_ms %"PRIu64" m %p", p_now->now_ms, pr->xmit_ms, pr->fab_msg);
 
 		// Determine if the time is too much, and terminate if so.
-		if (*now > pr->end_time) {
+		if (p_now->now_ns > pr->end_time) {
 
 			// Can get very verbose, when another server is slow.
 			cf_debug(AS_PROXY, "proxy_retransmit: too old request %d ms: terminating (dest %"PRIx64" {%s:%d}",
-					(*now - pr->start_time) / 1000000, pr->dest, pr->ns->name, pr->pid);
+					(p_now->now_ns - pr->start_time) / 1000000, pr->dest, pr->ns->name, pr->pid);
 
 			// TODO: make sure the op is not applied twice?
 			if (pr->wr) {
@@ -806,7 +810,7 @@ proxy_retransmit_reduce_fn(void *key, void *data, void *udata)
 		}
 
 		// Update the retry interval, exponentially.
-		pr->xmit_ms = *now + pr->retry_interval_ms;
+		pr->xmit_ms = p_now->now_ms + pr->retry_interval_ms;
 		pr->retry_interval_ms *= 2;
 
 		// msg_dump(pr->fab_msg, "proxy retransmit");
@@ -926,7 +930,9 @@ proxy_retransmit_fn(void *gcc_is_ass)
 
 		cf_detail(AS_PROXY, "proxy retransmit: size %d", shash_get_size(g_proxy_hash));
 
-		cf_clock	now = cf_getns();
+		now_times now;
+		now.now_ns = cf_getns();
+		now.now_ms = now.now_ns / 1000000;
 
 		shash_reduce_delete(g_proxy_hash, proxy_retransmit_reduce_fn, (void *) &now);
 	}

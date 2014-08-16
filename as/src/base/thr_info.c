@@ -624,9 +624,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";system_free_mem_pct=");
 	cf_dyn_buf_append_int(db, freepct);
 
-	cf_dyn_buf_append_string(db, ";system_sindex_data_memory_used=");
-	APPEND_STAT_COUNTER(db, g_config.sindex_data_memory_used);
-	
 	cf_dyn_buf_append_string(db, ";sindex_ucgarbage_found=");
 	APPEND_STAT_COUNTER(db, g_config.query_false_positives);
 	
@@ -668,8 +665,6 @@ info_get_stats(char *name, cf_dyn_buf *db)
 
 	cf_dyn_buf_append_string(db, ";storage_defrag_corrupt_record=");
 	APPEND_STAT_COUNTER(db, g_config.err_storage_defrag_corrupt_record);
-	cf_dyn_buf_append_string(db, ";storage_defrag_wait=");
-	APPEND_STAT_COUNTER(db, g_config.stat_storage_defrag_wait);
 	cf_dyn_buf_append_string(db, ";err_write_fail_prole_unknown=");
 	APPEND_STAT_COUNTER(db, g_config.err_write_fail_prole_unknown);
 	cf_dyn_buf_append_string(db, ";err_write_fail_prole_generation=");
@@ -835,6 +830,57 @@ info_command_undun(char *name, char *params, cf_dyn_buf *db)
 }
 
 int
+info_command_get_sl(char *name, char *params, cf_dyn_buf *db)
+{
+	char *result = "error";
+
+	/*
+	 *  Get the Paxos Succession List:
+	 *
+	 *  Command Format:  "get-sl:"
+	 */
+
+	if (!as_paxos_get_succession_list(db)) {
+		result = "ok";
+	}
+
+	cf_dyn_buf_append_string(db, result);
+
+	return 0;
+}
+
+int
+info_command_set_sl(char *name, char *params, cf_dyn_buf *db)
+{
+	char nodes_str[AS_CLUSTER_SZ * 17];
+	int  nodes_str_len = sizeof(nodes_str);
+	char *result = "error";
+
+	/*
+	 *  Set the Paxos Succession List:
+	 *
+	 *  Command Format:  "set-sl:nodes=<PrincipalNodeID>{,<NodeID>}*"
+	 *
+	 *  where <PrincipalNodeID> is to become the Paxos principal, and the <NodeID>s
+	 *  are the other members of the cluster.
+	 */
+	nodes_str[0] = '\0';
+	if (as_info_parameter_get(params, "nodes", nodes_str, &nodes_str_len)) {
+		cf_info(AS_INFO, "The \"%s:\" command requires a \"nodes\" list containing at least one node ID to be the new Paxos principal", name);
+		cf_dyn_buf_append_string(db, result);
+		return 0;
+	}
+
+	if (!as_paxos_set_succession_list(nodes_str, nodes_str_len)) {
+		result = "ok";
+	}
+
+	cf_dyn_buf_append_string(db, result);
+
+	return 0;
+}
+
+int
 info_command_snub(char *name, char *params, cf_dyn_buf *db)
 {
 	cf_debug(AS_INFO, "snub command received: params %s", params);
@@ -868,7 +914,7 @@ info_command_snub(char *name, char *params, cf_dyn_buf *db)
 		}
 	}
 
-	as_hb_snub( node , snub_time);
+	as_hb_snub(node , snub_time);
 	cf_info(AS_INFO, "snub command executed: params %s", params);
 
 	return(0);
@@ -897,12 +943,12 @@ info_command_tip(char *name, char *params, cf_dyn_buf *db)
 	}
 
 	int port = 0;
-	if (0 != cf_str_atoi(port_str, &port) ) {
+	if (0 != cf_str_atoi(port_str, &port)) {
 		cf_info(AS_INFO, "tip command: port must be an integer, is: %s", port_str);
 		return(0);
 	}
 
-	as_hb_tip( host_str, port);
+	as_hb_tip(host_str, port);
 	cf_info(AS_INFO, "tip command executed: params %s", params);
 
 	return(0);
@@ -913,7 +959,7 @@ info_command_tip_clear(char *name, char *params, cf_dyn_buf *db)
 {
 	cf_debug(AS_INFO, "tip clear command received: params %s", params);
 
-	as_hb_tip_clear( );
+	as_hb_tip_clear();
 
 	cf_info(AS_INFO, "tip clear command executed: params %s", params);
 
@@ -1008,6 +1054,35 @@ info_command_dump_fabric(char *name, char *params, cf_dyn_buf *db)
 		}
 	}
 	as_fabric_dump(verbose);
+	cf_dyn_buf_append_string(db, "ok");
+	return(0);
+}
+
+int
+info_command_dump_hb(char *name, char *params, cf_dyn_buf *db)
+{
+	bool verbose = false;
+	char param_str[100];
+	int param_str_len = sizeof(param_str);
+
+	/*
+	 *  Command Format:  "dump-hb:{verbose=<opt>}" [the "verbose" argument is optional]
+	 *
+	 *  where <opt> is one of:  {"true" | "false"} and defaults to "false".
+	 */
+	param_str[0] = '\0';
+	if (!as_info_parameter_get(params, "verbose", param_str, &param_str_len)) {
+		if (!strncmp(param_str, "true", 5)) {
+			verbose = true;
+		} else if (!strncmp(param_str, "false", 6)) {
+			verbose = false;
+		} else {
+			cf_warning(AS_INFO, "The \"%s:\" command argument \"verbose\" value must be one of {\"true\", \"false\"}, not \"%s\"", name, param_str);
+			cf_dyn_buf_append_string(db, "error");
+			return 0;
+		}
+	}
+	as_hb_dump(verbose);
 	cf_dyn_buf_append_string(db, "ok");
 	return(0);
 }
@@ -1884,16 +1959,6 @@ info_service_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_int(db, g_config.nsup_queue_lwm);
 	cf_dyn_buf_append_string(db, ";nsup-queue-escape=");
 	cf_dyn_buf_append_int(db, g_config.nsup_queue_escape);
-	cf_dyn_buf_append_string(db, ";defrag-queue-hwm=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_hwm);
-	cf_dyn_buf_append_string(db, ";defrag-queue-lwm=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_lwm);
-	cf_dyn_buf_append_string(db, ";defrag-queue-escape=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_escape);
-	cf_dyn_buf_append_string(db, ";defrag-queue-priority=");
-	cf_dyn_buf_append_int(db, g_config.defrag_queue_priority);
-	cf_dyn_buf_append_string(db, ";nsup-auto-hwm-pct=");
-	cf_dyn_buf_append_int(db, g_config.nsup_auto_hwm_pct);
 	cf_dyn_buf_append_string(db, ";nsup-startup-evict=");
 	cf_dyn_buf_append_string(db, g_config.nsup_startup_evict ? "true" : "false");
 	cf_dyn_buf_append_string(db, ";paxos-retransmit-period=");
@@ -2025,9 +2090,6 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";memory-size=");
 	cf_dyn_buf_append_uint64(db, ns->memory_size);
 
-	cf_dyn_buf_append_string(db, ";low-water-pct=");
-	cf_dyn_buf_append_int(db, ns->lwm * 100);
-
 	cf_dyn_buf_append_string(db, ";high-water-disk-pct=");
 	cf_dyn_buf_append_int(db, ns->hwm_disk * 100);
 
@@ -2083,11 +2145,10 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 	if (ns->storage_type == AS_STORAGE_ENGINE_SSD) {
 
 		info_append_uint64("", "total-bytes-disk", ns->ssd_size, db);
-		info_append_uint64("", "defrag-period", ns->storage_defrag_period, db);
-		info_append_uint64("", "defrag-max-blocks", ns->storage_defrag_max_blocks, db);
 		info_append_uint64("", "defrag-lwm-pct", ns->storage_defrag_lwm_pct, db);
-		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
+		info_append_uint64("", "defrag-sleep", ns->storage_defrag_sleep, db);
 		info_append_uint64("", "defrag-startup-minimum", ns->storage_defrag_startup_minimum, db);
+		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
 		info_append_uint64("", "max-write-cache", ns->storage_max_write_cache, db);
 		info_append_uint64("", "min-avail-pct", ns->storage_min_avail_pct, db);
 		info_append_uint64("", "post-write-queue", (uint64_t)ns->storage_post_write_queue, db);
@@ -2265,6 +2326,7 @@ info_command_config_get(char *name, char *params, cf_dyn_buf *db)
 		int context_len = sizeof(context);
 		if (0 == as_info_parameter_get(params, "context", context, &context_len)) {
 			if (strcmp(context, "namespace") == 0) {
+				context_len = sizeof(context);
 				if (0 != as_info_parameter_get(params, "id", context, &context_len)) {
 					cf_dyn_buf_append_string(db, "Error:invalid id");
 					return(0);
@@ -2505,30 +2567,6 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			cf_info(AS_INFO, "Changing value of nsup-queue-escape from %d to %d ", g_config.nsup_queue_escape, val);
 			g_config.nsup_queue_escape = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-hwm", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-hwm from %d to %d ", g_config.defrag_queue_hwm, val);
-			g_config.defrag_queue_hwm = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-lwm", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-lwm from %d to %d ", g_config.defrag_queue_lwm, val);
-			g_config.defrag_queue_lwm = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-escape", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-escape from %d to %d ", g_config.defrag_queue_escape, val);
-			g_config.defrag_queue_escape = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-queue-priority", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val))
-				goto Error;
-			cf_info(AS_INFO, "Changing value of defrag-queue-priority from %d to %d ", g_config.defrag_queue_priority, val);
-			g_config.defrag_queue_priority = val;
 		}
 		else if (0 == as_info_parameter_get(params, "paxos-retransmit-period", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val))
@@ -3111,11 +3149,6 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			cf_info(AS_INFO, "Changing value of memory-size of ns %s from %d to %d ", ns->name, ns->memory_size, val);
 			ns->memory_size = val;
 		}
-		else if (0 == as_info_parameter_get(params, "low-water-pct", context, &context_len)) {
-			cf_debug(AS_INFO, "low water pct = %1.3f", atof(context) / (float)100);
-			cf_info(AS_INFO, "Changing value of low-water-pct of ns %s from %1.3f to %1.3f ", ns->name, ns->lwm, atof(context) / (float)100);
-			ns->lwm = atof(context) / (float)100;
-		}
 		else if (0 == as_info_parameter_get(params, "high-water-pct", context, &context_len)) {
 			cf_info(AS_INFO, "Changing value of high-water-pct disk of ns %s from %1.3f to %1.3f ", ns->name, ns->hwm_disk, atof(context) / (float)100);
 			ns->hwm_disk = atof(context) / (float)100;
@@ -3205,26 +3238,20 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			}
 		}
-		else if (0 == as_info_parameter_get(params, "defrag-period", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of defrag-period of ns %s from %d to %d ", ns->name, ns->storage_defrag_period, val);
-			ns->storage_defrag_period = val;
-		}
-		else if (0 == as_info_parameter_get(params, "defrag-max-blocks", context, &context_len)) {
-			if (0 != cf_str_atoi(context, &val)) {
-				goto Error;
-			}
-			cf_info(AS_INFO, "Changing value of defrag-max-blocks of ns %s from %d to %d ", ns->name, ns->storage_defrag_max_blocks, val);
-			ns->storage_defrag_max_blocks = val;
-		}
 		else if (0 == as_info_parameter_get(params, "defrag-lwm-pct", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of defrag-lwm-pct of ns %s from %d to %d ", ns->name, ns->storage_defrag_lwm_pct, val);
 			ns->storage_defrag_lwm_pct = val;
+			ns->defrag_lwm_size = (ns->storage_write_block_size * ns->storage_defrag_lwm_pct) / 100;
+		}
+		else if (0 == as_info_parameter_get(params, "defrag-throttle", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val)) {
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of defrag-sleep of ns %s from %u to %d", ns->name, ns->storage_defrag_sleep, val);
+			ns->storage_defrag_sleep = (uint32_t)val;
 		}
 		else if (0 == as_info_parameter_get(params, "enable-xdr", context, &context_len)) {
 			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
@@ -4433,15 +4460,18 @@ info_debug_ticker_fn(void *gcc_is_ass)
 					cf_atomic_int_get(g_config.err_sync_copy_null_master)
 					);
 
-			cf_info(AS_INFO, "   trans_in_progress: wr %d prox %d wait %d ::: q %d ::: bq %d ::: iq %d ::: dq %d : fds - proto (%d, %"PRIu64", %"PRIu64") : hb %d : fab %d",
+			cf_info(AS_INFO, "   trans_in_progress: wr %d prox %d wait %d ::: q %d ::: bq %d ::: iq %d ::: dq %d : fds - proto (%d, %"PRIu64", %"PRIu64") : hb (%d, %"PRIu64", %"PRIu64") : fab (%d, %"PRIu64", %"PRIu64")",
 					as_write_inprogress(), as_proxy_inprogress(), g_config.n_waiting_transactions, thr_tsvc_queue_get_size(), as_batch_queue_size(), as_info_queue_get_size(), as_nsup_queue_get_size(),
 					g_config.proto_connections_opened - g_config.proto_connections_closed,
 					g_config.proto_connections_opened, g_config.proto_connections_closed,
 					g_config.heartbeat_connections_opened - g_config.heartbeat_connections_closed,
-					g_config.fabric_connections_opened - g_config.fabric_connections_closed
+					g_config.heartbeat_connections_opened, g_config.heartbeat_connections_closed,
+					g_config.fabric_connections_opened - g_config.fabric_connections_closed,
+					g_config.fabric_connections_opened, g_config.fabric_connections_closed
 					);
 
 			cf_info(AS_INFO, "   heartbeat_received: self %lu : foreign %lu", g_config.heartbeat_received_self, g_config.heartbeat_received_foreign);
+			cf_info(AS_INFO, "   heartbeat_stats: %s", as_hb_stats(false));
 
 			cf_info(AS_INFO, "   tree_counts: nsup %"PRIu64" scan %"PRIu64" batch %"PRIu64" dup %"PRIu64" wprocess %"PRIu64" migrx %"PRIu64" migtx %"PRIu64" ssdr %"PRIu64" ssdw %"PRIu64" rw %"PRIu64"",
 					cf_atomic_int_get(g_config.nsup_tree_count),
@@ -6615,12 +6645,12 @@ as_info_init()
 	}
 
 	// All commands accepted by asinfo/telnet
-	as_info_set("help", "build;bins;config-get;config-set;digests;dump-fabric;"
-				"dump-migrates;dump-msgs;dump-paxos;dump-smd;dump-wb;"
-				"dump-wb-summary;dump-wr;dun;get-config;hist-dump;"
-				"hist-track-start;hist-track-stop;jobs;latency;log;log-set;"
+	as_info_set("help", "alloc-info;asm;build;bins;config-get;config-set;digests;"
+				"dump-fabric;dump-hb;dump-migrates;dump-msgs;dump-paxos;dump-smd;"
+				"dump-wb;dump-wb-summary;dump-wr;dun;get-config;get-sl;hist-dump;"
+				"hist-track-start;hist-track-stop;jem-stats;jobs;latency;log;log-set;"
 				"logs;mcast;mem;mesh;mstats;mtrace;name;namespace;namespaces;"
-				"node;service;services;services-alumni;set-config;set-log;sets;"
+				"node;service;services;services-alumni;set-config;set-log;sets;set-sl;"
 				"show-devices;sindex;sindex-create;sindex-delete;sindex-dump;"
 				"sindex-histogram;sindex-qnodemap;sindex-repair;"
 				"smd;snub;statistics;status;tip;tip-clear;undun;version;"
@@ -6628,7 +6658,7 @@ as_info_init()
 				false);
 	/*
 	 * help intentionally does not include the following:
-	 * alloc-info;asm;cluster-generation;features;jem-stats;objects;
+	 * cluster-generation;features;objects;
 	 * partition-generation;partition-info;partitions;replicas-master;
 	 * replicas-prole;replicas-read;replicas-write;throughput
 	 */
@@ -6664,21 +6694,24 @@ as_info_init()
 	as_info_set_tree("namespace", info_get_tree_namespace); // Returns health and usage stats for a particular namespace.
 	as_info_set_tree("sets", info_get_tree_sets);           // Returns set statistics for all or a particular set.
 
-	// set up the first command
+	// Define commands
 	as_info_set_command("alloc-info", info_command_alloc_info, PRIV_NONE);                    // Lookup a memory allocation by program location.
 	as_info_set_command("asm", info_command_asm, PRIV_SERVICE_CTRL);                          // Control the operation of the ASMalloc library.
 	as_info_set_command("config-get", info_command_config_get, PRIV_NONE);                    // Returns running config for specified context.
 	as_info_set_command("config-set", info_command_config_set, PRIV_SET_CONFIG);              // Set a configuration parameter at run time, configuration parameter must be dynamic.
 	as_info_set_command("dump-fabric", info_command_dump_fabric, PRIV_LOGGING_CTRL);          // Print debug information about fabric to the log file.
+	as_info_set_command("dump-hb", info_command_dump_hb, PRIV_LOGGING_CTRL);                  // Print debug information about heartbeat state to the log file.
 	as_info_set_command("dump-migrates", info_command_dump_migrates, PRIV_LOGGING_CTRL);      // Print debug information about migration.
 	as_info_set_command("dump-msgs", info_command_dump_msgs, PRIV_LOGGING_CTRL);              // Print debug information about existing 'msg' objects and queues to the log file.
-	as_info_set_command("dump-paxos", info_command_dump_paxos, PRIV_LOGGING_CTRL);            // Print debug information about Paxos stat to the log file.
+	as_info_set_command("dump-paxos", info_command_dump_paxos, PRIV_LOGGING_CTRL);            // Print debug information about Paxos state to the log file.
 	as_info_set_command("dump-ra", info_command_dump_ra, PRIV_LOGGING_CTRL);                  // Print debug information about Rack Aware state.
+	as_info_set_command("dump-smd", info_command_dump_smd, PRIV_LOGGING_CTRL);                // Print information about System Metadata (SMD) to the log file.
 	as_info_set_command("dump-wb", info_command_dump_wb, PRIV_LOGGING_CTRL);                  // Print debug information about Write Bocks (WB) to the log file.
 	as_info_set_command("dump-wb-summary", info_command_dump_wb_summary, PRIV_LOGGING_CTRL);  // Print summary information about all Write Blocks (WB) on a device to the log file.
 	as_info_set_command("dump-wr", info_command_dump_wr, PRIV_LOGGING_CTRL);                  // Print debug information about transaction hash table to the log file.
 	as_info_set_command("dun", info_command_dun, PRIV_SERVICE_CTRL);                          // Instruct this server to ignore another node.
 	as_info_set_command("get-config", info_command_config_get, PRIV_NONE);                    // Returns running config for all or a particular context.
+	as_info_set_command("get-sl", info_command_get_sl, PRIV_LOGGING_CTRL);                    // Get the Paxos succession list.
 	as_info_set_command("hist-dump", info_command_hist_dump, PRIV_NONE);                      // Returns a histogram snapshot for a particular histogram.
 	as_info_set_command("hist-track-start", info_command_hist_track, PRIV_SERVICE_CTRL);      // Start or Restart histogram tracking.
 	as_info_set_command("hist-track-stop", info_command_hist_track, PRIV_SERVICE_CTRL);       // Stop histogram tracking.
@@ -6690,7 +6723,9 @@ as_info_init()
 	as_info_set_command("mtrace", info_command_mtrace, PRIV_SERVICE_CTRL);                    // Control GLibC-level memory tracing.
 	as_info_set_command("set-config", info_command_config_set, PRIV_SET_CONFIG);              // Set config values.
 	as_info_set_command("set-log", info_command_log_set, PRIV_LOGGING_CTRL);                  // Set values in the log system.
+	as_info_set_command("set-sl", info_command_set_sl, PRIV_LOGGING_CTRL);                    // Set the Paxos succession list.
 	as_info_set_command("show-devices", info_command_show_devices, PRIV_LOGGING_CTRL);        // Print snapshot of wblocks to the log file.
+	as_info_set_command("smd", info_command_smd_cmd, PRIV_SERVICE_CTRL);                      // Manipulate the System Metadata.
 	as_info_set_command("snub", info_command_snub, PRIV_SERVICE_CTRL);                        // Ignore heartbeats from a node for a specified amount of time.
 	as_info_set_command("throughput", info_command_hist_track, PRIV_NONE);                    // Returns throughput info.
 	as_info_set_command("tip", info_command_tip, PRIV_SERVICE_CTRL);                          // Add external IP to mesh-mode heartbeats.
@@ -6714,12 +6749,10 @@ as_info_init()
 	as_info_set_command("jobs", info_command_mon_cmd, PRIV_SERVICE_CTRL);  // Manipulate the multi-key lookup monitoring infrastructure.
 
 	// Undocumented Secondary Index Command
-	as_info_set_command("dump-smd", info_command_dump_smd, PRIV_LOGGING_CTRL);        // Print information about System Meta Data (SMD) to the log file.
 	as_info_set_command("sindex-histogram", info_command_sindex_histogram, PRIV_SERVICE_CTRL);
 	as_info_set_command("sindex-repair", info_command_sindex_repair, PRIV_SERVICE_CTRL);
 	as_info_set_command("sindex-dump", info_command_sindex_dump, PRIV_SERVICE_CTRL);  // Dumps to a file, not log.
 	as_info_set_command("sindex-qnodemap", info_command_sindex_qnodemap, PRIV_NONE);
-	as_info_set_command("smd", info_command_smd_cmd, PRIV_SERVICE_CTRL);              // Manipulate the System Meta data.
 
 	as_info_set_dynamic("query-list", as_query_list, false);
 	as_info_set_command("query-kill", info_command_query_kill, PRIV_SERVICE_CTRL);
