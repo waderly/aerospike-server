@@ -156,8 +156,8 @@ cfg_set_defaults()
 	c->hb_mode = AS_HB_MODE_UNDEF; // must supply heartbeat mode in the configuration file
 	c->hb_interval = 150;
 	c->hb_timeout = 10;
-	c->hb_protocol = AS_HB_PROTOCOL_V2; // default to the latest heartbeat protocol version
 	c->hb_mesh_rw_retry_timeout = 500;
+	c->hb_protocol = AS_HB_PROTOCOL_V2; // default to the latest heartbeat protocol version
 
 	// Network info defaults.
 	c->info_fastpath_enabled = true; // by default, don't force Info requests to go through the transaction queue
@@ -388,8 +388,8 @@ typedef enum {
 	// Normally hidden:
 	CASE_NETWORK_HEARTBEAT_INTERFACE_ADDRESS,
 	CASE_NETWORK_HEARTBEAT_MCAST_TTL,
+	CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT,
 	CASE_NETWORK_HEARTBEAT_PROTOCOL,
-	CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT, 
 
 	// Network heartbeat mode options (value tokens):
 	CASE_NETWORK_HEARTBEAT_MODE_MESH,
@@ -724,11 +724,11 @@ const cfg_opt NETWORK_HEARTBEAT_OPTS[] = {
 		{ "mesh-port",						CASE_NETWORK_HEARTBEAT_MESHINIT_PORT },
 		{ "interval",						CASE_NETWORK_HEARTBEAT_INTERVAL },
 		{ "timeout",						CASE_NETWORK_HEARTBEAT_TIMEOUT },
-		{ "interface-address",				        CASE_NETWORK_HEARTBEAT_INTERFACE_ADDRESS },
+		{ "interface-address",				CASE_NETWORK_HEARTBEAT_INTERFACE_ADDRESS },
 		{ "mcast-ttl",						CASE_NETWORK_HEARTBEAT_MCAST_TTL },
+		{ "mesh-rw-retry-timeout",			CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT },
+		{ "mesh-seed-address-port",			CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT },
 		{ "protocol",						CASE_NETWORK_HEARTBEAT_PROTOCOL },
-		{ "mesh-rw-retry-timeout",			        CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT },
-		{ "mesh-seed-address-port",			        CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT },
 		{ "}",								CASE_CONTEXT_END }
 };
 
@@ -2092,6 +2092,9 @@ as_config_init(const char *config_file)
 			case CASE_NETWORK_HEARTBEAT_MCAST_TTL:
 				c->hb_mcast_ttl = cfg_u8_no_checks(&line);
 				break;
+			case CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT:
+				c->hb_mesh_rw_retry_timeout = cfg_u32_no_checks(&line);
+				break;
 			case CASE_NETWORK_HEARTBEAT_PROTOCOL:
 				switch(cfg_find_tok(line.val_tok_1, NETWORK_HEARTBEAT_PROTOCOL_OPTS, NUM_NETWORK_HEARTBEAT_PROTOCOL_OPTS)) {
 				case CASE_NETWORK_HEARTBEAT_PROTOCOL_RESET:
@@ -2108,9 +2111,6 @@ as_config_init(const char *config_file)
 					cfg_unknown_val_tok_1(&line);
 					break;
 				}
-				break;
-			case CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT:
-				c->hb_mesh_rw_retry_timeout = cfg_u32_no_checks(&line);
 				break;
 			case CASE_CONTEXT_END:
 				cfg_end_context(&state);

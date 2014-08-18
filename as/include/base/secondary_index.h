@@ -106,6 +106,7 @@ typedef enum {
  * behavior if it does not match.
  */
 typedef enum {
+	AS_SINDEX_KTYPE_NONE   = 0,
 	AS_SINDEX_KTYPE_LONG   = 2, //Particle type INT
 	AS_SINDEX_KTYPE_FLOAT  = 4, //Particle type INT
 	AS_SINDEX_KTYPE_DIGEST = 10
