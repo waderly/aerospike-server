@@ -73,6 +73,7 @@ as_config g_config;
 as_set* cfg_add_set(as_namespace* ns);
 void cfg_add_storage_file(as_namespace* ns, char* file_name);
 void cfg_add_storage_device(as_namespace* ns, char* device_name);
+void cfg_add_mesh_seed_address_port(as_config* c, int line_num, char* ip, char* port);
 void cfg_init_si_var(as_namespace* ns);
 uint32_t cfg_obj_size_hist_max(uint32_t hist_max);
 void cfg_create_all_histograms();
@@ -381,6 +382,7 @@ typedef enum {
 	CASE_NETWORK_HEARTBEAT_PORT,
 	CASE_NETWORK_HEARTBEAT_MESHINIT_ADDRESS,
 	CASE_NETWORK_HEARTBEAT_MESHINIT_PORT,
+	CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT,
 	CASE_NETWORK_HEARTBEAT_INTERVAL,
 	CASE_NETWORK_HEARTBEAT_TIMEOUT,
 	// Normally hidden:
@@ -726,6 +728,7 @@ const cfg_opt NETWORK_HEARTBEAT_OPTS[] = {
 		{ "mcast-ttl",						CASE_NETWORK_HEARTBEAT_MCAST_TTL },
 		{ "protocol",						CASE_NETWORK_HEARTBEAT_PROTOCOL },
 		{ "mesh-rw-retry-timeout",			        CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT },
+		{ "mesh-seed-address-port",			        CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT },
 		{ "}",								CASE_CONTEXT_END }
 };
 
@@ -2066,10 +2069,16 @@ as_config_init(const char *config_file)
 				c->hb_port = cfg_int_no_checks(&line);
 				break;
 			case CASE_NETWORK_HEARTBEAT_MESHINIT_ADDRESS:
+				if (c->hb_mesh_seed_addrs[0] != NULL) {
+					cf_crash_nostack(AS_CFG, "line %d :: can't use both mesh-address and mesh-seed-address-port", line_num);
+				}
 				c->hb_init_addr = cfg_strdup(&line);
 				break;
 			case CASE_NETWORK_HEARTBEAT_MESHINIT_PORT:
 				c->hb_init_port = cfg_int(&line, CFG_MIN_PORT, CFG_MAX_PORT);
+				break;
+			case CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT:
+				cfg_add_mesh_seed_address_port(c, line_num, cfg_strdup(&line), line.val_tok_2);
 				break;
 			case CASE_NETWORK_HEARTBEAT_INTERVAL:
 				c->hb_interval = cfg_u32_no_checks(&line);
@@ -2950,6 +2959,37 @@ cfg_add_storage_device(as_namespace* ns, char* device_name)
 		cf_crash_nostack(AS_CFG, "namespace %s - too many storage devices", ns->name);
 	}
 }
+
+void cfg_add_mesh_seed_address_port(as_config* c, int line_num, char* ip, char* port)
+{
+	if (c->hb_init_addr != NULL) {
+		cf_crash_nostack(AS_CFG, "line %d :: can't use both mesh-seed-address-port and mesh-address", line_num);
+	}
+
+	int64_t port_num = 0;
+	if (0 != cf_str_atoi_64(port, &port_num)) {
+		cf_crash_nostack(AS_CFG, "line %d :: seed port must be a number %s", line_num, port);
+	}
+
+	if (port_num < CFG_MIN_PORT || port_num > CFG_MAX_PORT) {
+		cf_crash_nostack(AS_CFG, "line %d :: seed port must be >= %ld and <= %ld, not %ld", line_num,
+				 CFG_MIN_PORT, CFG_MAX_PORT, port_num);
+	}
+	
+	//setting ip
+	int i;
+	for (i = 0 ; i < AS_CLUSTER_SZ; i++) {
+		if (c->hb_mesh_seed_addrs[i] == NULL) {
+			c->hb_mesh_seed_addrs[i] = ip;
+			c->hb_mesh_seed_ports[i] = port_num;
+			break;
+		}
+	}
+
+	if (i == AS_CLUSTER_SZ) {
+		cf_crash_nostack(AS_CFG, "line %d :: can't put mesh-seed-address-port more than %d", line_num, AS_CLUSTER_SZ);
+	}
+} 
 
 void
 cfg_init_si_var(as_namespace* ns)

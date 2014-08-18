@@ -1877,12 +1877,28 @@ as_hb_thr(void *arg)
 
 	/* Mesh-topology systems allow config-file bootstraping; connect to the provided
 	 * node */
-	if ((AS_HB_MODE_MESH == g_config.hb_mode) && g_config.hb_init_addr) {
+	if ((AS_HB_MODE_MESH == g_config.hb_mode)) {
+		if (g_config.hb_init_addr) {
+			cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_init_addr, g_config.hb_init_port);
 
-		cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_init_addr, g_config.hb_init_port);
+			if (0 != mesh_host_list_add(g_config.hb_init_addr, g_config.hb_init_port)) {
+				cf_crash(AS_HB, "couldn't add remote heartbeat service %s:%d to mesh host list", g_config.hb_init_addr, g_config.hb_init_port);
+			}
+		} else {
+			for (int i = 0; i < AS_CLUSTER_SZ; i++) {
+				if(g_config.hb_mesh_seed_addrs[i]) {
+					cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_mesh_seed_addrs[i], g_config.hb_mesh_seed_ports[i]);
 
-		if (0 != mesh_host_list_add(g_config.hb_init_addr, g_config.hb_init_port)) {
-			cf_crash(AS_HB, "couldn't initialize connection to remote heartbeat service: %s", cf_strerror(errno));
+					if (0 != mesh_host_list_add(g_config.hb_mesh_seed_addrs[i], g_config.hb_mesh_seed_ports[i])) {
+						cf_crash(AS_HB, "couldn't add remote heartbeat service %s:%d to mesh host list", g_config.hb_mesh_seed_addrs[i], g_config.hb_mesh_seed_ports[i]);
+					}
+
+				} else {
+					break;
+				}
+
+			}
+
 		}
 	}
 

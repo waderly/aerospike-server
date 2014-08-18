@@ -83,6 +83,8 @@ typedef struct as_config_s {
 	char 				*hb_init_addr;
 	int					hb_port;
 	int					hb_init_port;
+	char 				*hb_mesh_seed_addrs[AS_CLUSTER_SZ];
+	int 				 hb_mesh_seed_ports[AS_CLUSTER_SZ];
 	char				*hb_tx_addr;
 	uint32_t			hb_interval;
 	uint32_t			hb_timeout;
