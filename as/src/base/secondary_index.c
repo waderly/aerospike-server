@@ -925,7 +925,7 @@ as_sindex_init(as_namespace *ns)
 	
 	// binid to simatch lookup
 	if (SHASH_OK != shash_create(&ns->sindex_property_hash,
-						as_sindex__set_binid_hash_fn, AS_SET_NAME_MAX_SIZE + 20, sizeof(uint32_t),
+						as_sindex__set_binid_hash_fn, AS_SINDEX_PROP_KEY_SIZE, sizeof(uint32_t),
 						AS_SINDEX_MAX, 0)) {
 		cf_crash(AS_AS, "Couldn't create sindex binid hash");
 	}

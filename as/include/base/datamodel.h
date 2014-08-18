@@ -1002,7 +1002,7 @@ struct as_namespace_s {
 
 #define AS_SET_NAME_MAX_SIZE	64		// includes space for null-terminator
 
-# define AS_SINDEX_PROP_KEY_SIZE ( AS_SET_NAME_MAX_SIZE + 20) // setname_binid_typeid
+#define AS_SINDEX_PROP_KEY_SIZE ( AS_SET_NAME_MAX_SIZE + 20) // setname_binid_typeid
 #define INVALID_SET_ID 0
 #define AS_NAMESPACE_SET_THRESHOLD_EXCEEDED -2
 
