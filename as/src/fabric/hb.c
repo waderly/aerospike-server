@@ -1069,7 +1069,7 @@ NextQueueElement:
 
 				cf_debug(AS_HB, "tip: attempting to connect mesh host at %s:%d", e->host, e->port);
 
-				if (0 != cf_socket_init_client(&s)) {
+				if ( 0 != cf_socket_init_client(&s, ((g_config.hb_interval * g_config.hb_timeout) / 2)) ) {
 					cf_debug(AS_HB, "tip: Could not create heartbeat connection to node %s:%d", e->host, e->port);
 					e = e->next;
 					continue;
@@ -1773,7 +1773,7 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 				s.addr = cpaddr;
 				s.port = port;
 				s.proto = SOCK_STREAM;
-				if (0 != cf_socket_init_client(&s)) {
+				if ( 0 != cf_socket_init_client(&s, ((g_config.hb_interval * g_config.hb_timeout) / 2)) ) {
 					cf_info(AS_HB, "couldn't connect to remote heartbeat service: at %s:%d %s",
 							cpaddr, port, cf_strerror(errno));
 					return;
