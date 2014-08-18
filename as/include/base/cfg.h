@@ -87,6 +87,7 @@ typedef struct as_config_s {
 	uint32_t			hb_interval;
 	uint32_t			hb_timeout;
 	unsigned char		hb_mcast_ttl;
+	uint32_t			hb_mesh_rw_retry_timeout;
 
 	uint64_t			start_ms; // filled with the start time of the server
 
