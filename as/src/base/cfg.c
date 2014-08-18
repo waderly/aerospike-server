@@ -70,10 +70,10 @@ as_config g_config;
 // Forward declarations.
 //
 
+void cfg_add_mesh_seed_addr_port(char* addr, int port);
 as_set* cfg_add_set(as_namespace* ns);
 void cfg_add_storage_file(as_namespace* ns, char* file_name);
 void cfg_add_storage_device(as_namespace* ns, char* device_name);
-void cfg_add_mesh_seed_address_port(as_config* c, int line_num, char* ip, char* port);
 void cfg_init_si_var(as_namespace* ns);
 uint32_t cfg_obj_size_hist_max(uint32_t hist_max);
 void cfg_create_all_histograms();
@@ -380,8 +380,8 @@ typedef enum {
 	CASE_NETWORK_HEARTBEAT_MODE,
 	CASE_NETWORK_HEARTBEAT_ADDRESS,
 	CASE_NETWORK_HEARTBEAT_PORT,
-	CASE_NETWORK_HEARTBEAT_MESHINIT_ADDRESS,
-	CASE_NETWORK_HEARTBEAT_MESHINIT_PORT,
+	CASE_NETWORK_HEARTBEAT_MESH_ADDRESS,
+	CASE_NETWORK_HEARTBEAT_MESH_PORT,
 	CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT,
 	CASE_NETWORK_HEARTBEAT_INTERVAL,
 	CASE_NETWORK_HEARTBEAT_TIMEOUT,
@@ -720,14 +720,14 @@ const cfg_opt NETWORK_HEARTBEAT_OPTS[] = {
 		{ "mode",							CASE_NETWORK_HEARTBEAT_MODE },
 		{ "address",						CASE_NETWORK_HEARTBEAT_ADDRESS },
 		{ "port",							CASE_NETWORK_HEARTBEAT_PORT },
-		{ "mesh-address",					CASE_NETWORK_HEARTBEAT_MESHINIT_ADDRESS },
-		{ "mesh-port",						CASE_NETWORK_HEARTBEAT_MESHINIT_PORT },
+		{ "mesh-address",					CASE_NETWORK_HEARTBEAT_MESH_ADDRESS },
+		{ "mesh-port",						CASE_NETWORK_HEARTBEAT_MESH_PORT },
+		{ "mesh-seed-address-port",			CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT },
 		{ "interval",						CASE_NETWORK_HEARTBEAT_INTERVAL },
 		{ "timeout",						CASE_NETWORK_HEARTBEAT_TIMEOUT },
 		{ "interface-address",				CASE_NETWORK_HEARTBEAT_INTERFACE_ADDRESS },
 		{ "mcast-ttl",						CASE_NETWORK_HEARTBEAT_MCAST_TTL },
 		{ "mesh-rw-retry-timeout",			CASE_NETWORK_HEARTBEAT_MESH_RW_RETRY_TIMEOUT },
-		{ "mesh-seed-address-port",			CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT },
 		{ "protocol",						CASE_NETWORK_HEARTBEAT_PROTOCOL },
 		{ "}",								CASE_CONTEXT_END }
 };
@@ -1240,21 +1240,33 @@ cfg_bool_no_value_is_true(const cfg_line* p_line)
 }
 
 int64_t
-cfg_i64_no_checks(const cfg_line* p_line)
+cfg_i64_anyval_no_checks(const cfg_line* p_line, char* val_tok)
 {
-	if (*p_line->val_tok_1 == '\0') {
+	if (*val_tok == '\0') {
 		cf_crash_nostack(AS_CFG, "line %d :: %s must specify an integer value",
 				p_line->num, p_line->name_tok);
 	}
 
 	int64_t value;
 
-	if (0 != cf_str_atoi_64(p_line->val_tok_1, &value)) {
+	if (0 != cf_str_atoi_64(val_tok, &value)) {
 		cf_crash_nostack(AS_CFG, "line %d :: %s must be a number, not %s",
-				p_line->num, p_line->name_tok, p_line->val_tok_1);
+				p_line->num, p_line->name_tok, val_tok);
 	}
 
 	return value;
+}
+
+int64_t
+cfg_i64_no_checks(const cfg_line* p_line)
+{
+	return cfg_i64_anyval_no_checks(p_line, p_line->val_tok_1);
+}
+
+int64_t
+cfg_i64_val2_no_checks(const cfg_line* p_line)
+{
+	return cfg_i64_anyval_no_checks(p_line, p_line->val_tok_2);
 }
 
 int64_t
@@ -1296,22 +1308,60 @@ cfg_int(const cfg_line* p_line, int min, int max)
 	return value;
 }
 
-uint64_t
-cfg_u64_no_checks(const cfg_line* p_line)
+int
+cfg_int_val2_no_checks(const cfg_line* p_line)
 {
-	if (*p_line->val_tok_1 == '\0') {
+	int64_t value = cfg_i64_val2_no_checks(p_line);
+
+	if (value < INT_MIN || value > INT_MAX) {
+		cf_crash_nostack(AS_CFG, "line %d :: %s %ld overflows int",
+				p_line->num, p_line->name_tok, value);
+	}
+
+	return (int)value;
+}
+
+int
+cfg_int_val2(const cfg_line* p_line, int min, int max)
+{
+	int value = cfg_int_val2_no_checks(p_line);
+
+	if (value < min || value > max) {
+		cf_crash_nostack(AS_CFG, "line %d :: %s must be >= %d and <= %d, not %d",
+				p_line->num, p_line->name_tok, min, max, value);
+	}
+
+	return value;
+}
+
+uint64_t
+cfg_u64_anyval_no_checks(const cfg_line* p_line, char* val_tok)
+{
+	if (*val_tok == '\0') {
 		cf_crash_nostack(AS_CFG, "line %d :: %s must specify an unsigned integer value",
 				p_line->num, p_line->name_tok);
 	}
 
 	uint64_t value;
 
-	if (0 != cf_str_atoi_u64(p_line->val_tok_1, &value)) {
+	if (0 != cf_str_atoi_u64(val_tok, &value)) {
 		cf_crash_nostack(AS_CFG, "line %d :: %s must be an unsigned number, not %s",
-				p_line->num, p_line->name_tok, p_line->val_tok_1);
+				p_line->num, p_line->name_tok, val_tok);
 	}
 
 	return value;
+}
+
+uint64_t
+cfg_u64_no_checks(const cfg_line* p_line)
+{
+	return cfg_u64_anyval_no_checks(p_line, p_line->val_tok_1);
+}
+
+uint64_t
+cfg_u64_val2_no_checks(const cfg_line* p_line)
+{
+	return cfg_u64_anyval_no_checks(p_line, p_line->val_tok_2);
 }
 
 uint64_t
@@ -1465,16 +1515,28 @@ cfg_seconds(const cfg_line* p_line)
 	return value;
 }
 
+// Minimum & maximum port numbers:
+const int CFG_MIN_PORT = 1024;
+const int CFG_MAX_PORT = USHRT_MAX;
+
+int
+cfg_port(const cfg_line* p_line)
+{
+	return cfg_int(p_line, CFG_MIN_PORT, CFG_MAX_PORT);
+}
+
+int
+cfg_port_val2(const cfg_line* p_line)
+{
+	return cfg_int_val2(p_line, CFG_MIN_PORT, CFG_MAX_PORT);
+}
+
 //------------------------------------------------
 // Constants used in parsing.
 //
 
 // Token delimiter characters:
 const char CFG_WHITESPACE[] = " \t\n\r\f\v";
-
-// Minimum & maximum port numbers:
-const int CFG_MIN_PORT = 1024;
-const int CFG_MAX_PORT = USHRT_MAX;
 
 
 //==========================================================
@@ -2019,7 +2081,7 @@ as_config_init(const char *config_file)
 				c->socket.addr = strcmp(line.val_tok_1, "any") == 0 ? cf_strdup("0.0.0.0") : cfg_strdup(&line);
 				break;
 			case CASE_NETWORK_SERVICE_PORT:
-				c->socket.port = cfg_int(&line, CFG_MIN_PORT, CFG_MAX_PORT);
+				c->socket.port = cfg_port(&line);
 				break;
 			case CASE_NETWORK_SERVICE_EXTERNAL_ADDRESS:
 				cfg_renamed_name_tok(&line, "access-address");
@@ -2068,17 +2130,14 @@ as_config_init(const char *config_file)
 			case CASE_NETWORK_HEARTBEAT_PORT:
 				c->hb_port = cfg_int_no_checks(&line);
 				break;
-			case CASE_NETWORK_HEARTBEAT_MESHINIT_ADDRESS:
-				if (c->hb_mesh_seed_addrs[0] != NULL) {
-					cf_crash_nostack(AS_CFG, "line %d :: can't use both mesh-address and mesh-seed-address-port", line_num);
-				}
+			case CASE_NETWORK_HEARTBEAT_MESH_ADDRESS:
 				c->hb_init_addr = cfg_strdup(&line);
 				break;
-			case CASE_NETWORK_HEARTBEAT_MESHINIT_PORT:
-				c->hb_init_port = cfg_int(&line, CFG_MIN_PORT, CFG_MAX_PORT);
+			case CASE_NETWORK_HEARTBEAT_MESH_PORT:
+				c->hb_init_port = cfg_port(&line);
 				break;
 			case CASE_NETWORK_HEARTBEAT_MESH_SEED_ADDRESS_PORT:
-				cfg_add_mesh_seed_address_port(c, line_num, cfg_strdup(&line), line.val_tok_2);
+				cfg_add_mesh_seed_addr_port(cfg_strdup(&line), cfg_port_val2(&line));
 				break;
 			case CASE_NETWORK_HEARTBEAT_INTERVAL:
 				c->hb_interval = cfg_u32_no_checks(&line);
@@ -2113,6 +2172,9 @@ as_config_init(const char *config_file)
 				}
 				break;
 			case CASE_CONTEXT_END:
+				if (c->hb_init_addr && c->hb_mesh_seed_addrs[0]) {
+					cf_crash_nostack(AS_CFG, "can't use both mesh-address and mesh-seed-address-port");
+				}
 				cfg_end_context(&state);
 				break;
 			case CASE_NOT_FOUND:
@@ -2131,7 +2193,7 @@ as_config_init(const char *config_file)
 				cfg_future_name_tok(&line); // TODO - deprecate?
 				break;
 			case CASE_NETWORK_FABRIC_PORT:
-				c->fabric_port = cfg_int(&line, CFG_MIN_PORT, CFG_MAX_PORT);
+				c->fabric_port = cfg_port(&line);
 				break;
 			case CASE_CONTEXT_END:
 				cfg_end_context(&state);
@@ -2152,7 +2214,7 @@ as_config_init(const char *config_file)
 				cfg_future_name_tok(&line); // TODO - deprecate?
 				break;
 			case CASE_NETWORK_INFO_PORT:
-				c->info_port = cfg_int(&line, CFG_MIN_PORT, CFG_MAX_PORT);
+				c->info_port = cfg_port(&line);
 				break;
 			case CASE_NETWORK_INFO_ENABLE_FASTPATH:
 				c->info_fastpath_enabled = cfg_bool(&line);
@@ -2908,6 +2970,24 @@ as_config_post_process(as_config *c, const char *config_file)
 // Item-specific parsing utilities.
 //
 
+void
+cfg_add_mesh_seed_addr_port(char* addr, int port)
+{
+	int i;
+
+	for (i = 0; i < AS_CLUSTER_SZ; i++) {
+		if (g_config.hb_mesh_seed_addrs[i] == NULL) {
+			g_config.hb_mesh_seed_addrs[i] = addr;
+			g_config.hb_mesh_seed_ports[i] = port;
+			break;
+		}
+	}
+
+	if (i == AS_CLUSTER_SZ) {
+		cf_crash_nostack(AS_CFG, "can't configure more than %d mesh-seed-address-port entries", AS_CLUSTER_SZ);
+	}
+}
+
 as_set*
 cfg_add_set(as_namespace* ns)
 {
@@ -2959,37 +3039,6 @@ cfg_add_storage_device(as_namespace* ns, char* device_name)
 		cf_crash_nostack(AS_CFG, "namespace %s - too many storage devices", ns->name);
 	}
 }
-
-void cfg_add_mesh_seed_address_port(as_config* c, int line_num, char* ip, char* port)
-{
-	if (c->hb_init_addr != NULL) {
-		cf_crash_nostack(AS_CFG, "line %d :: can't use both mesh-seed-address-port and mesh-address", line_num);
-	}
-
-	int64_t port_num = 0;
-	if (0 != cf_str_atoi_64(port, &port_num)) {
-		cf_crash_nostack(AS_CFG, "line %d :: seed port must be a number %s", line_num, port);
-	}
-
-	if (port_num < CFG_MIN_PORT || port_num > CFG_MAX_PORT) {
-		cf_crash_nostack(AS_CFG, "line %d :: seed port must be >= %ld and <= %ld, not %ld", line_num,
-				 CFG_MIN_PORT, CFG_MAX_PORT, port_num);
-	}
-	
-	//setting ip
-	int i;
-	for (i = 0 ; i < AS_CLUSTER_SZ; i++) {
-		if (c->hb_mesh_seed_addrs[i] == NULL) {
-			c->hb_mesh_seed_addrs[i] = ip;
-			c->hb_mesh_seed_ports[i] = port_num;
-			break;
-		}
-	}
-
-	if (i == AS_CLUSTER_SZ) {
-		cf_crash_nostack(AS_CFG, "line %d :: can't put mesh-seed-address-port more than %d", line_num, AS_CLUSTER_SZ);
-	}
-} 
 
 void
 cfg_init_si_var(as_namespace* ns)
