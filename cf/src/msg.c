@@ -1560,58 +1560,65 @@ void msg_destroy(msg *m)
 void
 msg_dump(const msg *m, const char *info)
 {
-	printf("msg_dump: %s msg %p acount %d flen %d bytesused %u bytesallocd %u type %d  mt %p\n",
-		info, m,(int)cf_rc_count((void *)m),m->len,m->bytes_used,m->bytes_alloc,m->type,m->mt);
-	for (int i=0;i<m->len;i++) {
-		printf("mf %02d: id %d isvalid %d iset %d\n",i,m->f[i].id,m->f[i].is_valid,m->f[i].is_set);
-		if (m->f[i].is_valid && m->f[i].is_set) {
-			switch(m->f[i].type) {
-				case M_FT_INT32:
-					printf("   type INT32 value %d\n",m->f[i].u.i32);
-					break;
-				case M_FT_UINT32:
-					printf("   type UINT32 value %u\n",m->f[i].u.ui32);
-					break;
-				case M_FT_INT64:
-					printf("   type INT64 value %"PRId64"\n",m->f[i].u.i64);
-					break;
-				case M_FT_UINT64:
-					printf("   type UINT64 value %"PRIu64"\n",m->f[i].u.ui64);
-					break;
-				case M_FT_STR:
-					printf("   type STR len %d value %s free %p\n",m->f[i].field_len,m->f[i].u.str,m->f[i].free);
-					break;
-				case M_FT_BUF:
-					printf("   type BUF len %d free %p\n",m->f[i].field_len,m->f[i].free);
-					{
-					int j = 0;
-					for ( ;j<m->f[i].field_len ; j++) {
-						printf("%02x ",m->f[i].u.buf[j]);
-						if (j % 16 == 8) printf(" : ");
-						if (j % 16 == 15) printf("\n");
+	cf_info(CF_MSG, "msg_dump: %s: msg %p rc %d flen %d bytes-used %u bytes-alloc'd %u type %d  mt %p",
+			info, m, (int)cf_rc_count((void*)m), m->len, m->bytes_used,
+			m->bytes_alloc, m->type, m->mt);
+
+	for (int i = 0; i < m->len; i++) {
+		msg_field *mf =  &m->f[i];
+
+		cf_info(CF_MSG, "mf %02d: id %u is-valid %d is-set %d",
+				i, mf->id, mf->is_valid, mf->is_set);
+
+		if (mf->is_valid && mf->is_set) {
+			switch(mf->type) {
+			case M_FT_INT32:
+				cf_info(CF_MSG, "   type INT32 value %d", mf->u.i32);
+				break;
+			case M_FT_UINT32:
+				cf_info(CF_MSG, "   type UINT32 value %u", mf->u.ui32);
+				break;
+			case M_FT_INT64:
+				cf_info(CF_MSG, "   type INT64 value %ld", mf->u.i64);
+				break;
+			case M_FT_UINT64:
+				cf_info(CF_MSG, "   type UINT64 value %lu", mf->u.ui64);
+				break;
+			case M_FT_STR:
+				cf_info(CF_MSG, "   type STR len %u free %p value %s",
+						mf->field_len, mf->free, mf->u.str);
+				break;
+			case M_FT_BUF:
+				cf_info_binary(CF_MSG, mf->u.buf, mf->field_len,
+						CF_DISPLAY_HEX_COLUMNS,
+						"   type BUF len %u free %p value ",
+						mf->field_len, mf->free);
+				break;
+			case M_FT_ARRAY_UINT32:
+				cf_info(CF_MSG, "   type ARRAY_UINT32: len %u n-uint32 %u free %p",
+						mf->field_len, mf->field_len >> 2, mf->free);
+				{
+					int n_ints = mf->field_len >> 2;
+					for (int j = 0; j < n_ints; j++) {
+						cf_info(CF_MSG, "      idx %d value %u",
+								j, ntohl(mf->u.ui32_a[j]));
 					}
-					if (j % 16 != 15) printf("\n");
+				}
+				break;
+			case M_FT_ARRAY_UINT64:
+				cf_info(CF_MSG, "   type ARRAY_UINT64: len %u n-uint64 %u free %p",
+						mf->field_len, mf->field_len >> 3, mf->free);
+				{
+					int n_ints = mf->field_len >> 3;
+					for (int j = 0; j < n_ints; j++) {
+						cf_info(CF_MSG, "      idx %d value %lu",
+								j, __bswap_64(mf->u.ui64_a[j]));
 					}
-					break;
-				case M_FT_ARRAY_UINT32:
-					printf("   type ARRAY_UINT32: len %d nuint32 %d free %p\n",m->f[i].field_len,(m->f[i].field_len) >> 2,m->f[i].free);
-					{
-					int j=0,n_ints = (m->f[i].field_len) >> 2;
-					for ( ;j<n_ints;j++)
-						printf("idx %d value %u\n",j,ntohl(m->f[i].u.ui32_a[j]));
-					}
-					break;
-				case M_FT_ARRAY_UINT64:
-					printf("   type ARRAY_UINT64: len %d nuint32 %d free %p\n",m->f[i].field_len,(m->f[i].field_len) >> 3,m->f[i].free);
-					{
-					int j=0,n_ints = (m->f[i].field_len) >> 3;
-					for ( ;j<n_ints;j++)
-						printf("idx %d value %"PRIu64"\n",j,__bswap_64(m->f[i].u.ui64_a[j]));
-					}
-					break;
-				default:
-					printf("   type %d unknown\n",m->f[i].type);
-					break;
+				}
+				break;
+			default:
+				cf_info(CF_MSG, "   type %d unknown", mf->type);
+				break;
 			}
 		}
 	}
