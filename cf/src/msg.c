@@ -1565,7 +1565,7 @@ msg_dump(const msg *m, const char *info)
 			m->bytes_alloc, m->type, m->mt);
 
 	for (int i = 0; i < m->len; i++) {
-		msg_field *mf =  &m->f[i];
+		const msg_field *mf =  &m->f[i];
 
 		cf_info(CF_MSG, "mf %02d: id %u is-valid %d is-set %d",
 				i, mf->id, mf->is_valid, mf->is_set);
