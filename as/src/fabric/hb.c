@@ -499,6 +499,34 @@ as_hb_nodes_discovered_hash_del_conn(cf_node node, int fd)
 }
 
 static int
+as_hb_nodes_discovered_hash_shutdown_conn(cf_node node)
+{
+	pthread_mutex_t *vlock = NULL;
+	int ret = 0;
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn  node %"PRIx64"", node);
+
+	discovered_node_hval_t * p_hval = NULL;
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.discovered_list, &node, (void **)&p_hval, &vlock)) {
+		cf_warning(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" not found", node);
+	}
+	else {
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" num curr conn %d", node, p_hval->num_conn);
+		for ( int i = 0 ; i < AS_HB_MAX_OPEN_CONN_PER_NODE ; i++ ) {
+			if (p_hval->conn[i].fd != -1) {
+				cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" conn[%d] fd:[%d] ", node, i, p_hval->conn[i].fd);
+				shutdown(p_hval->conn[i].fd, SHUT_RDWR);
+			}
+		}
+		pthread_mutex_unlock(vlock);
+	}
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" num curr conn %d exiting", node, p_hval->num_conn);
+	return(ret);
+}
+
+
+static int
 as_hb_nodes_discovered_hash_put_conn(cf_node node, int fd)
 {
 	pthread_mutex_t *vlock = NULL;
@@ -1109,10 +1137,8 @@ mesh_list_service_fn(void *arg)
 					if (e->fd == mhqe.remove_fd) {
 						cf_debug(AS_HB, "actually removing fd %d",  mhqe.remove_fd);
 						if ( trailing_e == NULL ) { //e is first node
-							cf_detail(AS_HB, "removing first fd %d",  mhqe.remove_fd);
 							g_hb.mesh_discovered_host_list = e->next;
 						} else {
-							cf_detail(AS_HB, "removing other than first fd %d",  mhqe.remove_fd);
 							trailing_e->next = e->next;
 						}
 						cf_free(e);
@@ -1140,9 +1166,8 @@ NextQueueElement:
 		e = g_hb.mesh_discovered_host_list;
 		mesh_host_list_element * prev_element = NULL;
 		while (e) {
-			cf_debug(AS_HB, "traversing list to remove non connected fds current valid %d", e->fd);
+			cf_debug(AS_HB, "traversing list to remove non connected fds current fd %d", e->fd);
 			if (e->fd == -1) {
-				cf_debug(AS_HB, "removing non connected fd %d", e->fd);
 				if ( prev_element == NULL ) { //e is first node
 					g_hb.mesh_discovered_host_list = e->next;
 					cf_free(e);
@@ -2161,6 +2186,7 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 
 		//do not copy adjacency list for paxos checks - node is gone
 		if (u->n_delete < g_config.paxos_max_cluster_size) {
+			as_hb_nodes_discovered_hash_shutdown_conn(id);
 			u->delete[u->n_delete] = id;
 			u->n_delete++;
 			return(SHASH_REDUCE_DELETE);
