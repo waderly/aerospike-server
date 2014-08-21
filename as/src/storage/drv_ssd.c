@@ -1965,15 +1965,15 @@ ssd_write_bins(as_record *r, as_storage_rd *rd)
 		block->sig = 0;
 	}
 
-	// We are finished writing to the buffer.
-	cf_atomic32_decr(&ssd->n_writers);
-
 	r->storage_key.ssd.file_id = ssd->file_id;
 	r->storage_key.ssd.rblock_id = BYTES_TO_RBLOCKS(WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id) + swb_pos);
 	r->storage_key.ssd.n_rblocks = BYTES_TO_RBLOCKS(write_size);
 
 	cf_atomic64_add(&ssd->inuse_size, (int64_t)write_size);
 	cf_atomic32_add(&ssd->alloc_table->wblock_state[swb->wblock_id].inuse_sz, (int32_t)write_size);
+
+	// We are finished writing to the buffer.
+	cf_atomic32_decr(&ssd->n_writers);
 
 	return 0;
 }
