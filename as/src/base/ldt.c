@@ -737,12 +737,14 @@ as_ldt_parent_storage_set_version(as_storage_rd *rd, uint64_t ldt_version, uint8
 	as_map * prop_map        = as_map_fromval(valp);
 	if( !prop_map ) {
 		cf_warning(AS_LDT, "Control bin is not of type MAP");
+		as_val_destroy(valp);
 		return -2;
 	}
 	rv = as_ldt_set_in_map(prop_map, RPM_Version, (void *)&ldt_version);
 
 	if (rv) {
 		cf_debug(AS_LDT, "Could not set map ");
+		as_val_destroy(valp);
 		return -3;
 	}
 	// as_val_tostring() values must always be captured and freed.
@@ -755,7 +757,15 @@ as_ldt_parent_storage_set_version(as_storage_rd *rd, uint64_t ldt_version, uint8
 	as_buffer_init(&buf);
 	as_serializer s;
 	as_msgpack_init(&s);
-	as_serializer_serialize(&s, valp, &buf);
+	int res = as_serializer_serialize(&s, valp, &buf);
+
+	if (res != 0) {
+		cf_warning(AS_LDT, "Map serialization failure (%d), res");
+		as_serializer_destroy(&s);
+		as_buffer_destroy(&buf);
+		as_val_destroy(valp);
+		return -4;
+	}
 
 #if 0
 	// Check not needed space is already there
