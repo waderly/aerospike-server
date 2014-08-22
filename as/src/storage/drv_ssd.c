@@ -1735,19 +1735,8 @@ as_storage_record_overhead_size(as_storage_rd *rd)
 
 
 uint32_t
-ssd_write_calculate_size(as_record *r, as_storage_rd *rd)
+as_storage_record_size(as_storage_rd *rd)
 {
-	// Note - this function is the only place where rounding size (up to a
-	// multiple of RBLOCK_SIZE) is really necessary.
-
-	// TODO - use when we're confident duplicate bins were the only issue:
-#ifdef HANDLE_DUPLICATE_BINS
-	// If we already know the flat size, just need to round it.
-	if (rd->flat_size != 0) {
-		return BYTES_TO_RBLOCK_BYTES(rd->flat_size);
-	}
-#endif
-
 	// Start with the record storage overhead, including vinfo and rec-props.
 	uint32_t write_size = as_storage_record_overhead_size(rd);
 
@@ -1777,6 +1766,26 @@ ssd_write_calculate_size(as_record *r, as_storage_rd *rd)
 		// for now let's favor the low bin-count case and leave it this way.
 		write_size += sizeof(drv_ssd_bin) + (uint32_t)particle_flat_sz;
 	}
+
+	return write_size;
+}
+
+
+uint32_t
+ssd_write_calculate_size(as_record *r, as_storage_rd *rd)
+{
+	// Note - this function is the only place where rounding size (up to a
+	// multiple of RBLOCK_SIZE) is really necessary.
+
+	// TODO - use when we're confident duplicate bins were the only issue:
+#ifdef HANDLE_DUPLICATE_BINS
+	// If we already know the flat size, just need to round it.
+	if (rd->flat_size != 0) {
+		return BYTES_TO_RBLOCK_BYTES(rd->flat_size);
+	}
+#endif
+
+	uint32_t write_size = as_storage_record_size(rd);
 
 	// TODO - remove when we're confident duplicate bins were the only issue:
 	if (rd->flat_size != 0 && rd->flat_size != write_size) {
@@ -4016,19 +4025,12 @@ as_storage_record_can_fit_ssd(as_storage_rd *rd)
 }
 
 
-// Currently record overhead is: size of drv_ssd_block (64 bytes) + max set name
-// size (64 bytes) + size of its as_rec_prop_field (8 bytes?) = 136 bytes. But
-// let's leave some room for more rec-props... Like key and LDT info...
-#define RECORD_STORAGE_OVERHEAD 512
-
-// TODO - pointless since we really need to look at all the bins - deprecate?
 bool
-as_storage_bin_can_fit_ssd(as_namespace *ns, uint32_t bin_data_size)
+as_storage_record_size_and_check_ssd(as_storage_rd *rd)
 {
-	uint32_t overhead = RECORD_STORAGE_OVERHEAD + sizeof(drv_ssd_bin);
+	rd->flat_size = as_storage_record_size(rd);
 
-	return ns->storage_write_block_size >= overhead &&
-			bin_data_size <= ns->storage_write_block_size - overhead;
+	return rd->ns->storage_write_block_size >= rd->flat_size;
 }
 
 

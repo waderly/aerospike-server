@@ -978,15 +978,6 @@ as_storage_record_close_kv(as_record *r, as_storage_rd *rd)
 	}
 }
 
-// Note:  The current maximum size of a value on an FusionIO card is:  (1MB - 512B).
-bool
-as_storage_bin_can_fit_kv(as_namespace *ns, uint32_t bin_data_size)
-{
-	// This means we'll allow up to 128M (see PROTO_SIZE_MAX in proto.h) -
-	// if this is too much, implement a constraint here...
-	return true;
-}
-
 static int
 kv_populate_bin(as_bin *bin, drv_kv_bin *kv_bin, uint8_t *block_head, bool single_bin, bool allocate_memory)
 {
@@ -1248,22 +1239,6 @@ void
 as_storage_record_close_kv(as_record *r, as_storage_rd *rd)
 {
 	error_out();
-}
-
-bool
-as_storage_bin_can_fit_kv(as_namespace *ns, uint32_t bin_data_size)
-{
-	error_out();
-
-	return 0;
-}
-
-bool
-as_storage_record_can_fit_kv(as_storage_rd *rd)
-{
-	error_out();
-
-	return 0;
 }
 
 uint16_t

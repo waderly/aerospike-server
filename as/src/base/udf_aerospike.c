@@ -258,11 +258,6 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 			// Save for later.
 			// cf_detail(AS_UDF, "udf_setbin: string: binname %s value is %s",bname,s);
 
-			if ( !as_storage_bin_can_fit(rd->ns, l) ) {
-				cf_warning(AS_UDF, "string: bin size too big");
-				ret = -1;
-				break;
-			}
 			if (rd->ns->storage_data_in_memory) {
 				as_particle_frombuf(b, AS_PARTICLE_TYPE_STRING, s, l, NULL, true);
 			} else {
@@ -288,11 +283,6 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 			uint8_t *   s   = as_bytes_get(v);
 			size_t      l   = as_bytes_size(v);
 
-			if ( !as_storage_bin_can_fit(rd->ns, l) ) {
-				cf_warning(AS_UDF, "bytes: bin size too big");
-				ret = -1;
-				break;
-			}
 			if (rd->ns->storage_data_in_memory) {
 				as_particle_frombuf(b, AS_PARTICLE_TYPE_BLOB, s, l, NULL, true);
 			} else {
@@ -317,11 +307,6 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 			bool            d   = as_boolean_get(v);
 			int64_t         i   = __be64_to_cpup((void *)&d);
 
-			if ( !as_storage_bin_can_fit(rd->ns, 8) ) {
-				cf_warning(AS_UDF, "bool: bin size too big");
-				ret = -1;
-				break;
-			}
 			if (rd->ns->storage_data_in_memory) {
 				as_particle_frombuf(b, AS_PARTICLE_TYPE_INTEGER, (uint8_t *) &i, 8, NULL, true);
 			} else {
@@ -347,11 +332,6 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 			int64_t         i   = as_integer_get(v);
 			int64_t         j   = __be64_to_cpup((void *)&i);
 
-			if ( !as_storage_bin_can_fit(rd->ns, 8) ) {
-				cf_warning(AS_UDF, "int: bin size too big");
-				ret = -1;
-				break;
-			}
 			if (rd->ns->storage_data_in_memory) {
 				as_particle_frombuf(b, AS_PARTICLE_TYPE_INTEGER, (uint8_t *) &j, 8, NULL, true);
 			} else {
@@ -391,14 +371,6 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 				as_serializer_destroy(&s);
 				as_buffer_destroy(&buf);
 				break;
-			}
-			if ( !as_storage_bin_can_fit(rd->ns, buf.size) ) {
-				cf_warning(AS_UDF, "map-list: bin size too big");
-				ret = -1;
-				// Clean Up and jump out.
-				as_serializer_destroy(&s);
-				as_buffer_destroy(&buf);
-				break; // can't continue if value too big.
 			}
 			uint8_t ptype;
 			if(is_hidden) {
@@ -616,7 +588,14 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 			}
 		}
 	}
-	
+
+	if (urecord->nupdates != 0) {
+		if (! as_storage_record_size_and_check(urecord->rd)) {
+			failindex = (int)urecord->nupdates - 1;
+			goto Rollback;
+		}
+	}
+
 	if (has_sindex) {
 		SINDEX_GUNLOCK();
 	}

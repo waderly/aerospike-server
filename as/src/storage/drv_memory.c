@@ -66,39 +66,6 @@ as_storage_namespace_attributes_get_memory(as_namespace *ns, as_storage_attribut
     return(0);
 }
 
-/** Records in main memory comprise the index entry (64 bytes) plus the bin
- * overhead -- as specified in the Aerospike Capacity Planning Guide:
- * https://docs.aerospike.com/display/V3/Capacity+Planning+Guide
- *
- * However, there is no predefined limit for pure memory records.  Transient
- * memory limit detection would require information not available here.
- * So -- for non-file backed memory (storage type 1), we just return true.
- * For file-backed memory namespaces (storage type 2), the "can_fit()"
- * function called is in the drv_ssd.c file, not drv_memory.c
- *
- * That said, the PROTO_SIZE_MAX limit (currently defined at 128MB) prevents
- * incoming messages from exceeding that limit.
- */
-bool 
-as_storage_bin_can_fit_memory(as_namespace *ns, uint32_t bin_data_size)
-{
-	// I'm leaving this commented out trace code here for future use. (tjl)
-//	static char * meth = "as_storage_bin_can_fit_memory()";
-//	cf_info(AS_STORAGE,"[ENTER]<%s> NS Name(%s) DataSize(%u)", meth, ns->name, bin_data_size);
-//
-//	cf_info(AS_STORAGE,"[DEBUG]<%s> FlSz(%u) BlkSz(%u) WrBlkSz(%u) RdBlkSz(%u)",
-//			meth, ns->storage_filesize, ns->storage_blocksize,
-//			ns->storage_write_block_size, ns->storage_read_block_size );
-
-    return true;
-}
-
-bool
-as_storage_record_can_fit_memory(as_storage_rd *rd)
-{
-    return true;
-}
-
 int
 as_storage_stats_memory(as_namespace *ns, int *available_pct, uint64_t *used_disk_bytes)
 {
