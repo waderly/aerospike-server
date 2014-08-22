@@ -512,7 +512,7 @@ int
 udf_aerospike__apply_update_atomic(udf_record *urecord)
 {
 	int rc 					= 0;
-	int failindex 			= 0;
+	int failmax 			= 0;
 	int new_bins 			= 0;	// How many new bins have to be created in this update
 	as_storage_rd * rd		= urecord->rd;
 
@@ -581,7 +581,7 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 					urecord->updates[i].washidden = udf_record_bin_ishidden(urecord, k);
 					rc = udf_aerospike_setbin(urecord, k, v, h);
 					if (rc) {
-						failindex = i;
+						failmax = i + 1;
 						goto Rollback;
 					}
 				}
@@ -589,9 +589,15 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 		}
 	}
 
-	if (urecord->nupdates != 0) {
-		if (! as_storage_record_size_and_check(urecord->rd)) {
-			failindex = (int)urecord->nupdates - 1;
+	{
+		size_t  rec_props_data_size = as_storage_record_rec_props_size(rd);
+		uint8_t rec_props_data[rec_props_data_size];
+		if (rec_props_data_size > 0) {
+			as_storage_record_set_rec_props(rd, rec_props_data);
+		}
+
+		if (! as_storage_record_size_and_check(rd)) {
+			failmax = (int)urecord->nupdates;
 			goto Rollback;
 		}
 	}
@@ -626,8 +632,8 @@ udf_aerospike__apply_update_atomic(udf_record *urecord)
 	return rc;
 
 Rollback:
-	cf_debug(AS_UDF, "Rollback Called: FailIndex(%d)", failindex);
-	for(int i = 0; i <= failindex; i++) {
+	cf_debug(AS_UDF, "Rollback Called: failmax %d", failmax);
+	for (int i = 0; i < failmax; i++) {
 		if (urecord->updates[i].dirty) {
 			char *      k = urecord->updates[i].name;
 			// Pick the oldvalue for rollback
