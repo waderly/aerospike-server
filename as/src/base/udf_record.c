@@ -972,6 +972,42 @@ udf_record_digest (const as_rec *rec)
 	return NULL;
 }
 
+static as_list *
+udf_record_bin_names(const as_rec *rec)
+{
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	if (ret) {
+		return NULL;
+	}
+
+	udf_record *urecord = (udf_record *)as_rec_source(rec);
+	if (urecord && urecord->flag & UDF_RECORD_FLAG_STORAGE_OPEN) {
+		as_arraylist *names;
+
+		if (urecord->rd->ns->single_bin) {
+			names = as_arraylist_new(1, 0);
+			as_arraylist_append_str(names, NULL);
+		}
+		else {
+			names = as_arraylist_new(urecord->rd->n_bins, 10);
+			for (uint16_t i = 0; i < urecord->rd->n_bins; i++) {
+				as_bin *b = &urecord->rd->bins[i];
+				if (! as_bin_inuse(b)) {
+					break;
+				}
+				as_arraylist_append_str(names, as_bin_get_name_from_id(urecord->rd->ns, b->id));
+			}
+		}
+		return (as_list *)names;
+	}
+	else {
+		cf_warning(AS_UDF, "Error in getting bin names: no record found");
+		return NULL;
+	}
+}
+
+
+
 const as_rec_hooks udf_record_hooks = {
 	.get		= udf_record_get,
 	.set		= udf_record_set,
@@ -984,5 +1020,6 @@ const as_rec_hooks udf_record_hooks = {
 	.set_type	= udf_record_set_type,	// @LDT:: added for control over Rec Types from Lua
 	.set_ttl	= udf_record_set_ttl,
 	.drop_key	= udf_record_drop_key,
+	.bin_names	= udf_record_bin_names,
 	.numbins	= NULL,
 };

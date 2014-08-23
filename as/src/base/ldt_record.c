@@ -231,6 +231,24 @@ ldt_record_digest(const as_rec * rec)
 	return as_rec_digest(h_urec);
 }
 
+static as_list *
+ldt_record_bin_names(const as_rec * rec)
+{
+	static const char * meth = "ldt_record_bin_names()";
+	if (!rec) {
+		cf_warning(AS_UDF, "%s Invalid Paramters: record=%p", meth, rec);
+		return NULL;
+	}
+
+	ldt_record *lrecord  = (ldt_record *)as_rec_source(rec);
+	if (!lrecord) {
+		return 0;
+	}
+	const as_rec *h_urec = lrecord->h_urec;
+	// TODO: validate record r status, and  correctly handle bad status.
+	return as_rec_bin_names(h_urec);
+}
+
 const as_rec_hooks ldt_record_hooks = {
 	.get		= ldt_record_get,
 	.set		= ldt_record_set,
@@ -243,5 +261,6 @@ const as_rec_hooks ldt_record_hooks = {
 	.set_type	= ldt_record_set_type,
 	.set_ttl	= ldt_record_set_ttl,
 	.drop_key	= ldt_record_drop_key,
+	.bin_names	= ldt_record_bin_names,
 	.numbins	= NULL
 };
