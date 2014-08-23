@@ -22,7 +22,6 @@
 
 /*
  * Common header for drv_ssd.c, drv_ssd_cold.c, drv_ssd_warm.c.
- *
  */
 
 #pragma once
@@ -141,6 +140,7 @@ typedef struct drv_ssd_s
 
 	uint32_t		running;
 	ssd_write_buf	*current_swb;		// swb currently being filled by writes
+	cf_atomic32		n_writers;			// number of concurrent writers to current swb
 
 	cf_queue		*fd_q;				// queue of open fds
 
