@@ -275,12 +275,22 @@ send_result(as_result * res, udf_call * call, void *udata)
 					as_serializer s;
 					as_msgpack_init(&s);
 
-					as_serializer_serialize(&s, v, &buf);
+					int res = as_serializer_serialize(&s, v, &buf);
 
-					send_success(call, to_particle_type(as_val_type(v)), buf.data, buf.size);
-					// Not needed stack allocated - unless serialize has internal state
-					// as_serializer_destroy(&s);
-					as_buffer_destroy(&buf);
+					if (res != 0) {
+						const char * error = "Serialization failure";
+						cf_warning(AS_UDF, "%s (%d)", (char *)error, res);
+						as_buffer_destroy(&buf);
+						send_failure(call, AS_PARTICLE_TYPE_STRING, (char *)error, strlen(error));
+					}
+					else {
+						cf_detail_binary(AS_UDF, buf.data, buf.size, CF_DISPLAY_HEX_COLUMNS, "serialized %d bytes: ", buf.size);
+						send_success(call, to_particle_type(as_val_type(v)), buf.data, buf.size);
+						// Not needed stack allocated - unless serialize has internal state
+						// as_serializer_destroy(&s);
+						as_buffer_destroy(&buf);
+					}
+
 					break;
 				}
 				default:
@@ -1153,8 +1163,13 @@ as_val_tobuf(const as_val *v, uint8_t *buf, uint32_t *size)
 				as_serializer s;
 				as_msgpack_init(&s);
 
-				as_serializer_serialize(&s, (as_val*)v, &asbuf);
+				int res = as_serializer_serialize(&s, (as_val*)v, &asbuf);
 
+				if (res != 0) {
+					cf_warning(AS_UDF, "List serialization failure (%d)", res);
+					as_buffer_destroy(&asbuf);
+					break;
+				}
 				*size = asbuf.size;
 				if (buf) {
 					memcpy(buf, asbuf.data, asbuf.size);
@@ -1177,8 +1192,13 @@ as_val_tobuf(const as_val *v, uint8_t *buf, uint32_t *size)
 				as_string as_str;
 				as_string_init( &as_str, "INT LDT BIN NAME", false );
 
-				as_serializer_serialize(&s, (as_val*) &as_str, &asbuf);
+				int res = as_serializer_serialize(&s, (as_val*) &as_str, &asbuf);
 
+				if (res != 0) {
+					cf_warning(AS_UDF, "LDT serialization failure (%d)", res);
+					as_buffer_destroy(&asbuf);
+					break;
+				}
 				*size = asbuf.size;
 				if (buf) {
 					memcpy(buf, asbuf.data, asbuf.size);

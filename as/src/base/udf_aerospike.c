@@ -383,8 +383,15 @@ udf_aerospike_setbin(udf_record * urecord, const char * bname, const as_val * va
 			as_serializer s;
 			as_msgpack_init(&s);
 			int rsp = 0;
-			as_serializer_serialize(&s, (as_val *) val, &buf);
+			int res = as_serializer_serialize(&s, (as_val *) val, &buf);
 
+			if (res != 0) {
+				cf_warning(AS_UDF, "map-list: serialization failure (%d)", res);
+				ret = -1;
+				as_serializer_destroy(&s);
+				as_buffer_destroy(&buf);
+				break;
+			}
 			if ( !as_storage_bin_can_fit(rd->ns, buf.size) ) {
 				cf_warning(AS_UDF, "map-list: bin size too big");
 				ret = -1;
