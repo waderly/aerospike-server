@@ -4118,7 +4118,7 @@ as_storage_has_space_ssd(as_namespace *ns)
 	drv_ssds* ssds = (drv_ssds*)ns->storage_private;
 
 	for (int i = 0; i < ssds->n_ssds; i++) {
-		if (cf_queue_sz(ssds->ssds[i].swb_free_q) <
+		if (cf_queue_sz(ssds->ssds[i].free_wblock_q) <
 				ns->storage_min_free_wblocks) {
 			return false;
 		}
