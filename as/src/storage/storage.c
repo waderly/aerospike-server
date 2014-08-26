@@ -260,6 +260,7 @@ static const as_storage_record_open_fn as_storage_record_open_table[AS_STORAGE_E
 	as_storage_record_open_ssd,
 	as_storage_record_open_kv,
 };
+
 int
 as_storage_record_open(as_namespace *ns, as_record *r, as_storage_rd *rd, cf_digest *keyd)
 {
@@ -298,6 +299,7 @@ static const as_storage_record_close_fn as_storage_record_close_table[AS_STORAGE
 	as_storage_record_close_ssd,
 	as_storage_record_close_kv
 };
+
 void
 as_storage_record_close(as_record *r, as_storage_rd *rd)
 {
@@ -379,9 +381,9 @@ as_storage_particle_read_all(as_storage_rd *rd)
 typedef bool (*as_storage_record_can_fit_fn)(as_storage_rd *rd);
 static const as_storage_record_can_fit_fn as_storage_record_can_fit_table[AS_STORAGE_ENGINE_TYPES] = {
 	NULL,
-	as_storage_record_can_fit_memory,
+	0, // no limit if no persistent storage - flat size is irrelevant
 	as_storage_record_can_fit_ssd,
-	as_storage_record_can_fit_kv
+	0
 };
 
 bool
@@ -395,22 +397,22 @@ as_storage_record_can_fit(as_storage_rd *rd)
 }
 
 //--------------------------------------
-// as_storage_bin_can_fit
+// as_storage_record_size_and_check
 //
 
-typedef bool (*as_storage_bin_can_fit_fn)(as_namespace *ns, uint32_t bin_data_size);
-static const as_storage_bin_can_fit_fn as_storage_bin_can_fit_table[AS_STORAGE_ENGINE_TYPES] = {
+typedef bool (*as_storage_record_size_and_check_fn)(as_storage_rd *rd);
+static const as_storage_record_size_and_check_fn as_storage_record_size_and_check_table[AS_STORAGE_ENGINE_TYPES] = {
 	NULL,
-	as_storage_bin_can_fit_memory,
-	as_storage_bin_can_fit_ssd,
-	as_storage_bin_can_fit_kv
+	0, // no limit if no persistent storage - flat size is irrelevant
+	as_storage_record_size_and_check_ssd,
+	0
 };
 
 bool
-as_storage_bin_can_fit(as_namespace *ns, uint32_t bin_data_size)
+as_storage_record_size_and_check(as_storage_rd *rd)
 {
-	if (as_storage_bin_can_fit_table[ns->storage_type]) {
-		return as_storage_bin_can_fit_table[ns->storage_type](ns, bin_data_size);
+	if (as_storage_record_size_and_check_table[rd->ns->storage_type]) {
+		return as_storage_record_size_and_check_table[rd->ns->storage_type](rd);
 	}
 
 	return true;

@@ -928,8 +928,8 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 		else {
 			// If the message has a key, apply it to the record.
 			get_msg_key(m, &rd);
+			urecord.flag |= UDF_RECORD_FLAG_METADATA_UPDATED;
 		}
-
 
 		// While opening parent record read the record from the disk. Property
 		// map is created from LUA world. The version can only be get in case
