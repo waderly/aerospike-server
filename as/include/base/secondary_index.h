@@ -573,6 +573,7 @@ extern int as_sindex_smd_merge_cb(char *module, as_smd_item_list_t **item_list_o
 								  as_smd_item_list_t **item_lists_in, size_t num_lists,
 								  void *udata);
 
+extern bool g_sindex_smd_restored;
 extern int as_sindex_smd_can_accept_cb(char* module, as_smd_item_t *item, 
 									   void *udata);
 extern uint64_t as_sindex_get_ns_memory_used(as_namespace *ns);

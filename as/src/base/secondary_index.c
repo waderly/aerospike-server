@@ -2932,6 +2932,9 @@ as_sindex_cfg_var_hash_reduce_fn(void *key, void *data, void *udata)
 	return 0;
 }
 
+// Global flag to signal that all secondary index SMD is restored.
+bool g_sindex_smd_restored = false;
+
 /*
  * This function is called when the SMD has resolved the correct state of
  * metadata. This function needs to, based on the value, looks at the current
@@ -2966,7 +2969,8 @@ int
 as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, uint32_t accept_opt)
 {
 	if (accept_opt & AS_SMD_ACCEPT_OPT_CREATE) {
-		cf_debug(AS_SINDEX, "(doing nothing in SIndex accept cb for module creation)");
+		cf_debug(AS_SINDEX, "all secondary index SMD restored");
+		g_sindex_smd_restored = true;
 		return 0;
 	}
 
