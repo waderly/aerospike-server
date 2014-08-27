@@ -25,11 +25,12 @@
  *
  */
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <limits.h>
+#include <unistd.h>
 
 #include "citrusleaf/alloc.h"
 #include "citrusleaf/cf_atomic.h"
@@ -217,6 +218,11 @@ as_namespaces_init(bool cold_start_cmd, uint32_t instance)
 	if (0 > retval) {
 		cf_crash(AS_NAMESPACE, "failed to create SMD module \"%s\" (rv %d)",
 				SINDEX_MODULE, retval);
+	}
+
+	// Wait for Secondary Index SMD to be completely restored.
+	while (! g_sindex_smd_restored) {
+		usleep(1000);
 	}
 }
 

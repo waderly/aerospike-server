@@ -6711,7 +6711,7 @@ as_info_init()
 	as_info_set_command("dump-wr", info_command_dump_wr, PRIV_LOGGING_CTRL);                  // Print debug information about transaction hash table to the log file.
 	as_info_set_command("dun", info_command_dun, PRIV_SERVICE_CTRL);                          // Instruct this server to ignore another node.
 	as_info_set_command("get-config", info_command_config_get, PRIV_NONE);                    // Returns running config for all or a particular context.
-	as_info_set_command("get-sl", info_command_get_sl, PRIV_LOGGING_CTRL);                    // Get the Paxos succession list.
+	as_info_set_command("get-sl", info_command_get_sl, PRIV_NONE);                            // Get the Paxos succession list.
 	as_info_set_command("hist-dump", info_command_hist_dump, PRIV_NONE);                      // Returns a histogram snapshot for a particular histogram.
 	as_info_set_command("hist-track-start", info_command_hist_track, PRIV_SERVICE_CTRL);      // Start or Restart histogram tracking.
 	as_info_set_command("hist-track-stop", info_command_hist_track, PRIV_SERVICE_CTRL);       // Stop histogram tracking.
@@ -6723,7 +6723,7 @@ as_info_init()
 	as_info_set_command("mtrace", info_command_mtrace, PRIV_SERVICE_CTRL);                    // Control GLibC-level memory tracing.
 	as_info_set_command("set-config", info_command_config_set, PRIV_SET_CONFIG);              // Set config values.
 	as_info_set_command("set-log", info_command_log_set, PRIV_LOGGING_CTRL);                  // Set values in the log system.
-	as_info_set_command("set-sl", info_command_set_sl, PRIV_LOGGING_CTRL);                    // Set the Paxos succession list.
+	as_info_set_command("set-sl", info_command_set_sl, PRIV_SERVICE_CTRL);                    // Set the Paxos succession list.
 	as_info_set_command("show-devices", info_command_show_devices, PRIV_LOGGING_CTRL);        // Print snapshot of wblocks to the log file.
 	as_info_set_command("smd", info_command_smd_cmd, PRIV_SERVICE_CTRL);                      // Manipulate the System Metadata.
 	as_info_set_command("snub", info_command_snub, PRIV_SERVICE_CTRL);                        // Ignore heartbeats from a node for a specified amount of time.

@@ -114,12 +114,12 @@ typedef int (*as_smd_merge_cb)(char *module, as_smd_item_list_t **item_list_out,
 
 /*
  *  Callback function type for metadata acceptance policy functions.
- *    Commit action executed on all cluster nodes to receive and
- *    accept the truth from the Paxos principal.  Also executed at
- *    start-up time prior to cluster formation to indicate creation
- *    of an empty module or to accept locally the initial metadata
- *    either restored from file or set via the API.
- *    The accept option specifies the originator of the accept action.
+ *    The accept callback is executed to commit a metadata change, with
+ *     the accept option specifying the originator of the accept action as follows:
+ *       1). OPT_CREATE:  When a module has been created and its persisted metadata has been restored.
+ *       2). OPT_MERGE:   When all cluster nodes receive and accept the truth from the Paxos principal.
+ *       3). OPT_API:     When metadata is set via the API or restored from persistence, handled locally
+ *                          prior to cluster formation, otherwise proxied via the Paxos principal.
  *    Configurable via registering a per-module callback function.
  */
 typedef int (*as_smd_accept_cb)(char *module, as_smd_item_list_t *items, void *udata, uint32_t accept_opt);
