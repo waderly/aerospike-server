@@ -900,6 +900,9 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 	urecord.lrecord            = &lrecord;
 	urecord.keyd               = tr->keyd;
 
+	// Set id for XDR shipping.
+	uint32_t set_id = INVALID_SET_ID;
+
 	// Step 2: Setup Storage Record
 	int rec_rv = as_record_get(tr->rsv.tree, &tr->keyd, &r_ref, tr->rsv.ns);
 	if (!rec_rv) {
@@ -938,16 +941,17 @@ udf_rw_local(udf_call * call, write_request *wr, udf_optype *op)
 		int rv = as_ldt_parent_storage_get_version(&rd, &lrecord.version);
 		cf_detail(AS_LDT, "LDT_VERSION Read Version From Storage %p:%ld rv=%d",
 				  *(uint64_t *)&urecord.keyd, lrecord.version, rv);
+
+		// Save the set-ID for XDR.
+		// In case of deletion, this information will not be available later.
+		// This information will be used only in case of xdr deletion ship.
+		set_id = as_index_get_set_id(urecord.r_ref->r);
 	} else {
 		urecord.flag   &= ~(UDF_RECORD_FLAG_OPEN
 							| UDF_RECORD_FLAG_STORAGE_OPEN
 							| UDF_RECORD_FLAG_PREEXISTS);
 	}
 
-	// Save the set-ID for XDR.
-	// In case of deletion, this information will not be available later.
-	// This information will be used only in case of xdr deletion ship.
-	uint16_t set_id = as_index_get_set_id(urecord.r_ref->r);
 
 	// entry point for all SMD-UDF's(LDT) calls, not called for other UDF's.
 	// At this point, we wont know if its a regular record or a LDT UDF.
