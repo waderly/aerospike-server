@@ -981,9 +981,9 @@ udf_record_bin_names(const as_rec *rec, as_rec_bin_names_callback callback, void
 	}
 
 	udf_record *urecord = (udf_record *)as_rec_source(rec);
+	char * bin_names = NULL;
 	if (urecord && (urecord->flag & UDF_RECORD_FLAG_STORAGE_OPEN)) {
 		uint16_t nbins;
-		char * bin_names = NULL;
 
 		if (urecord->rd->ns->single_bin) {
 			nbins = 1;
@@ -1008,6 +1008,9 @@ udf_record_bin_names(const as_rec *rec, as_rec_bin_names_callback callback, void
 	}
 	else {
 		cf_warning(AS_UDF, "Error in getting bin names: no record found");
+		bin_names = alloca(1);
+		*bin_names = 0;
+		callback(bin_names, 1, BIN_NAME_MAX_SZ, udata);
 		return -1;
 	}
 }
