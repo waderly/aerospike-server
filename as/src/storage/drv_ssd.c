@@ -4191,11 +4191,16 @@ as_storage_wait_for_defrag_ssd(as_namespace *ns)
 	// Set the "floor" for wblock usage. Must come after startup defrag so it
 	// doesn't prevent defrag from resurrecting a drive that hit the floor.
 
+	// Data-in-memory namespaces process transactions in service threads.
+	int n_service_threads = ns->storage_data_in_memory ?
+			g_config.n_service_threads : 0;
+
 	int n_transaction_threads = g_config.use_queue_per_device ?
 			g_config.n_transaction_threads_per_queue :
 			g_config.n_transaction_queues * g_config.n_transaction_threads_per_queue;
 
 	ns->storage_min_free_wblocks =
+			n_service_threads +			// client writes
 			n_transaction_threads +		// client writes
 			g_config.n_fabric_workers +	// migration and prole writes
 			1 +							// always 1 defrag thread
