@@ -100,10 +100,13 @@ else
   DWARF_VERSION=2
 endif
 
+# Overrride optimizations via: make O=n
+O = 3 
+
 ifeq ($(DOPROFILE),1)
-  OPTFLAGS = -O0 -fPIE -pg -fprofile-arcs -ftest-coverage -DDOPROFILE
+  OPTFLAGS = -O$(O) -fPIE -pg -fprofile-arcs -ftest-coverage -DDOPROFILE
 else
-  OPTFLAGS = -O3
+  OPTFLAGS = -O$(O)
 endif
 
 # Strict aliasing is really interesting. -fno-strict-aliasing relaxes the coding rules, but makes
