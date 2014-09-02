@@ -2148,6 +2148,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		info_append_uint64("", "defrag-lwm-pct", ns->storage_defrag_lwm_pct, db);
 		info_append_uint64("", "defrag-sleep", ns->storage_defrag_sleep, db);
 		info_append_uint64("", "defrag-startup-minimum", ns->storage_defrag_startup_minimum, db);
+		info_append_uint64("", "flush-max-ms", ns->storage_flush_max_us / 1000, db);
 		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
 		info_append_uint64("", "max-write-cache", ns->storage_max_write_cache, db);
 		info_append_uint64("", "min-avail-pct", ns->storage_min_avail_pct, db);
@@ -3246,12 +3247,19 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			ns->storage_defrag_lwm_pct = val;
 			ns->defrag_lwm_size = (ns->storage_write_block_size * ns->storage_defrag_lwm_pct) / 100;
 		}
-		else if (0 == as_info_parameter_get(params, "defrag-throttle", context, &context_len)) {
+		else if (0 == as_info_parameter_get(params, "defrag-sleep", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of defrag-sleep of ns %s from %u to %d", ns->name, ns->storage_defrag_sleep, val);
 			ns->storage_defrag_sleep = (uint32_t)val;
+		}
+		else if (0 == as_info_parameter_get(params, "flush-max-ms", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val)) {
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of flush-max-ms of ns %s from %lu to %d", ns->name, ns->storage_flush_max_us / 1000, val);
+			ns->storage_flush_max_us = (uint64_t)val * 1000;
 		}
 		else if (0 == as_info_parameter_get(params, "enable-xdr", context, &context_len)) {
 			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
