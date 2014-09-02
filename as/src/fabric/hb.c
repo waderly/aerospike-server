@@ -127,6 +127,7 @@ typedef struct mesh_host_queue_element_s {
 	char        host[128];
 	int         port;
 	int         remove_fd;
+	bool	    seed;
 } mesh_host_queue_element;
 
 /* as_hb
@@ -161,7 +162,8 @@ typedef struct as_hb_s {
 	snub_list_element *snub_list; // array with 0 node terminating
 
 	/* mesh host list + insert/delete queue */
-	mesh_host_list_element *mesh_host_list; // single linked list with null terminate
+	mesh_host_list_element *mesh_seed_host_list; // single linked list with null terminate
+	mesh_host_list_element *mesh_non_seed_host_list; // list for non-seed  
 	cf_queue *mesh_host_queue;
 
 } as_hb;
@@ -495,6 +497,34 @@ as_hb_nodes_discovered_hash_del_conn(cf_node node, int fd)
 	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] num curr conn after deleting %d", node, fd, p_hval->num_conn);
 	return(ret);
 }
+
+static int
+as_hb_nodes_discovered_hash_shutdown_conn(cf_node node)
+{
+	pthread_mutex_t *vlock = NULL;
+	int ret = 0;
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn  node %"PRIx64"", node);
+
+	discovered_node_hval_t * p_hval = NULL;
+	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.discovered_list, &node, (void **)&p_hval, &vlock)) {
+		cf_warning(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" not found", node);
+	}
+	else {
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" num curr conn %d", node, p_hval->num_conn);
+		for ( int i = 0 ; i < AS_HB_MAX_OPEN_CONN_PER_NODE ; i++ ) {
+			if (p_hval->conn[i].fd != -1) {
+				cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" conn[%d] fd:[%d] ", node, i, p_hval->conn[i].fd);
+				shutdown(p_hval->conn[i].fd, SHUT_RDWR);
+			}
+		}
+		pthread_mutex_unlock(vlock);
+	}
+
+	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" num curr conn %d exiting", node, p_hval->num_conn);
+	return(ret);
+}
+
 
 static int
 as_hb_nodes_discovered_hash_put_conn(cf_node node, int fd)
@@ -964,8 +994,57 @@ Out:
 // MESH HOST LIST CONNECTIVITY
 //
 //
+#define MESH_RETRY_INTERVAL (2 * 1000)
+void as_hb_try_connecting_remote(mesh_host_list_element * e)
+{
+	while (e) {
+		if ( (e->fd == -1) && (e->next_try < cf_getms()) ) {
 
+			// found one to try
+			cf_socket_cfg s;
+			s.addr = e->host;
+			s.port = e->port;
+			s.proto = SOCK_STREAM;
 
+			cf_debug(AS_HB, "attempting to connect mesh host at %s:%d", e->host, e->port);
+
+			if ( 0 != cf_socket_init_client(&s, ((g_config.hb_interval * g_config.hb_timeout) / 2)) ) {
+				cf_debug(AS_HB, "could not create heartbeat connection to node %s:%d", e->host, e->port);
+				e->next_try = cf_getms() + ((g_config.hb_interval * g_config.hb_timeout) / 2); // retry to be put same as connect timeout
+				e = e->next;
+				continue;
+			}
+			struct sockaddr_in addr_in;
+			socklen_t addr_len = sizeof(addr_in);
+
+			char some_addr[24];
+			some_addr[0] = 0;
+
+			// Try to get the client details for better logging.
+			// Otherwise, fall back to generic log message.
+			if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
+					&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
+				cf_info(AS_HB, "initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+			} else {
+				cf_warning(AS_HB, "failed - initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+			}
+			cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
+
+			// simply adds the socket to the epoll list
+			// if this call fails, sock has been eaten.
+			// node id will be set for this socket after 
+			// receiving HB pulse as that is the place we are 
+			// populating adjancency list also.
+			if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/, 0 )) { 
+				close(s.sock);
+			} else {
+				e->fd = s.sock;
+			}
+
+		}
+		e = e->next;
+	}
+}
 
 //
 // run the mesh list and try to connect to anything we've been configured
@@ -975,10 +1054,6 @@ Out:
 // between the 'add' function and the 'service' function. Also not clear if service should
 // be running on its own thread - can these connect calls be very hang-ish?
 //
-
-
-
-#define MESH_RETRY_INTERVAL (2 * 1000)
 
 void *
 mesh_list_service_fn(void *arg)
@@ -993,51 +1068,87 @@ mesh_list_service_fn(void *arg)
 
 		// Get all elements off work queue and do them
 		mesh_host_queue_element mhqe;
-		while (CF_QUEUE_OK == cf_queue_pop(g_hb.mesh_host_queue, &mhqe, CF_QUEUE_NOWAIT)) {
+		if (CF_QUEUE_OK == cf_queue_pop( g_hb.mesh_host_queue, &mhqe, ((g_config.hb_interval * g_config.hb_timeout) / 2)) ) { // putting timed wait time equal to half of HB timeout
 
 			if (mhqe.op == MH_OP_REMOVE_ALL) {
 
 				cf_debug(AS_HB, "removing all hosts from mesh list");
 
-				while (g_hb.mesh_host_list) {
-					e = g_hb.mesh_host_list;
-					g_hb.mesh_host_list = e->next;
+				while (g_hb.mesh_seed_host_list) {
+					e = g_hb.mesh_seed_host_list;
+					g_hb.mesh_seed_host_list = e->next;
 					if (e->fd) shutdown(e->fd, SHUT_RDWR);
 					cf_free(e);
 				}
 			} else if (mhqe.op == MH_OP_ADD) {
 
 				// check uniqueness
-				e = g_hb.mesh_host_list;
+				e = g_hb.mesh_seed_host_list;
 				while (e) {
 					if ((0 == strcmp(mhqe.host, e->host)) && (mhqe.port == e->port)) {
-						cf_debug(AS_HB, "attempt to add duplicate host to mesh host list, ignored");
-						goto NextQueueElement;
+						cf_debug(AS_HB, "attempt to add duplicate host to mesh seed host list, ignored");
+						goto TryConnect;
+					}
+					e = e->next;
+				}
+				// duplicate check in non seed list
+				e = g_hb.mesh_non_seed_host_list;
+				while (e) {
+					if ((0 == strcmp(mhqe.host, e->host)) && (mhqe.port == e->port)) {
+						cf_debug(AS_HB, "attempt to add duplicate host to mesh non seed host list, ignored");
+						goto TryConnect;
 					}
 					e = e->next;
 				}
 
-				cf_debug(AS_HB, "adding %s:%d to mesh host list", mhqe.host, mhqe.port);
+				cf_debug(AS_HB, "adding %s:%d to mesh host lists", mhqe.host, mhqe.port);
 
 				// add to list
 				e = cf_malloc(sizeof(mesh_host_list_element));
 				if (!e) cf_crash(AS_HB, "unable to allocate memory for mesh host list");
-				e->next = g_hb.mesh_host_list;
-				g_hb.mesh_host_list = e;
+				if (mhqe.seed) { // adding into seed list
+					e->next = g_hb.mesh_seed_host_list;
+					g_hb.mesh_seed_host_list = e;
+				} else { // else adding into discovered list
+					e->next = g_hb.mesh_non_seed_host_list;
+					g_hb.mesh_non_seed_host_list = e;
+				}
 				strcpy(e->host, mhqe.host);
 				e->port = mhqe.port;
 				e->fd = -1;
+				e->next_try = 0;
 			} else if (mhqe.op == MH_OP_REMOVE_FD) {
 
 				cf_debug(AS_HB, "removing fd %d from mesh host list", mhqe.remove_fd);
 
-				e = g_hb.mesh_host_list;
+				//checking in seed host list
+				e = g_hb.mesh_seed_host_list;
 				while (e) {
 					if (e->fd == mhqe.remove_fd) {
-						cf_debug(AS_HB, "actually removing fd %d",  mhqe.remove_fd);
+						cf_debug(AS_HB, "seed node putting it for retry fd %d",  mhqe.remove_fd);
 						e->fd = -1;
-						goto NextQueueElement;
+						e->next_try = cf_getms() + MESH_RETRY_INTERVAL;
+						goto TryConnect;
 					}
+					e = e->next;
+				}
+				//checking in non seed host list
+				e = g_hb.mesh_non_seed_host_list;
+				mesh_host_list_element * trailing_e = NULL;
+				while (e) {
+					cf_detail(AS_HB, "non seed list fd %d", e->fd);
+					if (e->fd == mhqe.remove_fd) {
+						cf_debug(AS_HB, "actually removing fd %d",  mhqe.remove_fd);
+						if ( trailing_e == NULL ) { //e is first node
+							g_hb.mesh_non_seed_host_list = e->next;
+						} else {
+							trailing_e->next = e->next;
+						}
+						cf_free(e);
+						e = NULL;
+						goto TryConnect;
+					}
+					trailing_e = e;
 					e = e->next;
 				}
 
@@ -1047,64 +1158,35 @@ mesh_list_service_fn(void *arg)
 				cf_warning(AS_HB, "recieved bad op service queue message: %d internal error", mhqe.op);
 			}
 
-NextQueueElement:
+TryConnect:
 			;
 
 		}
 
 		// Try any connections that might be a good idea
 
-		e = g_hb.mesh_host_list;
-		if (e) {
-			cf_debug(AS_HB, "mesh list service: attempting connections");
-		}
+		as_hb_try_connecting_remote(g_hb.mesh_non_seed_host_list);
+		e = g_hb.mesh_non_seed_host_list;
+		mesh_host_list_element * prev_element = NULL;
 		while (e) {
+			cf_debug(AS_HB, "traversing list to remove non connected fds current fd %d", e->fd);
 			if (e->fd == -1) {
-
-				// found one to try
-				cf_socket_cfg s;
-				s.addr = e->host;
-				s.port = e->port;
-				s.proto = SOCK_STREAM;
-
-				cf_debug(AS_HB, "tip: attempting to connect mesh host at %s:%d", e->host, e->port);
-
-				if (0 != cf_socket_init_client(&s)) {
-					cf_debug(AS_HB, "tip: Could not create heartbeat connection to node %s:%d", e->host, e->port);
-					e = e->next;
-					continue;
-				}
-
-				struct sockaddr_in addr_in;
-				socklen_t addr_len = sizeof(addr_in);
-
-				char some_addr[24];
-				some_addr[0] = 0;
-
-				// Try to get the client details for better logging.
-				// Otherwise, fall back to generic log message.
-				if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
-						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
-					cf_info(AS_HB, "mesh_list_service_fn: initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+				if ( prev_element == NULL ) { //e is first node
+					g_hb.mesh_non_seed_host_list = e->next;
+					cf_free(e);
+					e = g_hb.mesh_non_seed_host_list;
 				} else {
-					cf_warning(AS_HB, "failed - mesh_list_service_fn: initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+					prev_element->next = e->next;
+					cf_free(e);
+					e = prev_element->next;
 				}
-
-				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
-
-				// simply adds the socket to the epoll list
-				// if this call fails, sock has been eaten
-				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/, 0 /*dont know the node id still*/)) {
-					close(s.sock);
-				} else {
-					e->fd = s.sock;
-				}
-
+			} else {
+				prev_element = e;
+				e = e->next;
 			}
-			e = e->next;
 		}
-
-		usleep (MESH_RETRY_INTERVAL * 1000);
+		
+		as_hb_try_connecting_remote(g_hb.mesh_seed_host_list);
 
 	} while (1);
 
@@ -1124,7 +1206,7 @@ mesh_host_list_remove_fd(int fd)
 }
 
 int
-mesh_host_list_add(char *host, int port)
+mesh_host_list_add(char *host, int port, bool is_seed)
 {
 	// validate input
 	if (port > (1 << 16)) {
@@ -1155,6 +1237,7 @@ mesh_host_list_add(char *host, int port)
 	strcpy(mhqe.host, host);
 	mhqe.port = port;
 	mhqe.remove_fd = -1;
+	mhqe.seed = is_seed;
 	cf_queue_push(g_hb.mesh_host_queue, (void *) &mhqe);
 
 	return(0);
@@ -1172,7 +1255,7 @@ as_hb_tip(char *host, int port)
 {
 	cf_debug(AS_HB, " Heartbeat: tipped about server at %s:%d", host, port);
 
-	mesh_host_list_add(host, port);
+	mesh_host_list_add(host, port, true);
 
 	return(0);
 }
@@ -1745,20 +1828,21 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 			}
 
 			// If it's already known, we don't need to connect again
-			if (SHASH_OK == shash_get(g_hb.adjacencies, &node, a_p_pulse))
-				return;
-
-			/* If the address or port are zero, just wait; we'll try again
-			 * when the next heartbeat is received */
-			if (0 == addr || 0 == port)
-				return;
-			//HB BUG: check discovered node data with this node id
-			if(as_hb_nodes_discovered_hash_is_conn(node)) {//HB BUG: checking for node in discovered hash
-				cf_detail(AS_HB, "as_hb_rx_process node already connected, returning");
+			if (SHASH_OK == shash_get(g_hb.adjacencies, &node, a_p_pulse)) {
 				return;
 			}
 
-			{
+			/* If the address or port are zero, just wait; we'll try again
+			 * when the next heartbeat is received */
+			if (0 == addr || 0 == port) {
+				return;
+			}
+
+			// check discovered node data with this node id
+			if(as_hb_nodes_discovered_hash_is_conn(node)) {
+				cf_detail(AS_HB, "as_hb_rx_process node already connected, returning");
+				return;
+			} else {
 				// unwind the address
 				char cpaddr[24];
 				if (NULL == inet_ntop(AF_INET, &addr, (char *) cpaddr, sizeof(cpaddr))) {
@@ -1766,38 +1850,9 @@ as_hb_rx_process(msg *m, cf_sockaddr so, int fd)
 					return;
 				}
 				cf_debug(AS_HB, "connecting to remote heartbeat service: %s:%d", cpaddr, port);
-
-				// This call does a blocking TCP connect inline
-				cf_socket_cfg s;
-				memset(&s, 0, sizeof(s));
-				s.addr = cpaddr;
-				s.port = port;
-				s.proto = SOCK_STREAM;
-				if (0 != cf_socket_init_client(&s)) {
-					cf_info(AS_HB, "couldn't connect to remote heartbeat service: at %s:%d %s",
-							cpaddr, port, cf_strerror(errno));
-					return;
-				}
-				cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
-				if (0 != as_hb_endpoint_add(s.sock, false /*is not udp*/, node)) {
-					cf_atomic_int_incr(&g_config.heartbeat_connections_closed);
-					close(s.sock);
-					return;
-				}
-				struct sockaddr_in addr_in;
-				socklen_t addr_len = sizeof(addr_in);
-
-				char some_addr[24];
-				some_addr[0] = 0;
-
-				// Try to get the client details for better logging.
-				// Otherwise, fall back to generic log message.
-				if (getpeername(s.sock, (struct sockaddr*)&addr_in, &addr_len) == 0
-						&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
-					cf_debug(AS_HB, "info reply: initiated new connection to mesh host at %s:%d socket %d from %s:%d", s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
-				} else {
-					cf_warning(AS_HB, "info reply: failed (errno %d) to initiate new connection to mesh host at %s:%d socket %d from %s:%d", errno, s.addr, s.port, s.sock,some_addr, ntohs(addr_in.sin_port));
-				}
+				// could be both seed and non-seed but we are passing is_seed = 0, 
+				// as mesh_list_service_fn will take care of duplicates
+				mesh_host_list_add(cpaddr,port,false); 
 			}
 			break;
 
@@ -1877,12 +1932,28 @@ as_hb_thr(void *arg)
 
 	/* Mesh-topology systems allow config-file bootstraping; connect to the provided
 	 * node */
-	if ((AS_HB_MODE_MESH == g_config.hb_mode) && g_config.hb_init_addr) {
+	if ((AS_HB_MODE_MESH == g_config.hb_mode)) {
+		if (g_config.hb_init_addr) {
+			cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_init_addr, g_config.hb_init_port);
 
-		cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_init_addr, g_config.hb_init_port);
+			if (0 != mesh_host_list_add(g_config.hb_init_addr, g_config.hb_init_port, true)) {
+				cf_crash(AS_HB, "couldn't add remote heartbeat service %s:%d to mesh host list", g_config.hb_init_addr, g_config.hb_init_port);
+			}
+		} else {
+			for (int i = 0; i < AS_CLUSTER_SZ; i++) {
+				if(g_config.hb_mesh_seed_addrs[i]) {
+					cf_info(AS_HB, "connecting to remote heartbeat service at %s:%d", g_config.hb_mesh_seed_addrs[i], g_config.hb_mesh_seed_ports[i]);
 
-		if (0 != mesh_host_list_add(g_config.hb_init_addr, g_config.hb_init_port)) {
-			cf_crash(AS_HB, "couldn't initialize connection to remote heartbeat service: %s", cf_strerror(errno));
+					if (0 != mesh_host_list_add(g_config.hb_mesh_seed_addrs[i], g_config.hb_mesh_seed_ports[i], true)) {
+						cf_crash(AS_HB, "couldn't add remote heartbeat service %s:%d to mesh host list", g_config.hb_mesh_seed_addrs[i], g_config.hb_mesh_seed_ports[i]);
+					}
+
+				} else {
+					break;
+				}
+
+			}
+
 		}
 	}
 
@@ -2119,6 +2190,7 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 
 		//do not copy adjacency list for paxos checks - node is gone
 		if (u->n_delete < g_config.paxos_max_cluster_size) {
+			as_hb_nodes_discovered_hash_shutdown_conn(id);
 			u->delete[u->n_delete] = id;
 			u->n_delete++;
 			return(SHASH_REDUCE_DELETE);
@@ -2330,7 +2402,8 @@ as_hb_init()
 	// and another thread to attempt to connect to mesh nodes - probably should make this contingent
 	// on mesh being active? Or, in some sense, is mesh always active?
 	g_hb.mesh_host_queue = cf_queue_create(sizeof(mesh_host_queue_element), true);
-	g_hb.mesh_host_list = 0;
+	g_hb.mesh_seed_host_list = 0;
+	g_hb.mesh_non_seed_host_list = 0;
 	if (0 != pthread_create(&g_mesh_list_tid, 0, mesh_list_service_fn, 0))
 		cf_crash(AS_HB, "could not create hb monitor thread: %s", cf_strerror(errno));
 
@@ -2512,10 +2585,10 @@ as_hb_dump(bool verbose)
 
 	// Mesh Host List Info:
 
-	mesh_host_list_element *elem = g_hb.mesh_host_list;
+	mesh_host_list_element *elem = g_hb.mesh_seed_host_list;
 	int i = 0;
 	while (elem) {
-		cf_info(AS_HB, "MeshHostList[%d] %s:%d %lu %d %d", i, elem->host, elem->port, elem->next_try, elem->try_interval, elem->fd);
+		cf_info(AS_HB, "MeshSeedHostList[%d] %s:%d %lu %d %d", i, elem->host, elem->port, elem->next_try, elem->try_interval, elem->fd);
 		i++;
 		elem = elem->next;
 	}

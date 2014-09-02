@@ -2222,10 +2222,21 @@ info_network_info_config_get(cf_dyn_buf *db)
 		if (g_config.hb_init_addr) {
 			cf_dyn_buf_append_string(db, ";mesh-address=");
 			cf_dyn_buf_append_string(db, g_config.hb_init_addr);
-		}
-		if (g_config.hb_init_port) {
-			cf_dyn_buf_append_string(db, ";mesh-port=");
-			cf_dyn_buf_append_int(db, g_config.hb_init_port);
+			if (g_config.hb_init_port) {
+				cf_dyn_buf_append_string(db, ";mesh-port=");
+				cf_dyn_buf_append_int(db, g_config.hb_init_port);
+			}
+		} else {
+			for (int i = 0; i < AS_CLUSTER_SZ; i++) {
+				if (g_config.hb_mesh_seed_addrs[i]) {
+					cf_dyn_buf_append_string(db, ";mesh-seed-address-port=");
+					cf_dyn_buf_append_string(db, g_config.hb_mesh_seed_addrs[i]);
+					cf_dyn_buf_append_string(db, ":");
+					cf_dyn_buf_append_int(db, g_config.hb_mesh_seed_ports[i]);
+				} else {
+					break;
+				}
+			}
 		}
 	}
 
