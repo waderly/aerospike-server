@@ -722,12 +722,6 @@ as_record_unpickle_replace(as_record *r, as_storage_rd *rd, uint8_t *buf, size_t
 		buf += 4;
 		d_sz = ntohl(d_sz);
 
-		if (!as_storage_bin_can_fit(ns, d_sz)) {
-			cf_warning(AS_RW, "as_record_unpickle_replace: bin data size %d too big", d_sz);
-			ret = -4;
-			break;
-		}
-
 		as_particle_frombuf(b, type, buf, d_sz, *stack_particles, ns->storage_data_in_memory);
 
 		if (has_sindex) {

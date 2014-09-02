@@ -2148,6 +2148,7 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		info_append_uint64("", "defrag-lwm-pct", ns->storage_defrag_lwm_pct, db);
 		info_append_uint64("", "defrag-sleep", ns->storage_defrag_sleep, db);
 		info_append_uint64("", "defrag-startup-minimum", ns->storage_defrag_startup_minimum, db);
+		info_append_uint64("", "flush-max-ms", ns->storage_flush_max_us / 1000, db);
 		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
 		info_append_uint64("", "max-write-cache", ns->storage_max_write_cache, db);
 		info_append_uint64("", "min-avail-pct", ns->storage_min_avail_pct, db);
@@ -3257,12 +3258,19 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			ns->storage_defrag_lwm_pct = val;
 			ns->defrag_lwm_size = (ns->storage_write_block_size * ns->storage_defrag_lwm_pct) / 100;
 		}
-		else if (0 == as_info_parameter_get(params, "defrag-throttle", context, &context_len)) {
+		else if (0 == as_info_parameter_get(params, "defrag-sleep", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of defrag-sleep of ns %s from %u to %d", ns->name, ns->storage_defrag_sleep, val);
 			ns->storage_defrag_sleep = (uint32_t)val;
+		}
+		else if (0 == as_info_parameter_get(params, "flush-max-ms", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val)) {
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of flush-max-ms of ns %s from %lu to %d", ns->name, ns->storage_flush_max_us / 1000, val);
+			ns->storage_flush_max_us = (uint64_t)val * 1000;
 		}
 		else if (0 == as_info_parameter_get(params, "enable-xdr", context, &context_len)) {
 			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
@@ -6722,7 +6730,7 @@ as_info_init()
 	as_info_set_command("dump-wr", info_command_dump_wr, PRIV_LOGGING_CTRL);                  // Print debug information about transaction hash table to the log file.
 	as_info_set_command("dun", info_command_dun, PRIV_SERVICE_CTRL);                          // Instruct this server to ignore another node.
 	as_info_set_command("get-config", info_command_config_get, PRIV_NONE);                    // Returns running config for all or a particular context.
-	as_info_set_command("get-sl", info_command_get_sl, PRIV_LOGGING_CTRL);                    // Get the Paxos succession list.
+	as_info_set_command("get-sl", info_command_get_sl, PRIV_NONE);                            // Get the Paxos succession list.
 	as_info_set_command("hist-dump", info_command_hist_dump, PRIV_NONE);                      // Returns a histogram snapshot for a particular histogram.
 	as_info_set_command("hist-track-start", info_command_hist_track, PRIV_SERVICE_CTRL);      // Start or Restart histogram tracking.
 	as_info_set_command("hist-track-stop", info_command_hist_track, PRIV_SERVICE_CTRL);       // Stop histogram tracking.
@@ -6734,7 +6742,7 @@ as_info_init()
 	as_info_set_command("mtrace", info_command_mtrace, PRIV_SERVICE_CTRL);                    // Control GLibC-level memory tracing.
 	as_info_set_command("set-config", info_command_config_set, PRIV_SET_CONFIG);              // Set config values.
 	as_info_set_command("set-log", info_command_log_set, PRIV_LOGGING_CTRL);                  // Set values in the log system.
-	as_info_set_command("set-sl", info_command_set_sl, PRIV_LOGGING_CTRL);                    // Set the Paxos succession list.
+	as_info_set_command("set-sl", info_command_set_sl, PRIV_SERVICE_CTRL);                    // Set the Paxos succession list.
 	as_info_set_command("show-devices", info_command_show_devices, PRIV_LOGGING_CTRL);        // Print snapshot of wblocks to the log file.
 	as_info_set_command("smd", info_command_smd_cmd, PRIV_SERVICE_CTRL);                      // Manipulate the System Metadata.
 	as_info_set_command("snub", info_command_snub, PRIV_SERVICE_CTRL);                        // Ignore heartbeats from a node for a specified amount of time.
