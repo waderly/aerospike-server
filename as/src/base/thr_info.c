@@ -4812,11 +4812,29 @@ shash *g_info_node_info_hash = 0;
 int info_node_info_reduce_fn(void *key, void *data, void *udata);
 
 
+void
+build_service_list(cf_ifaddr * ifaddr, int ifaddr_sz, cf_dyn_buf *db) {
+	for (int i = 0; i < ifaddr_sz; i++) {
+
+		if (ifaddr[i].family == AF_INET) {
+			struct sockaddr_in *sin = (struct sockaddr_in *) & (ifaddr[i].sa);
+			char    addr_str[50];
+
+			inet_ntop(AF_INET, &sin->sin_addr, addr_str, sizeof(addr_str));
+			if ( strcmp(addr_str, "127.0.0.1") == 0) continue;
+
+			cf_dyn_buf_append_string(db, addr_str);
+			cf_dyn_buf_append_char(db, ':');
+			cf_dyn_buf_append_int(db, g_config.socket.port);
+			cf_dyn_buf_append_char(db, ';');
+		}
+	}
+}
+
 
 //
 // Note: if all my interfaces go down, service_str will be 0
 //
-
 void *
 info_interfaces_fn(void *gcc_is_ass)
 {
@@ -4845,36 +4863,15 @@ info_interfaces_fn(void *gcc_is_ass)
 					break;
 				}
 			}
-		}
-		else
+		} else { 
 			changed = true;
+		}
 
 		if (changed == true) {
 
 			cf_dyn_buf_define(service_db);
 
-			for (int i = 0; i < ifaddr_sz; i++) {
-
-				if (ifaddr[i].family == AF_INET) {
-					struct sockaddr_in *sin = (struct sockaddr_in *) & (ifaddr[i].sa);
-					char	addr_str[50];
-
-					inet_ntop(AF_INET, &sin->sin_addr, addr_str, sizeof(addr_str));
-
-					if ( strcmp(addr_str, "127.0.0.1") == 0) continue;
-
-					cf_dyn_buf_append_string(&service_db, addr_str);
-					cf_dyn_buf_append_char(&service_db, ':');
-					cf_dyn_buf_append_int(&service_db, g_config.socket.port);
-					cf_dyn_buf_append_char(&service_db, ';');
-
-				}
-
-			}
-			// take off the last ';' if there was any string there
-			if (service_db.used_sz > 0)
-				cf_dyn_buf_chomp(&service_db);
-
+			build_service_list(ifaddr, ifaddr_sz, &service_db);
 
 			memcpy(known_ifs, ifaddr, sizeof(cf_ifaddr) * ifaddr_sz);
 			known_ifs_sz = ifaddr_sz;
@@ -4887,8 +4884,6 @@ info_interfaces_fn(void *gcc_is_ass)
 			g_service_generation++;
 
 			pthread_mutex_unlock(&g_service_lock);
-
-			cf_dyn_buf_free(&service_db);
 
 		}
 
@@ -4911,6 +4906,25 @@ info_interfaces_static_fn(void *gcc_is_ass)
 
 	cf_info(AS_INFO, " static external network definition ");
 
+	// check external-address is matching with given addresses in service list 
+	uint8_t buf[512];
+	cf_ifaddr *ifaddr;
+	int	ifaddr_sz;
+	cf_ifaddr_get(&ifaddr, &ifaddr_sz, buf, sizeof(buf));
+
+	cf_dyn_buf_define(temp_service_db);
+	build_service_list(ifaddr, ifaddr_sz, &temp_service_db);
+
+	char * service_str = cf_dyn_buf_strdup(&temp_service_db);
+	if ( strstr(service_str, g_config.external_address) == NULL) {
+		cf_crash(AS_INFO, "external address:%s is not matching with any of service addresses:%s",
+				g_config.external_address, service_str);
+	}
+
+	cf_dyn_buf_free(&temp_service_db);
+	free(service_str);
+
+	// For valid external-address specify the same in service-list 
 	cf_dyn_buf_define(service_db);
 	cf_dyn_buf_append_string(&service_db, g_config.external_address);
 	cf_dyn_buf_append_char(&service_db, ':');
@@ -4923,6 +4937,7 @@ info_interfaces_static_fn(void *gcc_is_ass)
 
 	pthread_mutex_unlock(&g_service_lock);
 
+	cf_dyn_buf_free(&service_db);
 	while (1) {
 
 		// reduce the info_node hash to apply any transmits
@@ -6796,6 +6811,21 @@ as_info_init()
 	}
 
 	as_fabric_register_msg_fn(M_TYPE_INFO, info_mt, sizeof(info_mt), info_msg_fn, 0 /* udata */ );
+
+	// Take necessery steps if specific address is given in service address 
+	if (strcmp(g_config.socket.addr, "0.0.0.0") != 0 ) {
+		if (g_config.external_address != NULL){
+			// check external-address is matches with service address
+			if (strcmp(g_config.external_address, g_config.socket.addr) != 0) {
+				cf_crash(AS_INFO, "external address:%s is not matching with service address:%s",
+						g_config.external_address, g_config.socket.addr);
+			}
+		} else {
+			// Check if service address is any. If not any then put this adress in external address 
+			// to avoid updation of service list continuosly
+			g_config.external_address = g_config.socket.addr;
+		}
+	}
 
 	// if there's a statically configured external interface, use this simple function to monitor
 	// and transmit
