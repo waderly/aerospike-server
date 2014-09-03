@@ -293,24 +293,26 @@ as_query_request * as_query__qreq_poolrequest();
 
 
 // GENERATOR
-static pthread_t     g_query_threads[AS_QUERY_MAX_THREADS];
-static cf_queue    * g_query_queue           = 0;
-static cf_queue    * g_query_long_queue      = 0;
-static cf_atomic32   g_query_threadcnt       = 0;
-inline void          as_query__generator(as_query_transaction *qtr);
-void*                as_query__th(void* q_to_wait_on);
+static pthread_t      g_query_threads[AS_QUERY_MAX_THREADS];
+static pthread_attr_t g_query_th_attr;
+static cf_queue     * g_query_queue           = 0;
+static cf_queue     * g_query_long_queue      = 0;
+static cf_atomic32    g_query_threadcnt       = 0;
+inline void           as_query__generator(as_query_transaction *qtr);
+void                * as_query__th(void* q_to_wait_on);
 
 // I/O & AGGREGATOR
-static pthread_t     g_query_worker_threads[AS_QUERY_MAX_WORKER_THREADS];
-static cf_queue    * g_query_request_queue        = 0;
-static cf_atomic32   g_query_worker_threadcnt = 0;
-static int           as_query__push_qreq(as_query_request *qreq);
-as_query_request *   as_query__pop_qreq();
-void               * as_query__worker_th(void *q_to_wait_on);
-int                  as_query__process_ioreq(as_query_request *qio);
-int                  as_query__process_udfreq(as_query_request *qudf);
-int                  as_query__process_aggreq(as_query_request *qagg);
-int                  as_query__process_request(as_query_request *qreqp);
+static pthread_t      g_query_worker_threads[AS_QUERY_MAX_WORKER_THREADS];
+static pthread_attr_t g_query_worker_th_attr;
+static cf_queue     * g_query_request_queue    = 0;
+static cf_atomic32    g_query_worker_threadcnt = 0;
+static int            as_query__push_qreq(as_query_request *qreq);
+as_query_request    * as_query__pop_qreq();
+void                * as_query__worker_th(void *q_to_wait_on);
+int                   as_query__process_ioreq(as_query_request *qio);
+int                   as_query__process_udfreq(as_query_request *qudf);
+int                   as_query__process_aggreq(as_query_request *qagg);
+int                   as_query__process_request(as_query_request *qreqp);
 
 // Client Response Functions
 int                  as_query__add_fin(as_query_transaction *qtr);
@@ -1921,9 +1923,16 @@ as_query_init()
 	if (!g_query_request_queue)
 		cf_crash(AS_QUERY, "Failed to create query io queue");
 
+	// Create the query worker threads detatched so we don't need to join with them.
+	if (pthread_attr_init(&g_query_worker_th_attr)) {
+		cf_crash(AS_SINDEX, "failed to initialize the query worker thread attributes");
+	}
+	if (pthread_attr_setdetachstate(&g_query_worker_th_attr, PTHREAD_CREATE_DETACHED)) {
+		cf_crash(AS_SINDEX, "failed to set the query worker thread attributes to the detached state");
+	}
 	int max = g_config.query_worker_threads;
 	for (int i = 0; i < max; i++) {
-		pthread_create(&g_query_worker_threads[i], 0,
+		pthread_create(&g_query_worker_threads[i], &g_query_worker_th_attr,
 				as_query__worker_th, (void*)g_query_request_queue);
 	}
 
@@ -1935,11 +1944,19 @@ as_query_init()
 	if (!g_query_long_queue)
 		cf_crash(AS_QUERY, "Failed to create long query transaction queue");
 
+	// Create the query threads detatched so we don't need to join with them.
+	if (pthread_attr_init(&g_query_th_attr)) {
+		cf_crash(AS_SINDEX, "failed to initialize the query thread attributes");
+	}
+	if (pthread_attr_setdetachstate(&g_query_th_attr, PTHREAD_CREATE_DETACHED)) {
+		cf_crash(AS_SINDEX, "failed to set the query thread attributes to the detached state");
+	}
+	
 	max = g_config.query_threads;
 	for (int i = 0; i < max; i += 2) {
-		if (pthread_create(&g_query_threads[i], 0,
+		if (pthread_create(&g_query_threads[i], &g_query_th_attr,
 					as_query__th, (void*)g_query_queue)
-				|| pthread_create(&g_query_threads[i + 1], 0,
+				|| pthread_create(&g_query_threads[i + 1], &g_query_th_attr,
 						as_query__th, (void*)g_query_long_queue)) {
 			cf_crash(AS_QUERY, "Failed to create query transaction threads");
 		}
@@ -2015,7 +2032,7 @@ as_query_worker_reinit(int set_size, int *actual_size)
 	if (set_size > g_query_worker_threadcnt) {
 		for (; i < set_size; i++) {
 			cf_detail(AS_QUERY, "Creating thread %d", i);
-			if (0 != pthread_create(&g_query_worker_threads[i], 0,
+			if (0 != pthread_create(&g_query_worker_threads[i], &g_query_worker_th_attr,
 					as_query__worker_th, (void*)g_query_request_queue)) {
 				break;
 			}
@@ -2070,12 +2087,12 @@ as_query_reinit(int set_size, int *actual_size)
 	if (set_size > g_query_threadcnt) {
 		for (; i < set_size; i++) {
 			cf_detail(AS_QUERY, "Creating thread %d", i);
-			if (0 != pthread_create(&g_query_threads[i], 0,
+			if (0 != pthread_create(&g_query_threads[i], &g_query_th_attr,
 					as_query__th, (void*)g_query_queue)) {
 				break;
 			}
 			i++;
-			if (0 != pthread_create(&g_query_threads[i], 0,
+			if (0 != pthread_create(&g_query_threads[i], &g_query_th_attr,
 					as_query__th, (void*)g_query_long_queue)) {
 				break;
 			}

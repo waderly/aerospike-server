@@ -24,6 +24,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -192,13 +193,20 @@ static int udf_type_getid(char *type) {
 }
 
 /*
- *  *  Callback used to receive System Metadata items requested via the Info SMD "get" command.
- *   */
-static int as_smd_get_metadata_cb(char *module, as_smd_item_list_t *items, void *udata)
+ * Type for user data passed to the get metadata callback.
+ */
+typedef struct udf_get_data_s {
+	cf_dyn_buf *db;        // DynBuf for output.
+	pthread_cond_t *cv;    // Condition variable for signaling callback completion.
+} udf_get_data_t;
+
+/*
+ * UDF SMD get metadata items callback.
+ */
+static int udf_cask_get_metadata_cb(char *module, as_smd_item_list_t *items, void *udata)
 {
-	udf_list_cb_data * list_cb_data = (udf_list_cb_data *) udata;
-	cf_rc_reserve(list_cb_data);
-	cf_dyn_buf * out = list_cb_data->out;
+	udf_get_data_t *get_data = (udf_get_data_t *) udata;
+	cf_dyn_buf *out = get_data->db;
 
 	unsigned char   hash[SHA_DIGEST_LENGTH];
 	// hex string to be returned to the client
@@ -208,7 +216,7 @@ static int as_smd_get_metadata_cb(char *module, as_smd_item_list_t *items, void 
 
 	for (int index = 0; index < items->num_items; index++) {
 		as_smd_item_t *item = items->item[index];
-		cf_debug(AS_UDF, "SMD Info get metadata item[%d]:  module \"%s\" ; key \"%s\" ; value \"%s\" ; generation %u ; timestamp %lu",
+		cf_debug(AS_UDF, "UDF metadata item[%d]:  module \"%s\" ; key \"%s\" ; value \"%s\" ; generation %u ; timestamp %lu",
                 	index, item->module_name, item->key, item->value, item->generation, item->timestamp);
 		cf_dyn_buf_append_string(out, "filename=");
 		cf_dyn_buf_append_buf(out, (uint8_t *)item->key, strlen(item->key));
@@ -223,35 +231,52 @@ static int as_smd_get_metadata_cb(char *module, as_smd_item_list_t *items, void 
 		cf_dyn_buf_append_string(out, as_udf_type_name[udf_type]);
 		cf_dyn_buf_append_string(out, ";");
 	}
-	list_cb_data->is_complete = true;
-	cf_rc_release(list_cb_data);
 
-	return 0;
+	int retval = pthread_cond_signal(get_data->cv);
+	if (retval) {
+		cf_warning(AS_UDF, "pthread_cond_signal failed (rv %d)", retval);
 }
 
-int udf_cask_info_list(char *name, cf_dyn_buf * out) {
-	int ret_val = 0;
-	int sleep_time = 0;
+	return retval;
+}
+
+/*
+ *  Implementation of the "udf-list" Info. Command.
+ */
+int udf_cask_info_list(char *name, cf_dyn_buf *out)
+{
 	cf_debug(AS_UDF, "UDF CASK INFO LIST");
-	udf_list_cb_data * list_cb_data = (udf_list_cb_data *) cf_rc_alloc(sizeof(udf_list_cb_data));
-	list_cb_data->is_complete = false;
-	list_cb_data->out = out;
-	ret_val = as_smd_get_metadata(udf_smd_module_name, "", as_smd_get_metadata_cb, list_cb_data);
-	if( ret_val == 0){
-		while(!list_cb_data->is_complete && sleep_time < 3000) { 
-			usleep(100);
-			sleep_time += 100;
+
+	pthread_mutex_t get_data_mutex = PTHREAD_MUTEX_INITIALIZER;
+	pthread_cond_t get_data_cond_var = PTHREAD_COND_INITIALIZER;
+
+	udf_get_data_t get_data;
+	get_data.db = out;
+	get_data.cv = &get_data_cond_var;
+
+	pthread_mutex_lock(&get_data_mutex);
+
+	int retval = as_smd_get_metadata(udf_smd_module_name, "", udf_cask_get_metadata_cb, &get_data);
+	if (!retval) {
+		if ((retval = pthread_cond_wait(&get_data_cond_var, &get_data_mutex))) {
+			cf_warning(AS_UDF, "pthread_cond_wait failed (rv %d)", retval);
 		}
+	} else {
+		cf_warning(AS_UDF, "failed to get UDF metadata (rv %d)", retval);
 	} 
 
-	if (sleep_time > 3000) {
-		// sleep for 3 seconds only to get info
-		cf_info(AS_INFO, "UDF list took more than 3 seconds");
-	}
-	cf_rc_release(list_cb_data);
-	return ret_val;
+	pthread_mutex_unlock(&get_data_mutex);
+
+	pthread_mutex_destroy(&get_data_mutex);
+	pthread_cond_destroy(&get_data_cond_var);
+
+	return retval;
 }
 
+/*
+ * Reading local directory to get specific module item's contents.
+ * In future if needed we can change this to reading from smd metadata. 
+ */
 int udf_cask_info_get(char *name, char * params, cf_dyn_buf * out) {
 
 	int                 resp                = 0;
@@ -396,6 +421,14 @@ int udf_cask_info_put(char *name, char * params, cf_dyn_buf * out) {
 	// base 64 decode it
 	uint32_t encoded_len = strlen(udf_content);
 	uint32_t decoded_len = cf_b64_decoded_buf_size(encoded_len) + 1;
+	
+	// Don't allow UDF file size > 1MB 
+	if ( decoded_len > MAX_UDF_CONTENT_LENGTH) {
+		cf_info(AS_INFO, "lua file size:%d > 1MB", decoded_len);
+		cf_dyn_buf_append_string(out, "error=invalid_udf_content_len, lua file size > 1MB");
+		return 0;
+	}
+
 	char * decoded_str = cf_malloc(decoded_len);
 
 	if ( ! cf_b64_validate_and_decode(udf_content, encoded_len, (uint8_t*)decoded_str, &decoded_len) ) {

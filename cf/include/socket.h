@@ -68,7 +68,7 @@ extern void cf_socket_set_nodelay(int s);
 extern int cf_socket_recv(int sock, void *buf, size_t buflen, int flags);
 extern int cf_socket_send(int sock, void *buf, size_t buflen, int flags);
 extern int cf_socket_init_svc(cf_socket_cfg *s);
-extern int cf_socket_init_client(cf_socket_cfg *s);
+extern int cf_socket_init_client(cf_socket_cfg *s, int timeout);
 extern void cf_socket_close(cf_socket_cfg *s);
 extern int cf_mcastsocket_init(cf_mcastsocket_cfg *ms);
 extern void cf_mcastsocket_close(cf_mcastsocket_cfg *ms);

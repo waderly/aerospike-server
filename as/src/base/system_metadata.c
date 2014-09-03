@@ -98,36 +98,56 @@
 **   can return one or more items for one or more modules, depending upon the item list passed
 **   in, and sends the search results to a user-supplied callback function.
 **
-**   Each module's metadata is automatically serialized to a file in JSON format upon every
-**   accepted metadata item change and also when the module is destroyed.  When a module is
-**   created (usually at server start-up time), if an existing SMD file is found for the module,
-**   it will be loaded in as the initial values of the module's metadata.
+**   Each module's metadata is automatically persisted via serialization (in JSON format) to a file
+**   upon each accepted metadata item change and also when the module is destroyed.  When a module
+**   is created (usually at server start-up time), if an existing SMD file is found for the module,
+**   its contents will be loaded in as the initial values of the module's metadata.
 **
 **   System Metadata Policy Callback Functions:
 **   ------------------------------------------
 **
 **   There are three SMD policy callback functions a module may register.  If NULL is passed
 **   for a callback function pointer in "as_smd_module_create()", the system default policy
-**   will be selected for that operation.  The policy callbacks operate as follows:
+**   will be selected for that operation.  All policy callbacks are executed in the context
+**   of the SMD thread.
 **
-**     1). The Merge Callback ("as_smd_merge_cb()"):  When an SMD item is changed via the
-**          SMD API or a Paxos cluster state change occurs, each module's Merge callback
-**          will be executed on the Paxos principle to create a new, unified view of the
-**          module's metadata.  The system default merge policy is to simply form a union of all
-**          nodes' metadata items for the given module, taking the latest version of metadata
-**          items with duplicate keys, chosen first by highest generation and second by highest
-**          timestamp.
+**   The SMD policy callbacks operate as follows:
 **
-**     2). The Accept Callback ("as_smd_accept_cb()"):  After the the Paxos principal has
-**          determined the merged metadata for a module, it will distribute the new metadata to
-**          all cluster nodes (including itself) for processing via the Accept callback.  The
-**          system default accept policy is simply to replace any existing metadata items for
-**          the module with the received metadata items.  Modules will generally, however,
-**          define their own Accept callback to take actions based upon the changed metadata,
-**          such as creating secondary indexes or defining new User Defined Functions (UDFs.)
-**          The originator of the accept event, either via a cluster-wide merge, or an SMD API
-**          invocation, or else upon the creation of an initially-empty module, is specified
-**          by the accept option parameter value.
+**     1). The Merge Callback ("as_smd_merge_cb()"):  When a Paxos cluster state change occurs,
+**          each module's Merge callback will be executed on the Paxos principle to create a new,
+**          unified view of each module's metadata.  The system default merge policy is to simply
+**          form a union of all nodes' metadata items for the given module, taking the latest
+**          version of metadata items with duplicate keys, chosen first by highest generation
+**          and second by highest timestamp.
+**
+**     2). The Accept Callback ("as_smd_accept_cb()"):  When a modules SMD item(s) are changed,
+**          or when a module is created and fully restored from persistence, the Accept callback
+**          will be invoked on every node to commit the change, with the originator of the accept
+**          event passed as the accept option parameter value.
+**
+**          This callback will be invoked in three distinct cases:
+**
+**          First, when a module is created and its persisted metadata (if any) has been fully
+**          restored, this callback will be invoked with the OPT_CREATE accept option and a
+**          NULL item list.  This event is the proper point for synchronizing with any other
+**          thread(s) who depend upon the given module being fully initialized.
+**
+**          Second, after the the Paxos principal has determined the merged metadata for a
+**          module, it will distribute the new metadata to all cluster nodes (including itself)
+**          for processing via the Accept callback with the OPT_MERGE accept option and an item
+**          list of length 0 or greater.  The system default accept policy is simply to replace
+**          any preexisting metadata items for the module with the received metadata items.
+**          Modules will generally, however, define their own Accept callback to take actions
+**          based upon the changed metadata, such as creating secondary indexes or defining new
+**          User Defined Functions (UDFs.)
+**
+**          Third, when a metadata item is set or deleted via the SMD API (or at module creation
+**          time, via restoration from persisted state), the Accept callback will be invoked with
+**          the OPT_API accept option and an item list of length 1.  Note that at system start-up
+**          time, prior to cluster formation, the metadata change will be handled locally.  Once
+**          a cluster has been joined, however, each metadata change event will be proxied to
+**          the Paxos principal, who will forward it to every cluster node (including itself)
+**          for acceptance.
 **
 **     3). The Can Accept Callback ("as_smd_can_accept_cb()"):  When the Paxos principal
 **          receives a metadata change request (set or delete), it will first attempt to
@@ -1700,9 +1720,12 @@ static int as_smd_module_create(as_smd_t *smd, as_smd_cmd_t *cmd)
 	if (0 > num_items) {
 		cf_warning(AS_SMD, "failed to restore persisted System Metadata for module \"%s\"", item->module_name);
 	}
-	if (0 >= num_items) {
-		// If no items were restored, set an empty item to guarantee an accept callback.
-		retval = as_smd_set_metadata(module_obj->module, NULL, NULL);
+
+	// Set an empty metadata item, signifying the completion of module creation,
+	//  including the restoration of zero or more persisted metadata items.
+	//  (Will trigger an Accept callback with the OPT_CREATE accept option.)
+	if ((retval = as_smd_set_metadata(module_obj->module, NULL, NULL))) {
+		cf_warning(AS_SMD, "failed to send SMD module \"%s\" creation complete event", module_obj->module);
 	}
 
 	return retval;
@@ -2866,10 +2889,10 @@ static int as_smd_accept_metadata(as_smd_t *smd, as_smd_module_t *module_obj, as
 {
 	int retval = 0;
 
-	// There will be
-	// 0 items when -- after the merge, none of the metadata item is found to be valid by merge algorithm.
-	// 1 item when -- when user issues a create/delete/update to a specific module (SINDEX/UDF currently)
-	// >1 items when.. after the merge, the list of valid items according to the merge algorithm
+	// There will be:
+	//    0 items when, after the merge, no valid metadata items were found according to the merge algorithm.
+	//    1 item when the user issues a set/delete metadata API call to a specific module (e.g., SINDEX, UDF.)
+	// >= 1 items when, after the merge, a non-empty list of items is valid according to the merge algorithm.
 	if (smd_msg->items->num_items) {
 		as_smd_item_t *item = smd_msg->items->item[0]; // (Only log the fist item.)
 		cf_debug(AS_SMD, "System Metadata thread - accepting metadata %s change: %d items: item 0: module \"%s\" ; key \"%s\" ; value \"%s\"",
@@ -2910,7 +2933,7 @@ static int as_smd_accept_metadata(as_smd_t *smd, as_smd_module_t *module_obj, as
 	// Accept the metadata item list for this module.
 	if (module_obj->accept_cb) {
 		// Invoke the module's registered accept policy callback function.
-		cf_debug(AS_SMD, "Calling accept callback with merge flag set to true for module %s with nitems %d", smd_msg->items->module_name, smd_msg->items->num_items);
+		cf_debug(AS_SMD, "Calling accept callback with OPT_MERGE for module %s with nitems %d", smd_msg->items->module_name, smd_msg->items->num_items);
 		(module_obj->accept_cb)(module_obj->module, smd_msg->items, module_obj->accept_udata, smd_msg->options);
 	}
 
@@ -2984,7 +3007,7 @@ static void incr_item_frequency_shash_update(void *key, void *value_old, void *v
  *                  nodes in the cluster , accept it as final truth.
  * Implementation : Hash all the unique metadata items based on the value(which is metadata defn itself).
  *                  why value?.. item's Key alone is not sufficient to decide the uniqueness of a metadata defn
- *                  e.g., (SINDEX module)
+ *                  (e.g., SINDEX module)
  *                  Count the frequency of each item.
  *                  If frequency of a given item is equal to or greater than half of the
  *                  cluster size, accept the given metadata item.
