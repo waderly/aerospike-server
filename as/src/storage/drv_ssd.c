@@ -589,14 +589,11 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 
 			rd.write_to_device = true;
 
-			uint64_t start_ns = 0;
-			if (g_config.microbenchmarks) {
-				start_ns = cf_getns();
-			}
+			uint64_t start_ns = g_config.microbenchmarks ? cf_getns() : 0;
 
 			as_storage_record_close(r, &rd);
 
-			if (g_config.microbenchmarks && start_ns) {
+			if (start_ns != 0) {
 				histogram_insert_data_point(g_config.defrag_storage_close_hist, start_ns);
 			}
 
@@ -647,15 +644,11 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 		goto Finished;
 	}
 
-	uint64_t start_time = 0;
+	uint64_t file_offset = WBLOCK_ID_TO_BYTES(ssd, wblock_id);
 
-	if (g_config.storage_benchmarks) {
-		start_time = cf_getns();
-	}
+	uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
 
-	off_t file_offset = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, wblock_id), SEEK_SET);
-
-	if (file_offset != WBLOCK_ID_TO_BYTES(ssd, wblock_id)) {
+	if (lseek(fd, (off_t)file_offset, SEEK_SET) != (off_t)file_offset) {
 		cf_warning(AS_DRV_SSD, "DEVICE FAILED: device %s can't seek errno %d",
 				ssd->name, errno);
 		close(fd);
@@ -673,8 +666,8 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 		goto Finished;
 	}
 
-	if (g_config.storage_benchmarks && start_time) {
-		histogram_insert_data_point(ssd->hist_large_block_read, start_time);
+	if (start_ns != 0) {
+		histogram_insert_data_point(ssd->hist_large_block_read, start_ns);
 	}
 
 	size_t wblock_offset = 0; // current offset within the wblock, in bytes
@@ -1150,19 +1143,14 @@ as_storage_record_read_ssd(as_storage_rd *rd)
 
 		int fd = ssd_fd_get(ssd);
 
-		uint64_t start_time = 0;
+		uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
 
-		// Measure the latency of device reads.
-		if (g_config.storage_benchmarks) {
-			start_time = cf_getns();
-		}
-
-		lseek(fd, read_offset, SEEK_SET);
+		lseek(fd, (off_t)read_offset, SEEK_SET);
 
 		ssize_t rv = read(fd, read_buf, read_size);
 
-		if (g_config.storage_benchmarks && start_time) {
-			histogram_insert_data_point(ssd->hist_read, start_time);
+		if (start_ns != 0) {
+			histogram_insert_data_point(ssd->hist_read, start_ns);
 		}
 
 		if (rv != read_size) {
@@ -1590,25 +1578,19 @@ void
 ssd_flush_swb(drv_ssd *ssd, ssd_write_buf *swb)
 {
 	int fd = ssd_fd_get(ssd);
+	off_t write_offset = (off_t)WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id);
 
-	uint64_t start_time = 0;
+	uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
 
-	if (g_config.storage_benchmarks) {
-		start_time = cf_getns();
-	}
-
-	uint64_t file_pos = WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id);
-	off_t rv_o = lseek(fd, file_pos, SEEK_SET);
-
-	if (rv_o != file_pos) {
+	if (lseek(fd, write_offset, SEEK_SET) != write_offset) {
 		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED: can't seek errno %d (%s)",
 				ssd->name, errno, cf_strerror(errno));
 	}
 
 	ssize_t rv_s = write(fd, swb->buf, ssd->write_block_size);
 
-	if (g_config.storage_benchmarks && start_time) {
-		histogram_insert_data_point(ssd->hist_write, start_time);
+	if (start_ns != 0) {
+		histogram_insert_data_point(ssd->hist_write, start_ns);
 	}
 
 	if (rv_s != ssd->write_block_size) {
@@ -2218,9 +2200,9 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 		return -1;
 	}
 
-	off_t file_offset = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, wblock_id), SEEK_SET);
+	uint64_t file_offset = WBLOCK_ID_TO_BYTES(ssd, wblock_id);
 
-	if (file_offset != (off_t)WBLOCK_ID_TO_BYTES(ssd, wblock_id)) {
+	if (lseek(fd, (off_t)file_offset, SEEK_SET) != (off_t)file_offset) {
 		cf_warning(AS_DRV_SSD, "analyze wblock ERROR: fail fd seek");
 		close(fd);
 		return -1;
@@ -2472,16 +2454,29 @@ ssd_flush_current_swb(drv_ssd *ssd, uint64_t *p_prev_n_writes,
 }
 
 
+void
+ssd_fsync(drv_ssd *ssd)
+{
+	int fd = ssd_fd_get(ssd);
+
+	uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
+
+	fsync(fd);
+
+	if (start_ns != 0) {
+		histogram_insert_data_point(ssd->hist_fsync, start_ns);
+	}
+
+	ssd_fd_put(ssd, fd);
+}
+
+
 static inline uint64_t
-next_job_time(uint64_t now, uint64_t job_interval, uint64_t *p_next)
+next_time(uint64_t now, uint64_t job_interval, uint64_t next)
 {
 	uint64_t next_job = now + job_interval;
 
-	if (next_job < *p_next) {
-		*p_next = next_job;
-	}
-
-	return next_job;
+	return next_job < next ? next_job : next;
 }
 
 
@@ -2505,9 +2500,16 @@ run_ssd_maintenance(void *udata)
 
 	uint64_t now = cf_getus();
 	uint64_t next = now + MAX_INTERVAL;
-	uint64_t next_log_stats = next_job_time(now, LOG_STATS_INTERVAL, &next);
-	uint64_t next_free_swbs = next_job_time(now, FREE_SWBS_INTERVAL, &next);
-	uint64_t next_flush = 0;
+
+	uint64_t prev_log_stats = now;
+	uint64_t prev_free_swbs = now;
+	uint64_t prev_flush = now;
+	uint64_t prev_fsync = now;
+
+	// If any job's (initial) interval is less than MAX_INTERVAL and we want it
+	// done on its interval the first time through, add a next_time() call for
+	// that job here to adjust 'next'. (No such jobs for now.)
+
 	uint64_t sleep_us = next - now;
 
 	while (true) {
@@ -2516,19 +2518,32 @@ run_ssd_maintenance(void *udata)
 		now = cf_getus();
 		next = now + MAX_INTERVAL;
 
-		if (now >= next_log_stats) {
+		if (now >= prev_log_stats + LOG_STATS_INTERVAL) {
 			ssd_log_stats(ssd, &prev_n_writes, &prev_n_defrags);
-			next_log_stats = next_job_time(now, LOG_STATS_INTERVAL, &next);
+			prev_log_stats = now;
+			next = next_time(now, LOG_STATS_INTERVAL, next);
 		}
 
-		if (now >= next_free_swbs) {
+		if (now >= prev_free_swbs + FREE_SWBS_INTERVAL) {
 			ssd_free_swbs(ssd);
-			next_free_swbs = next_job_time(now, FREE_SWBS_INTERVAL, &next);
+			prev_free_swbs = now;
+			next = next_time(now, FREE_SWBS_INTERVAL, next);
 		}
 
-		if (ns->storage_flush_max_us != 0 && now >= next_flush) {
+		uint64_t flush_max_us = ns->storage_flush_max_us;
+
+		if (flush_max_us != 0 && now >= prev_flush + flush_max_us) {
 			ssd_flush_current_swb(ssd, &prev_n_writes_flush, &prev_size_flush);
-			next_flush = next_job_time(now, ns->storage_flush_max_us, &next);
+			prev_flush = now;
+			next = next_time(now, flush_max_us, next);
+		}
+
+		uint64_t fsync_max_us = ns->storage_fsync_max_us;
+
+		if (fsync_max_us != 0 && now >= prev_fsync + fsync_max_us) {
+			ssd_fsync(ssd);
+			prev_fsync = now;
+			next = next_time(now, fsync_max_us, next);
 		}
 
 		now = cf_getus(); // refresh in case jobs took significant time
@@ -3956,21 +3971,28 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 		ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (! ssd->hist_read) {
-			cf_warning(AS_DRV_SSD, "cannot create histogram %s", histname);
+			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_LARGE_BLOCK_READ_%d %s", i, ssd->name);
 		ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (! ssd->hist_large_block_read) {
-			cf_warning(AS_DRV_SSD,"cannot create histogram %s", histname);
+			cf_crash(AS_DRV_SSD,"cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_WRITE_%d %s", i, ssd->name);
 		ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (! ssd->hist_write) {
-			cf_warning(AS_DRV_SSD, "cannot create histogram %s", histname);
+			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
+		}
+
+		snprintf(histname, sizeof(histname), "SSD_FSYNC_%d %s", i, ssd->name);
+		ssd->hist_fsync = histogram_create(histname, HIST_MILLISECONDS);
+
+		if (! ssd->hist_fsync) {
+			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 	}
 
@@ -4432,6 +4454,7 @@ as_storage_ticker_stats_ssd(as_namespace *ns)
 		histogram_dump(ssd->hist_read);
 		histogram_dump(ssd->hist_large_block_read);
 		histogram_dump(ssd->hist_write);
+		histogram_dump(ssd->hist_fsync);
 	}
 
 	return 0;
@@ -4449,6 +4472,7 @@ as_storage_histogram_clear_ssd(as_namespace *ns)
 		histogram_clear(ssd->hist_read);
 		histogram_clear(ssd->hist_large_block_read);
 		histogram_clear(ssd->hist_write);
+		histogram_clear(ssd->hist_fsync);
 	}
 
 	return 0;
