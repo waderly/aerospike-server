@@ -488,13 +488,13 @@ as_hb_nodes_discovered_hash_del_conn(cf_node node, int fd)
 				break;
 			}
 		}
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] num curr conn after deleting %d", node, fd, p_hval->num_conn);
 		pthread_mutex_unlock(vlock);
 		if (!found) {
 			cf_warning(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] not found", node, fd);
 		}
 	}
 
-	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_del_conn node %"PRIx64" fd:[%d] num curr conn after deleting %d", node, fd, p_hval->num_conn);
 	return(ret);
 }
 
@@ -518,10 +518,9 @@ as_hb_nodes_discovered_hash_shutdown_conn(cf_node node)
 				shutdown(p_hval->conn[i].fd, SHUT_RDWR);
 			}
 		}
+		cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" num curr conn %d exiting", node, p_hval->num_conn);
 		pthread_mutex_unlock(vlock);
 	}
-
-	cf_detail(AS_HB, "as_hb_nodes_discovered_hash_shutdown_conn node %"PRIx64" num curr conn %d exiting", node, p_hval->num_conn);
 	return(ret);
 }
 
@@ -2190,7 +2189,9 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 
 		//do not copy adjacency list for paxos checks - node is gone
 		if (u->n_delete < g_config.paxos_max_cluster_size) {
-			as_hb_nodes_discovered_hash_shutdown_conn(id);
+			if (AS_HB_MODE_MESH == g_config.hb_mode) {
+				as_hb_nodes_discovered_hash_shutdown_conn(id);
+			}
 			u->delete[u->n_delete] = id;
 			u->n_delete++;
 			return(SHASH_REDUCE_DELETE);
