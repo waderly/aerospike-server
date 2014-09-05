@@ -2572,13 +2572,22 @@ query_record_gen(const as_rec * rec)
 	return as_rec_gen(urec);
 }
 
-// Not write operation allowed on the query_record
+static int
+query_record_bin_names(const as_rec * rec, as_rec_bin_names_callback callback, void * context)
+{
+	query_record * qrecord = (query_record *) rec->data;
+	as_rec       * urec    = qrecord->urec;
+	return as_rec_bin_names(urec, callback, context);
+}
+
+// Write operations are not allowed on a query_record.
 const as_rec_hooks query_record_hooks = {
 	.get        = query_record_get,
 	.set        = NULL,
 	.remove     = NULL,
 	.ttl        = query_record_ttl,
 	.gen        = query_record_gen,
+	.bin_names  = query_record_bin_names,
 	.destroy    = NULL
 };
 
