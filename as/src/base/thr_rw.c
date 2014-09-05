@@ -4062,12 +4062,14 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	//			 packet.
 
 	uint64_t start_ns = 0;
-	if (g_config.microbenchmarks) {
-		start_ns = cf_getns();
-	}
+	
 	if (has_sindex) {
+	
 		if (oldbin_cnt || newbin_cnt) {
 			tr->flag |= AS_TRANSACTION_FLAG_SINDEX_TOUCHED;
+			if (g_config.microbenchmarks) {
+				start_ns = cf_getns();
+			}
 		}
 		// delete should precede insert
 		GTRACE(CALLER, debug, "Delete bin count = %d, Inserted bin count = %d at %s", oldbin_cnt, newbin_cnt, journal ? "prole" : "master");
@@ -4081,11 +4083,12 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 			sindex_ret = as_sindex_put_by_sbin(ns, set_name, newbin_cnt, newbin, &rd);
 			as_sindex_sbin_freeall(newbin, newbin_cnt);
 		}
+		if (g_config.microbenchmarks && start_ns && (oldbin_cnt || newbin_cnt)) {
+			histogram_insert_data_point(g_config.write_sindex_hist, start_ns);
+		}
 	}
 
-	if (g_config.microbenchmarks && start_ns) {
-		histogram_insert_data_point(g_config.write_sindex_hist, start_ns);
-	}
+	
 
 	if (g_config.microbenchmarks) {
 		start_ns = cf_getns();

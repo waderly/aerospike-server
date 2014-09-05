@@ -133,8 +133,10 @@ as_namespace_create(char *name, uint16_t replication_factor)
 	ns->storage_scheduler_mode = NULL; // null indicates default is to not change scheduler mode
 	ns->storage_write_block_size = 1024 * 1024;
 	ns->storage_defrag_lwm_pct = 50; // defrag if occupancy of block is < 50%
-	ns->storage_defrag_startup_minimum = 10; // defrag until >= 10% disk is writable before joining cluster
 	ns->storage_defrag_sleep = 1000; // sleep this many microseconds between each wblock
+	ns->storage_defrag_startup_minimum = 10; // defrag until >= 10% disk is writable before joining cluster
+	ns->storage_flush_max_us = 1000 * 1000; // wait this many microseconds before flushing inactive current write buffer (0 = never)
+	ns->storage_fsync_max_us = 0; // fsync interval in microseconds (0 = never)
 	ns->storage_max_write_cache = 1024 * 1024 * 64;
 	ns->storage_min_avail_pct = 5; // stop writes when < 5% disk is writable
 	ns->storage_num_write_blocks = 64; // number of write blocks to use with KV store devices

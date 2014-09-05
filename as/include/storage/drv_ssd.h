@@ -189,6 +189,7 @@ typedef struct drv_ssd_s
 	histogram		*hist_read;
 	histogram		*hist_large_block_read;
 	histogram		*hist_write;
+	histogram		*hist_fsync;
 
 	char			name[512];
 } drv_ssd;

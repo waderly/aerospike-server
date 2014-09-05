@@ -890,6 +890,8 @@ struct as_namespace_s {
 	uint32_t	storage_defrag_lwm_pct;
 	uint32_t	storage_defrag_sleep;
 	int			storage_defrag_startup_minimum;
+	uint64_t	storage_flush_max_us;
+	uint64_t	storage_fsync_max_us;
 	uint32_t	storage_min_avail_pct;
 	uint32_t	storage_write_smoothing_period;
 

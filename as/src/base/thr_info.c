@@ -2148,6 +2148,8 @@ info_namespace_config_get(char* context, cf_dyn_buf *db)
 		info_append_uint64("", "defrag-lwm-pct", ns->storage_defrag_lwm_pct, db);
 		info_append_uint64("", "defrag-sleep", ns->storage_defrag_sleep, db);
 		info_append_uint64("", "defrag-startup-minimum", ns->storage_defrag_startup_minimum, db);
+		info_append_uint64("", "flush-max-ms", ns->storage_flush_max_us / 1000, db);
+		info_append_uint64("", "fsync-max-sec", ns->storage_fsync_max_us / 1000000, db);
 		info_append_uint64("", "write-smoothing-period", ns->storage_write_smoothing_period, db);
 		info_append_uint64("", "max-write-cache", ns->storage_max_write_cache, db);
 		info_append_uint64("", "min-avail-pct", ns->storage_min_avail_pct, db);
@@ -2221,10 +2223,21 @@ info_network_info_config_get(cf_dyn_buf *db)
 		if (g_config.hb_init_addr) {
 			cf_dyn_buf_append_string(db, ";mesh-address=");
 			cf_dyn_buf_append_string(db, g_config.hb_init_addr);
-		}
-		if (g_config.hb_init_port) {
-			cf_dyn_buf_append_string(db, ";mesh-port=");
-			cf_dyn_buf_append_int(db, g_config.hb_init_port);
+			if (g_config.hb_init_port) {
+				cf_dyn_buf_append_string(db, ";mesh-port=");
+				cf_dyn_buf_append_int(db, g_config.hb_init_port);
+			}
+		} else {
+			for (int i = 0; i < AS_CLUSTER_SZ; i++) {
+				if (g_config.hb_mesh_seed_addrs[i]) {
+					cf_dyn_buf_append_string(db, ";mesh-seed-address-port=");
+					cf_dyn_buf_append_string(db, g_config.hb_mesh_seed_addrs[i]);
+					cf_dyn_buf_append_string(db, ":");
+					cf_dyn_buf_append_int(db, g_config.hb_mesh_seed_ports[i]);
+				} else {
+					break;
+				}
+			}
 		}
 	}
 
@@ -3246,12 +3259,26 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 			ns->storage_defrag_lwm_pct = val;
 			ns->defrag_lwm_size = (ns->storage_write_block_size * ns->storage_defrag_lwm_pct) / 100;
 		}
-		else if (0 == as_info_parameter_get(params, "defrag-throttle", context, &context_len)) {
+		else if (0 == as_info_parameter_get(params, "defrag-sleep", context, &context_len)) {
 			if (0 != cf_str_atoi(context, &val)) {
 				goto Error;
 			}
 			cf_info(AS_INFO, "Changing value of defrag-sleep of ns %s from %u to %d", ns->name, ns->storage_defrag_sleep, val);
 			ns->storage_defrag_sleep = (uint32_t)val;
+		}
+		else if (0 == as_info_parameter_get(params, "flush-max-ms", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val)) {
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of flush-max-ms of ns %s from %lu to %d", ns->name, ns->storage_flush_max_us / 1000, val);
+			ns->storage_flush_max_us = (uint64_t)val * 1000;
+		}
+		else if (0 == as_info_parameter_get(params, "fsync-max-sec", context, &context_len)) {
+			if (0 != cf_str_atoi(context, &val)) {
+				goto Error;
+			}
+			cf_info(AS_INFO, "Changing value of fsync-max-sec of ns %s from %lu to %d", ns->name, ns->storage_fsync_max_us / 1000000, val);
+			ns->storage_fsync_max_us = (uint64_t)val * 1000000;
 		}
 		else if (0 == as_info_parameter_get(params, "enable-xdr", context, &context_len)) {
 			if (strncmp(context, "true", 4) == 0 || strncmp(context, "yes", 3) == 0) {
@@ -4793,11 +4820,29 @@ shash *g_info_node_info_hash = 0;
 int info_node_info_reduce_fn(void *key, void *data, void *udata);
 
 
+void
+build_service_list(cf_ifaddr * ifaddr, int ifaddr_sz, cf_dyn_buf *db) {
+	for (int i = 0; i < ifaddr_sz; i++) {
+
+		if (ifaddr[i].family == AF_INET) {
+			struct sockaddr_in *sin = (struct sockaddr_in *) & (ifaddr[i].sa);
+			char    addr_str[50];
+
+			inet_ntop(AF_INET, &sin->sin_addr, addr_str, sizeof(addr_str));
+			if ( strcmp(addr_str, "127.0.0.1") == 0) continue;
+
+			cf_dyn_buf_append_string(db, addr_str);
+			cf_dyn_buf_append_char(db, ':');
+			cf_dyn_buf_append_int(db, g_config.socket.port);
+			cf_dyn_buf_append_char(db, ';');
+		}
+	}
+}
+
 
 //
 // Note: if all my interfaces go down, service_str will be 0
 //
-
 void *
 info_interfaces_fn(void *gcc_is_ass)
 {
@@ -4826,36 +4871,15 @@ info_interfaces_fn(void *gcc_is_ass)
 					break;
 				}
 			}
-		}
-		else
+		} else { 
 			changed = true;
+		}
 
 		if (changed == true) {
 
 			cf_dyn_buf_define(service_db);
 
-			for (int i = 0; i < ifaddr_sz; i++) {
-
-				if (ifaddr[i].family == AF_INET) {
-					struct sockaddr_in *sin = (struct sockaddr_in *) & (ifaddr[i].sa);
-					char	addr_str[50];
-
-					inet_ntop(AF_INET, &sin->sin_addr, addr_str, sizeof(addr_str));
-
-					if ( strcmp(addr_str, "127.0.0.1") == 0) continue;
-
-					cf_dyn_buf_append_string(&service_db, addr_str);
-					cf_dyn_buf_append_char(&service_db, ':');
-					cf_dyn_buf_append_int(&service_db, g_config.socket.port);
-					cf_dyn_buf_append_char(&service_db, ';');
-
-				}
-
-			}
-			// take off the last ';' if there was any string there
-			if (service_db.used_sz > 0)
-				cf_dyn_buf_chomp(&service_db);
-
+			build_service_list(ifaddr, ifaddr_sz, &service_db);
 
 			memcpy(known_ifs, ifaddr, sizeof(cf_ifaddr) * ifaddr_sz);
 			known_ifs_sz = ifaddr_sz;
@@ -4868,8 +4892,6 @@ info_interfaces_fn(void *gcc_is_ass)
 			g_service_generation++;
 
 			pthread_mutex_unlock(&g_service_lock);
-
-			cf_dyn_buf_free(&service_db);
 
 		}
 
@@ -4892,6 +4914,25 @@ info_interfaces_static_fn(void *gcc_is_ass)
 
 	cf_info(AS_INFO, " static external network definition ");
 
+	// check external-address is matching with given addresses in service list 
+	uint8_t buf[512];
+	cf_ifaddr *ifaddr;
+	int	ifaddr_sz;
+	cf_ifaddr_get(&ifaddr, &ifaddr_sz, buf, sizeof(buf));
+
+	cf_dyn_buf_define(temp_service_db);
+	build_service_list(ifaddr, ifaddr_sz, &temp_service_db);
+
+	char * service_str = cf_dyn_buf_strdup(&temp_service_db);
+	if ( strstr(service_str, g_config.external_address) == NULL) {
+		cf_crash(AS_INFO, "external address:%s is not matching with any of service addresses:%s",
+				g_config.external_address, service_str);
+	}
+
+	cf_dyn_buf_free(&temp_service_db);
+	free(service_str);
+
+	// For valid external-address specify the same in service-list 
 	cf_dyn_buf_define(service_db);
 	cf_dyn_buf_append_string(&service_db, g_config.external_address);
 	cf_dyn_buf_append_char(&service_db, ':');
@@ -4904,6 +4945,7 @@ info_interfaces_static_fn(void *gcc_is_ass)
 
 	pthread_mutex_unlock(&g_service_lock);
 
+	cf_dyn_buf_free(&service_db);
 	while (1) {
 
 		// reduce the info_node hash to apply any transmits
@@ -6777,6 +6819,21 @@ as_info_init()
 	}
 
 	as_fabric_register_msg_fn(M_TYPE_INFO, info_mt, sizeof(info_mt), info_msg_fn, 0 /* udata */ );
+
+	// Take necessery steps if specific address is given in service address 
+	if (strcmp(g_config.socket.addr, "0.0.0.0") != 0 ) {
+		if (g_config.external_address != NULL){
+			// check external-address is matches with service address
+			if (strcmp(g_config.external_address, g_config.socket.addr) != 0) {
+				cf_crash(AS_INFO, "external address:%s is not matching with service address:%s",
+						g_config.external_address, g_config.socket.addr);
+			}
+		} else {
+			// Check if service address is any. If not any then put this adress in external address 
+			// to avoid updation of service list continuosly
+			g_config.external_address = g_config.socket.addr;
+		}
+	}
 
 	// if there's a statically configured external interface, use this simple function to monitor
 	// and transmit

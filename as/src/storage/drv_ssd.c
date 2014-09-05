@@ -589,14 +589,11 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 
 			rd.write_to_device = true;
 
-			uint64_t start_ns = 0;
-			if (g_config.microbenchmarks) {
-				start_ns = cf_getns();
-			}
+			uint64_t start_ns = g_config.microbenchmarks ? cf_getns() : 0;
 
 			as_storage_record_close(r, &rd);
 
-			if (g_config.microbenchmarks && start_ns) {
+			if (start_ns != 0) {
 				histogram_insert_data_point(g_config.defrag_storage_close_hist, start_ns);
 			}
 
@@ -647,15 +644,11 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 		goto Finished;
 	}
 
-	uint64_t start_time = 0;
+	uint64_t file_offset = WBLOCK_ID_TO_BYTES(ssd, wblock_id);
 
-	if (g_config.storage_benchmarks) {
-		start_time = cf_getns();
-	}
+	uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
 
-	off_t file_offset = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, wblock_id), SEEK_SET);
-
-	if (file_offset != WBLOCK_ID_TO_BYTES(ssd, wblock_id)) {
+	if (lseek(fd, (off_t)file_offset, SEEK_SET) != (off_t)file_offset) {
 		cf_warning(AS_DRV_SSD, "DEVICE FAILED: device %s can't seek errno %d",
 				ssd->name, errno);
 		close(fd);
@@ -673,8 +666,8 @@ ssd_defrag_wblock(drv_ssd *ssd, uint32_t wblock_id, uint8_t *read_buf)
 		goto Finished;
 	}
 
-	if (g_config.storage_benchmarks && start_time) {
-		histogram_insert_data_point(ssd->hist_large_block_read, start_time);
+	if (start_ns != 0) {
+		histogram_insert_data_point(ssd->hist_large_block_read, start_ns);
 	}
 
 	size_t wblock_offset = 0; // current offset within the wblock, in bytes
@@ -1150,19 +1143,14 @@ as_storage_record_read_ssd(as_storage_rd *rd)
 
 		int fd = ssd_fd_get(ssd);
 
-		uint64_t start_time = 0;
+		uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
 
-		// Measure the latency of device reads.
-		if (g_config.storage_benchmarks) {
-			start_time = cf_getns();
-		}
-
-		lseek(fd, read_offset, SEEK_SET);
+		lseek(fd, (off_t)read_offset, SEEK_SET);
 
 		ssize_t rv = read(fd, read_buf, read_size);
 
-		if (g_config.storage_benchmarks && start_time) {
-			histogram_insert_data_point(ssd->hist_read, start_time);
+		if (start_ns != 0) {
+			histogram_insert_data_point(ssd->hist_read, start_ns);
 		}
 
 		if (rv != read_size) {
@@ -1586,6 +1574,34 @@ as_write_smoothing_fn(as_write_smoothing_arg *awsa)
 //------------------------------------------------
 
 
+void
+ssd_flush_swb(drv_ssd *ssd, ssd_write_buf *swb)
+{
+	int fd = ssd_fd_get(ssd);
+	off_t write_offset = (off_t)WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id);
+
+	uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
+
+	if (lseek(fd, write_offset, SEEK_SET) != write_offset) {
+		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED: can't seek errno %d (%s)",
+				ssd->name, errno, cf_strerror(errno));
+	}
+
+	ssize_t rv_s = write(fd, swb->buf, ssd->write_block_size);
+
+	if (start_ns != 0) {
+		histogram_insert_data_point(ssd->hist_write, start_ns);
+	}
+
+	if (rv_s != ssd->write_block_size) {
+		cf_crash(AS_DRV_SSD, "%s: DEVICE FAILED: can't write errno %d (%s)",
+				ssd->name, errno, cf_strerror(errno));
+	}
+
+	ssd_fd_put(ssd, fd);
+}
+
+
 // Thread "run" function that flushes write buffers to device.
 void *
 ssd_write_worker(void *arg)
@@ -1615,42 +1631,8 @@ ssd_write_worker(void *arg)
 					ssd->name, swb->wblock_id);
 		}
 
-		int fd = ssd_fd_get(ssd);
-
-		uint64_t start_time = 0;
-
-		if (g_config.storage_benchmarks) {
-			start_time = cf_getns();
-		}
-
-		off_t rv_o = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id), SEEK_SET);
-
-		if (rv_o != WBLOCK_ID_TO_BYTES(ssd, swb->wblock_id)) {
-			cf_warning(AS_DRV_SSD, "DEVICE FAILED: device %s can't seek errno %d",
-					ssd->name, errno);
-
-			if (g_config.storage_benchmarks && start_time) {
-				histogram_insert_data_point(ssd->hist_write, start_time);
-			}
-
-			close(fd);
-			return 0;
-		}
-
-		ssize_t rv_s = write(fd, swb->buf, ssd->write_block_size);
-
-		if (g_config.storage_benchmarks && start_time) {
-			histogram_insert_data_point(ssd->hist_write, start_time);
-		}
-
-		if (rv_s != ssd->write_block_size) {
-			cf_crash(AS_DRV_SSD, "DEVICE FAILED: %s errno %d (%s)",
-					ssd->name,errno, cf_strerror(errno));
-			close(fd);
-			return 0;
-		}
-
-		ssd_fd_put(ssd, fd);
+		// Flush to the device.
+		ssd_flush_swb(ssd, swb);
 
 		if (cf_atomic32_get(ssd->ns->storage_post_write_queue) == 0) {
 			swb_dereference_and_release(ssd, swb->wblock_id, swb);
@@ -1825,7 +1807,7 @@ ssd_write_bins(as_record *r, as_storage_rd *rd)
 		}
 	}
 
-	// Check if there's enough space in current buffer -if not, free and zero
+	// Check if there's enough space in current buffer - if not, free and zero
 	// any remaining unused space, enqueue it to be flushed to device, and grab
 	// a new buffer.
 	if (write_size > ssd->write_block_size - swb->pos) {
@@ -2218,9 +2200,9 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 		return -1;
 	}
 
-	off_t file_offset = lseek(fd, WBLOCK_ID_TO_BYTES(ssd, wblock_id), SEEK_SET);
+	uint64_t file_offset = WBLOCK_ID_TO_BYTES(ssd, wblock_id);
 
-	if (file_offset != (off_t)WBLOCK_ID_TO_BYTES(ssd, wblock_id)) {
+	if (lseek(fd, (off_t)file_offset, SEEK_SET) != (off_t)file_offset) {
 		cf_warning(AS_DRV_SSD, "analyze wblock ERROR: fail fd seek");
 		close(fd);
 		return -1;
@@ -2363,53 +2345,209 @@ as_storage_analyze_wblock(as_namespace* ns, int device_index,
 }
 
 
-#define MAINTENANCE_SLEEP 20
+//==========================================================
+// Per-device background jobs.
+//
 
+#define LOG_STATS_INTERVAL_sec 20
+
+void
+ssd_log_stats(drv_ssd *ssd, uint64_t *p_prev_n_writes,
+		uint64_t *p_prev_n_defrags)
+{
+	uint64_t n_writes = cf_atomic_int_get(ssd->ssd_write_buf_counter);
+	uint64_t n_defrags = cf_atomic_int_get(ssd->defrag_wblock_counter);
+
+	float write_rate = (float)(n_writes - *p_prev_n_writes) /
+			(float)LOG_STATS_INTERVAL_sec;
+	float defrag_rate = (float)(n_defrags - *p_prev_n_defrags) /
+			(float)LOG_STATS_INTERVAL_sec;
+
+	cf_info(AS_DRV_SSD, "device %s: used %lu, contig-free %luM (%d wblocks), swb-free %d, n-w %u, w-q %d w-tot %lu (%.1f/s), defrag-q %d defrag-tot %lu (%.1f/s)",
+			ssd->name, ssd->inuse_size,
+			available_size(ssd) >> 20,
+			cf_queue_sz(ssd->free_wblock_q),
+			cf_queue_sz(ssd->swb_free_q),
+			cf_atomic32_get(ssd->n_writers),
+			cf_queue_sz(ssd->swb_write_q), n_writes, write_rate,
+			cf_queue_sz(ssd->defrag_wblock_q), n_defrags, defrag_rate);
+
+	*p_prev_n_writes = n_writes;
+	*p_prev_n_defrags = n_defrags;
+
+	if (cf_queue_sz(ssd->free_wblock_q) == 0) {
+		cf_warning(AS_DRV_SSD, "device %s: out of storage space", ssd->name);
+	}
+}
+
+
+void
+ssd_free_swbs(drv_ssd *ssd)
+{
+	// Try to recover swbs, 16 at a time, down to 16.
+	for (int i = 0; i < 16 && cf_queue_sz(ssd->swb_free_q) > 16; i++) {
+		ssd_write_buf* swb;
+
+		if (CF_QUEUE_OK !=
+				cf_queue_pop(ssd->swb_free_q, &swb, CF_QUEUE_NOWAIT)) {
+			break;
+		}
+
+		cf_info(AS_DRV_SSD, "device %s: freeing swb", ssd->name);
+		swb_destroy(swb);
+	}
+}
+
+
+void
+ssd_flush_current_swb(drv_ssd *ssd, uint64_t *p_prev_n_writes,
+		uint32_t *p_prev_size)
+{
+	uint64_t n_writes = cf_atomic_int_get(ssd->ssd_write_buf_counter);
+
+	// If there's an active write load, we don't need to flush.
+	if (n_writes != *p_prev_n_writes) {
+		*p_prev_n_writes = n_writes;
+		*p_prev_size = 0;
+		return;
+	}
+
+	pthread_mutex_lock(&ssd->LOCK);
+
+	n_writes = cf_atomic_int_get(ssd->ssd_write_buf_counter);
+
+	// Must check under the lock, could be racing a current swb just queued.
+	if (n_writes != *p_prev_n_writes) {
+
+		pthread_mutex_unlock(&ssd->LOCK);
+
+		*p_prev_n_writes = n_writes;
+		*p_prev_size = 0;
+		return;
+	}
+
+	// Flush the current swb if it isn't empty, and has been written to since
+	// last flushed.
+
+	ssd_write_buf *swb = ssd->current_swb;
+
+	if (swb && swb->pos != *p_prev_size) {
+		*p_prev_size = swb->pos;
+
+		// Clean the end of the buffer before flushing.
+		if (ssd->write_block_size != swb->pos) {
+			memset(&swb->buf[swb->pos], 0, ssd->write_block_size - swb->pos);
+		}
+
+		// Wait for all writers to finish. (Arguably we should bail out instead,
+		// since current writers indicate we might soon flush this buffer, but
+		// let's opt for certainty.)
+		while (cf_atomic32_get(ssd->n_writers) != 0) {
+			;
+		}
+
+		// Flush it.
+		ssd_flush_swb(ssd, swb);
+	}
+
+	pthread_mutex_unlock(&ssd->LOCK);
+}
+
+
+void
+ssd_fsync(drv_ssd *ssd)
+{
+	int fd = ssd_fd_get(ssd);
+
+	uint64_t start_ns = g_config.storage_benchmarks ? cf_getns() : 0;
+
+	fsync(fd);
+
+	if (start_ns != 0) {
+		histogram_insert_data_point(ssd->hist_fsync, start_ns);
+	}
+
+	ssd_fd_put(ssd, fd);
+}
+
+
+static inline uint64_t
+next_time(uint64_t now, uint64_t job_interval, uint64_t next)
+{
+	uint64_t next_job = now + job_interval;
+
+	return next_job < next ? next_job : next;
+}
+
+
+// All in microseconds since we're using usleep().
+#define MAX_INTERVAL		(1000 * 1000)
+#define LOG_STATS_INTERVAL	(1000 * 1000 * LOG_STATS_INTERVAL_sec)
+#define FREE_SWBS_INTERVAL	(1000 * 1000 * 20)
+
+// Thread "run" function to perform various background jobs per device.
 void *
 run_ssd_maintenance(void *udata)
 {
 	drv_ssd *ssd = (drv_ssd*)udata;
+	as_namespace *ns = ssd->ns;
+
 	uint64_t prev_n_writes = 0;
 	uint64_t prev_n_defrags = 0;
 
+	uint64_t prev_n_writes_flush = 0;
+	uint32_t prev_size_flush = 0;
+
+	uint64_t now = cf_getus();
+	uint64_t next = now + MAX_INTERVAL;
+
+	uint64_t prev_log_stats = now;
+	uint64_t prev_free_swbs = now;
+	uint64_t prev_flush = now;
+	uint64_t prev_fsync = now;
+
+	// If any job's (initial) interval is less than MAX_INTERVAL and we want it
+	// done on its interval the first time through, add a next_time() call for
+	// that job here to adjust 'next'. (No such jobs for now.)
+
+	uint64_t sleep_us = next - now;
+
 	while (true) {
-		sleep(MAINTENANCE_SLEEP);
+		usleep((uint32_t)sleep_us);
 
-		uint64_t n_writes = cf_atomic_int_get(ssd->ssd_write_buf_counter);
-		uint64_t n_defrags = cf_atomic_int_get(ssd->defrag_wblock_counter);
+		now = cf_getus();
+		next = now + MAX_INTERVAL;
 
-		float write_rate =
-				(float)(n_writes - prev_n_writes) / (float)MAINTENANCE_SLEEP;
-		float defrag_rate =
-				(float)(n_defrags - prev_n_defrags) / (float)MAINTENANCE_SLEEP;
-
-		cf_info(AS_DRV_SSD, "device %s: used %lu, contig-free %luM (%d wblocks), swb-free %d, w-q %d w-tot %lu (%.1f/s), defrag-q %d defrag-tot %lu (%.1f/s)",
-				ssd->name, ssd->inuse_size,
-				available_size(ssd) >> 20,
-				cf_queue_sz(ssd->free_wblock_q),
-				cf_queue_sz(ssd->swb_free_q),
-				cf_queue_sz(ssd->swb_write_q), n_writes, write_rate,
-				cf_queue_sz(ssd->defrag_wblock_q), n_defrags, defrag_rate);
-
-		prev_n_writes = n_writes;
-		prev_n_defrags = n_defrags;
-
-		if (cf_queue_sz(ssd->free_wblock_q) == 0) {
-			cf_warning(AS_DRV_SSD, "device %s: out of storage space", ssd->name);
+		if (now >= prev_log_stats + LOG_STATS_INTERVAL) {
+			ssd_log_stats(ssd, &prev_n_writes, &prev_n_defrags);
+			prev_log_stats = now;
+			next = next_time(now, LOG_STATS_INTERVAL, next);
 		}
 
-		// Try to recover swbs, 16 at a time, down to 16.
-		for (int i = 0; i < 16 && cf_queue_sz(ssd->swb_free_q) > 16; i++) {
-			ssd_write_buf* swb;
-
-			if (CF_QUEUE_OK !=
-					cf_queue_pop(ssd->swb_free_q, &swb, CF_QUEUE_NOWAIT)) {
-				break;
-			}
-
-			cf_info(AS_DRV_SSD, "device %s: freeing swb", ssd->name);
-			swb_destroy(swb);
+		if (now >= prev_free_swbs + FREE_SWBS_INTERVAL) {
+			ssd_free_swbs(ssd);
+			prev_free_swbs = now;
+			next = next_time(now, FREE_SWBS_INTERVAL, next);
 		}
+
+		uint64_t flush_max_us = ns->storage_flush_max_us;
+
+		if (flush_max_us != 0 && now >= prev_flush + flush_max_us) {
+			ssd_flush_current_swb(ssd, &prev_n_writes_flush, &prev_size_flush);
+			prev_flush = now;
+			next = next_time(now, flush_max_us, next);
+		}
+
+		uint64_t fsync_max_us = ns->storage_fsync_max_us;
+
+		if (fsync_max_us != 0 && now >= prev_fsync + fsync_max_us) {
+			ssd_fsync(ssd);
+			prev_fsync = now;
+			next = next_time(now, fsync_max_us, next);
+		}
+
+		now = cf_getus(); // refresh in case jobs took significant time
+		sleep_us = next > now ? next - now : 1;
 	}
 
 	return NULL;
@@ -3833,21 +3971,28 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 		ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (! ssd->hist_read) {
-			cf_warning(AS_DRV_SSD, "cannot create histogram %s", histname);
+			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_LARGE_BLOCK_READ_%d %s", i, ssd->name);
 		ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (! ssd->hist_large_block_read) {
-			cf_warning(AS_DRV_SSD,"cannot create histogram %s", histname);
+			cf_crash(AS_DRV_SSD,"cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_WRITE_%d %s", i, ssd->name);
 		ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS);
 
 		if (! ssd->hist_write) {
-			cf_warning(AS_DRV_SSD, "cannot create histogram %s", histname);
+			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
+		}
+
+		snprintf(histname, sizeof(histname), "SSD_FSYNC_%d %s", i, ssd->name);
+		ssd->hist_fsync = histogram_create(histname, HIST_MILLISECONDS);
+
+		if (! ssd->hist_fsync) {
+			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 	}
 
@@ -4068,11 +4213,16 @@ as_storage_wait_for_defrag_ssd(as_namespace *ns)
 	// Set the "floor" for wblock usage. Must come after startup defrag so it
 	// doesn't prevent defrag from resurrecting a drive that hit the floor.
 
+	// Data-in-memory namespaces process transactions in service threads.
+	int n_service_threads = ns->storage_data_in_memory ?
+			g_config.n_service_threads : 0;
+
 	int n_transaction_threads = g_config.use_queue_per_device ?
 			g_config.n_transaction_threads_per_queue :
 			g_config.n_transaction_queues * g_config.n_transaction_threads_per_queue;
 
 	ns->storage_min_free_wblocks =
+			n_service_threads +			// client writes
 			n_transaction_threads +		// client writes
 			g_config.n_fabric_workers +	// migration and prole writes
 			1 +							// always 1 defrag thread
@@ -4304,6 +4454,7 @@ as_storage_ticker_stats_ssd(as_namespace *ns)
 		histogram_dump(ssd->hist_read);
 		histogram_dump(ssd->hist_large_block_read);
 		histogram_dump(ssd->hist_write);
+		histogram_dump(ssd->hist_fsync);
 	}
 
 	return 0;
@@ -4321,6 +4472,7 @@ as_storage_histogram_clear_ssd(as_namespace *ns)
 		histogram_clear(ssd->hist_read);
 		histogram_clear(ssd->hist_large_block_read);
 		histogram_clear(ssd->hist_write);
+		histogram_clear(ssd->hist_fsync);
 	}
 
 	return 0;
@@ -4340,6 +4492,9 @@ as_storage_shutdown_ssd(as_namespace *ns)
 
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
+
+		// Stop the maintenance thread from (also) flushing the current swb.
+		pthread_mutex_lock(&ssd->LOCK);
 
 		// Flush current swb by pushing it to write-q.
 		if (ssd->current_swb) {

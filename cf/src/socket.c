@@ -266,7 +266,7 @@ cf_socket_init_svc(cf_socket_cfg *s)
  * DOES A BLOCKING CONNECT INLINE - timeout
  */
 int
-cf_socket_init_client(cf_socket_cfg *s)
+cf_socket_init_client(cf_socket_cfg *s, int timeout)
 {
 	cf_assert(s, CF_SOCKET, CF_CRITICAL, "invalid argument");
 
@@ -364,7 +364,7 @@ cf_socket_init_client(cf_socket_cfg *s)
 				}
 Retry:
 				cf_debug(CF_SOCKET, "Connect epoll loop:  Retry #%d", tries++);
-				if (start + CONNECT_TIMEOUT < cf_getms()) {
+				if (start + timeout < cf_getms()) {
 					cf_warning(CF_SOCKET, "Error in delayed connect(): timed out");
 					errno = ETIMEDOUT;
 					goto Fail;
