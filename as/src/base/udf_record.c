@@ -972,6 +972,51 @@ udf_record_digest (const as_rec *rec)
 	return NULL;
 }
 
+static int
+udf_record_bin_names(const as_rec *rec, as_rec_bin_names_callback callback, void * udata)
+{
+	int ret = udf_record_param_check(rec, UDF_BIN_NONAME, __FILE__, __LINE__);
+	if (ret) {
+		return 1;
+	}
+
+	udf_record *urecord = (udf_record *)as_rec_source(rec);
+	char * bin_names = NULL;
+	if (urecord && (urecord->flag & UDF_RECORD_FLAG_STORAGE_OPEN)) {
+		uint16_t nbins;
+
+		if (urecord->rd->ns->single_bin) {
+			nbins = 1;
+			bin_names = alloca(1);
+			*bin_names = 0;
+		}
+		else {
+			nbins = urecord->rd->n_bins;
+			bin_names = alloca(nbins * BIN_NAME_MAX_SZ);
+			for (uint16_t i = 0; i < nbins; i++) {
+				as_bin *b = &urecord->rd->bins[i];
+				if (! as_bin_inuse(b)) {
+					nbins = i;
+					break;
+				}
+				const char * name = as_bin_get_name_from_id(urecord->rd->ns, b->id);
+				strcpy(bin_names + (i * BIN_NAME_MAX_SZ), name);
+			}
+		}
+		callback(bin_names, nbins, BIN_NAME_MAX_SZ, udata);
+		return 0;
+	}
+	else {
+		cf_warning(AS_UDF, "Error in getting bin names: no record found");
+		bin_names = alloca(1);
+		*bin_names = 0;
+		callback(bin_names, 1, BIN_NAME_MAX_SZ, udata);
+		return -1;
+	}
+}
+
+
+
 const as_rec_hooks udf_record_hooks = {
 	.get		= udf_record_get,
 	.set		= udf_record_set,
@@ -984,5 +1029,6 @@ const as_rec_hooks udf_record_hooks = {
 	.set_type	= udf_record_set_type,	// @LDT:: added for control over Rec Types from Lua
 	.set_ttl	= udf_record_set_ttl,
 	.drop_key	= udf_record_drop_key,
+	.bin_names	= udf_record_bin_names,
 	.numbins	= NULL,
 };
