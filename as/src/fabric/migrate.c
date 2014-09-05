@@ -2324,7 +2324,7 @@ migrate_xmit_fn(void *arg)
 						// The destination of the migrate might be no longer interested
 						// Check the read replica set and make sure it's still a valid destination
 						//
-						// TODO! this will not work with partition cound > 2. In that case,
+						// TODO! this will not work with partition count > 2. In that case,
 						// we need to allow the other migrations to go forward
 
 						if (!as_paxos_succession_ismember(mig->dst_nodes[mxc.node_offset])) {
