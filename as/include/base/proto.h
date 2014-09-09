@@ -68,6 +68,8 @@ struct as_file_handle_s;
 #define AS_PROTO_RESULT_FAIL_BIN_NOT_FOUND 17
 #define AS_PROTO_RESULT_FAIL_DEVICE_OVERLOAD 18
 #define AS_PROTO_RESULT_FAIL_KEY_MISMATCH 19
+#define AS_PROTO_RESULT_FAIL_NAMESPACE 20
+#define AS_PROTO_RESULT_FAIL_BIN_NAME 21
 
 // Security result codes. Must be <= 255, to fit in one byte. Defined here to
 // ensure no overlap with other result codes.
