@@ -4837,6 +4837,10 @@ build_service_list(cf_ifaddr * ifaddr, int ifaddr_sz, cf_dyn_buf *db) {
 			cf_dyn_buf_append_char(db, ';');
 		}
 	}
+	
+	// take off the last ';' if there was any string there
+	if (db->used_sz > 0)
+		cf_dyn_buf_chomp(db);
 }
 
 

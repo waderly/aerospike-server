@@ -34,7 +34,7 @@
 // latency metrics.
 //
 
-#define N_BUCKETS 64
+#define N_BUCKETS (1 + 64)
 #define HISTOGRAM_NAME_SIZE 128
 
 typedef enum {
