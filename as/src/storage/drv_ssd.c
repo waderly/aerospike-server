@@ -3762,11 +3762,9 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 
 		strcpy(ssd->name, ns->storage_devices[i]);
 
-		ssd->open_flag = O_DIRECT | O_RDWR;
-
-		if (ns->storage_disable_odirect) {
-			ssd->open_flag = O_RDWR;
-		}
+		ssd->open_flag = O_RDWR |
+				(ns->storage_disable_odirect ? 0 : O_DIRECT) |
+				(ns->storage_enable_osync ? O_SYNC : 0);
 
 		ssd->use_signature = ns->storage_signature;
 		ssd->data_in_memory = ns->storage_data_in_memory;
@@ -3847,7 +3845,7 @@ ssd_init_files(as_namespace *ns, drv_ssds **ssds_p)
 		ssd->file_id = i;
 		ssd->file_size = check_file_size(ns->storage_filesize, "file");
 
-		// Validate that this file can be opened.
+		// Validate that file can be opened, create it if it doesn't exist.
 		int fd = open(ssd->name, ssd->open_flag | O_CREAT, S_IRUSR | S_IWUSR);
 
 		if (-1 == fd) {
