@@ -952,7 +952,7 @@ as_paxos_set_protocol(paxos_protocol_enum protocol)
 		case AS_PAXOS_PROTOCOL_V1:
 		case AS_PAXOS_PROTOCOL_V2:
 		case AS_PAXOS_PROTOCOL_V3:
-			cf_detail(AS_PAXOS, "setting Paxos protocol version number to %d", protocol);
+			cf_debug(AS_PAXOS, "setting Paxos protocol to version %d", AS_PAXOS_PROTOCOL_VERSION_NUMBER(protocol));
 
 			if (AS_PAXOS_PROTOCOL_V1 == protocol && AS_CLUSTER_LEGACY_SZ != g_config.paxos_max_cluster_size) {
 				cf_warning(AS_PAXOS, "setting paxos protocol version v1 only allowed when paxos_max_cluster_size = %d not the current value of %d",
@@ -962,6 +962,9 @@ as_paxos_set_protocol(paxos_protocol_enum protocol)
 			as_partition_allow_migrations();
 			g_config.paxos_protocol = protocol;
 			break;
+		case AS_PAXOS_PROTOCOL_V4:
+			cf_warning(AS_PAXOS, "cannot dynamically set Paxos protocol to version %d", AS_PAXOS_PROTOCOL_VERSION_NUMBER(protocol));
+			return(-1);
 		case AS_PAXOS_PROTOCOL_NONE:
 			cf_info(AS_PAXOS, "disabling Paxos messaging");
 			as_partition_disallow_migrations();
