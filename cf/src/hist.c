@@ -133,14 +133,14 @@ histogram_dump(histogram *h)
 
 	buf[0] = '\0';
 
-	cf_info(AS_INFO, "histogram dump: %s (%zu total)", h->name, total_count);
+	cf_info(AS_INFO, "histogram dump: %s (%lu total)", h->name, total_count);
 
 	for ( ; i <= j; i++) {
 		if (counts[i] == 0) { // print only non-zero columns
 			continue;
 		}
 
-		int bytes = sprintf(buf + pos, " (%02d: %010zu) ", i, counts[i]);
+		int bytes = sprintf(buf + pos, " (%02d: %010lu)", i, counts[i]);
 
 		if (bytes <= 0) {
 			cf_info(AS_INFO, "histogram dump error");
@@ -415,7 +415,7 @@ linear_histogram_dump(linear_histogram *h)
 
 	buf[0] = '\0';
 
-	cf_debug(AS_NSUP, "linear histogram dump: %s [%u %u]/[%u] (%zu total)",
+	cf_debug(AS_NSUP, "linear histogram dump: %s [%lu %lu]/[%lu] (%lu total)",
 			h->name, h->start, h->start + (h->num_buckets * h->bucket_width),
 			h->bucket_width, total_count);
 
@@ -424,7 +424,7 @@ linear_histogram_dump(linear_histogram *h)
 			continue;
 		}
 
-		int bytes = sprintf(buf + pos, " (%02d: %010zu) ", i, counts[i]);
+		int bytes = sprintf(buf + pos, " (%02d: %010lu)", i, counts[i]);
 
 		if (bytes <= 0) {
 			cf_debug(AS_NSUP, "linear histogram dump error");
