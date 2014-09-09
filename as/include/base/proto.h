@@ -70,7 +70,6 @@ struct as_file_handle_s;
 #define AS_PROTO_RESULT_FAIL_KEY_MISMATCH 19
 #define AS_PROTO_RESULT_FAIL_NAMESPACE 20
 #define AS_PROTO_RESULT_FAIL_BIN_NAME 21
-#define AS_PROTO_RESULT_FAIL_COLLECTION_ITEM_NOT_FOUND 22 // LDT item not found
 
 // Security result codes. Must be <= 255, to fit in one byte. Defined here to
 // ensure no overlap with other result codes.
@@ -96,7 +95,11 @@ struct as_file_handle_s;
 #define AS_SEC_ERR_NOT_AUTHENTICATED	80	// socket not authenticated
 #define AS_SEC_ERR_ROLE_VIOLATION		81	// role (privilege) violation
 
+// UDF Errors (100 - 120)
 #define AS_PROTO_RESULT_FAIL_UDF_EXECUTION     100
+
+// LDT (and general collection) Errors (125 - 140)
+#define AS_PROTO_RESULT_FAIL_COLLECTION_ITEM_NOT_FOUND 125 // Item not found
 
 // Secondary Index Query Failure Codes 200 - 230
 #define AS_PROTO_RESULT_FAIL_INDEX_FOUND       200
