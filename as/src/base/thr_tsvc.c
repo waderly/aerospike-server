@@ -517,9 +517,9 @@ process_transaction(as_transaction *tr)
 
 	ns = as_namespace_get_bymsgfield(nsfp);
 	if (!ns) {
-		char nsprint[33];
-		int ns_sz = as_msg_field_get_value_sz(nsfp);
-		int len = ns_sz;
+		char nsprint[AS_ID_NAMESPACE_SZ];
+		uint32_t ns_sz = as_msg_field_get_value_sz(nsfp);
+		uint32_t len = ns_sz;
 		if (ns_sz >= sizeof(nsprint)) {
 			ns_sz = sizeof(nsprint) - 1;
 		}

@@ -922,8 +922,8 @@ as_msg_peek( cl_msg *msgp, proto_peek *peek )
 
 	// find the namespace
 	if (nfp) {
-		int nsz = swap ? as_msg_field_get_value_sz_unswap(nfp) : as_msg_field_get_value_sz(nfp);
-		if (nsz > AS_ID_NAMESPACE_SZ) goto no_ns; // this should be illegal
+		uint32_t nsz = swap ? as_msg_field_get_value_sz_unswap(nfp) : as_msg_field_get_value_sz(nfp);
+		if (nsz >= AS_ID_NAMESPACE_SZ) goto no_ns; // this should be illegal
 		for (int i = 0; i < g_config.namespaces; i++) {
 			tsvc_namespace_devices *ndev = &g_tsvc_devices_a[i];
 			if (ndev->n_sz != nsz) continue;
@@ -1171,31 +1171,3 @@ as_msg_send_fin(int fd, uint32_t result_code)
 
 	return as_msg_send_response(fd, (uint8_t*) &m, sizeof(m), MSG_NOSIGNAL);
 }
-
-#ifdef USE_JEM
-/*
- *  Peek into the message to determine the JEMalloc arena to be used for the namespace.
- *
- *  Return the arena number, or else -1 if any error occurs.
- *
- *  Note:  This function works on unswapped data.
- */
-int
-as_msg_peek_namespace_jem_arena(cl_msg *msgp)
-{
-	int arena = -1;
-
-	if (msgp && (msgp->proto.version == PROTO_VERSION) && (msgp->proto.type == PROTO_TYPE_AS_MSG)) {
-		as_msg *amsg = &msgp->msg;
-
-		as_msg_field *mf = as_msg_field_get(amsg, AS_MSG_FIELD_TYPE_NAMESPACE);
-
-		if (mf) {
-			char *ns = (char *) mf->data;
-			arena = as_namespace_get_jem_arena(ns);
-		}
-	}
-
-	return arena;
-}
-#endif
