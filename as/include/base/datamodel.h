@@ -28,6 +28,7 @@
 
 #include "base/feature.h" // turn new AS Features on/off (must be first in line)
 
+#include <limits.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -828,6 +829,7 @@ typedef enum {
 } conflict_resolution_policy;
 
 #define AS_SET_MAX_COUNT 0x3FF	// ID's 10 bits worth minus 1 (ID 0 means no set)
+#define AS_BINID_HAS_SINDEX_SIZE  MAX_BIN_NAMES / ( sizeof(uint32_t) * CHAR_BIT )
 
 /* as_namespace[_id]
  * A namespace container */
@@ -963,6 +965,7 @@ struct as_namespace_s {
 	cf_atomic_int		sindex_data_memory_used;
 	shash				*sindex_property_hash;  // set_binid_type
 	shash				*sindex_iname_hash;
+	uint32_t             binid_has_sindex[AS_BINID_HAS_SINDEX_SIZE];
 
 	// Current state of threshold breaches.
 	cf_atomic32		hwm_breached;

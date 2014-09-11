@@ -159,7 +159,11 @@ as_sindex__lookup_lockfree(as_namespace *ns, char *iname, int binid, char *set, 
 
 	if (iname) {
 		simatch   = as_sindex__simatch_by_iname(ns, iname);
-	} else {
+	} 
+	else {
+		if (!as_sindex_binid_has_sindex(ns,  binid) ) {
+			 goto END;
+		}
 		simatch   = as_sindex__simatch_by_property(ns, set, binid, type);
 	}
 
@@ -937,6 +941,8 @@ as_sindex_init(as_namespace *ns)
 		cf_crash(AS_AS, "Couldn't create sindex iname hash");
 	}
 
+	// Init binid_has_sindex to zero
+	memset(ns->binid_has_sindex, 0, sizeof(uint32_t)*AS_BINID_HAS_SINDEX_SIZE);	
 	return AS_SINDEX_OK;
 }
 
@@ -1206,6 +1212,7 @@ as_sindex_create(as_namespace *ns, as_sindex_metadata *imd, bool user_create)
 		si->imd         = qimd;
 		si->imd->bimatch = bimatch;
 		si->state       = AS_SINDEX_ACTIVE;
+		as_sindex_set_binid_has_sindex(ns, si->imd->binid[0]);
 		si->trace_flag  = 0;
 		si->desync_cnt  = 0;
 		si->flag        = AS_SINDEX_FLAG_WACTIVE;
@@ -1324,6 +1331,7 @@ as_sindex_destroy(as_namespace *ns, as_sindex_metadata *imd)
 			si->new_imd = NULL;
 		}
 		si->state = AS_SINDEX_DESTROY;
+		as_sindex_reset_binid_has_sindex(ns, imd->binid[0]);
 		AS_SINDEX_RELEASE(si);
 		SINDEX_GUNLOCK();
 		return AS_SINDEX_OK;
@@ -3090,4 +3098,50 @@ as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, ui
 	as_sindex_imd_free(&imd);
 
 	return(0);
+}
+
+void
+as_sindex_set_binid_has_sindex(as_namespace *ns, int binid)
+{
+	int index     = binid / 32;
+	uint32_t temp = ns->binid_has_sindex[index];
+	temp         |= (1 << (binid % 32));
+	ns->binid_has_sindex[index] = temp;
+}
+
+// Should be called under Sindex WLOCK
+void
+as_sindex_reset_binid_has_sindex(as_namespace *ns, int binid)
+{
+	// Iterate over all sindex to check if any other bin with same id has sindex.
+	int i=0;
+	int j=0;
+	as_sindex * si = NULL;
+	while (i<AS_SINDEX_MAX && j<ns->sindex_cnt) {
+		si = &ns->sindex[i];
+		if ( si ) {
+			if( si->state == AS_SINDEX_ACTIVE ) {
+				j++;
+				if (si->imd->binid[0] == binid) {
+					return;
+				}
+			}
+		}
+		i++;
+	}
+
+	int index     = binid / 32;
+	uint32_t temp = ns->binid_has_sindex[index];
+	temp         &= ~(1 << (binid % 32));
+	ns->binid_has_sindex[index] = temp;
+}
+
+bool
+as_sindex_binid_has_sindex(as_namespace *ns, int binid)
+{
+	int retval    = false;
+	int index     = binid / 32;
+	uint32_t temp = ns->binid_has_sindex[index];
+	retval        = temp & (1 << (binid % 32));
+	return retval;
 }
