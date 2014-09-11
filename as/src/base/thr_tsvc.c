@@ -503,9 +503,9 @@ process_transaction(as_transaction *tr)
 	// Find the namespace.
 	as_msg_field *nsfp = as_msg_field_get(&msgp->msg, AS_MSG_FIELD_TYPE_NAMESPACE);
 	if (!nsfp) {
-		cf_info(AS_TSVC, "thr_tsvc: no namespace in protocol request");
+		cf_warning(AS_TSVC, "no namespace in protocol request");
 		if (tr->proto_fd_h) {
-			as_msg_send_reply(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_PARAMETER,
+			as_msg_send_reply(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_NAMESPACE,
 					0, 0, 0, 0, 0, 0, 0, tr->trid, NULL);
 			tr->proto_fd_h = 0;
 			// histogram_insert_data_point(g_config.rt_hist, tr->start_time);
@@ -517,19 +517,19 @@ process_transaction(as_transaction *tr)
 
 	ns = as_namespace_get_bymsgfield(nsfp);
 	if (!ns) {
-		char nsprint[33];
-		int ns_sz = as_msg_field_get_value_sz(nsfp);
-		int len = ns_sz;
+		char nsprint[AS_ID_NAMESPACE_SZ];
+		uint32_t ns_sz = as_msg_field_get_value_sz(nsfp);
+		uint32_t len = ns_sz;
 		if (ns_sz >= sizeof(nsprint)) {
 			ns_sz = sizeof(nsprint) - 1;
 		}
 		memcpy(nsprint, nsfp->data, ns_sz);
 		nsprint[ns_sz] = 0;
-		cf_info(AS_TSVC, "unknown namespace %s %d %p %dreceived over protocol",
+		cf_warning(AS_TSVC, "unknown namespace %s %d %p %u in protocol request - check configuration file",
 				nsprint, len, nsfp, nsfp->field_sz);
 
 		if (tr->proto_fd_h) {
-			as_msg_send_reply(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_PARAMETER,
+			as_msg_send_reply(tr->proto_fd_h, AS_PROTO_RESULT_FAIL_NAMESPACE,
 					0, 0, 0, 0, 0, 0, 0, tr->trid, NULL);
 			tr->proto_fd_h = 0;
 			// histogram_insert_data_point(g_config.rt_hist, tr->start_time);

@@ -68,6 +68,8 @@ struct as_file_handle_s;
 #define AS_PROTO_RESULT_FAIL_BIN_NOT_FOUND 17
 #define AS_PROTO_RESULT_FAIL_DEVICE_OVERLOAD 18
 #define AS_PROTO_RESULT_FAIL_KEY_MISMATCH 19
+#define AS_PROTO_RESULT_FAIL_NAMESPACE 20
+#define AS_PROTO_RESULT_FAIL_BIN_NAME 21
 
 // Security result codes. Must be <= 255, to fit in one byte. Defined here to
 // ensure no overlap with other result codes.
@@ -93,7 +95,11 @@ struct as_file_handle_s;
 #define AS_SEC_ERR_NOT_AUTHENTICATED	80	// socket not authenticated
 #define AS_SEC_ERR_ROLE_VIOLATION		81	// role (privilege) violation
 
+// UDF Errors (100 - 120)
 #define AS_PROTO_RESULT_FAIL_UDF_EXECUTION     100
+
+// LDT (and general collection) Errors (125 - 140)
+#define AS_PROTO_RESULT_FAIL_COLLECTION_ITEM_NOT_FOUND 125 // Item not found
 
 // Secondary Index Query Failure Codes 200 - 230
 #define AS_PROTO_RESULT_FAIL_INDEX_FOUND       200
@@ -510,14 +516,3 @@ extern uint8_t * as_msg_write_fields(uint8_t *buf, const char *ns, int ns_len,
 extern uint8_t * as_msg_write_header(uint8_t *buf, size_t msg_sz, uint info1,
 		uint info2, uint info3, uint32_t generation, uint32_t record_ttl,
 		uint32_t transaction_ttl, uint32_t n_fields, uint32_t n_ops);
-
-#ifdef USE_JEM
-/*
- *  Peek into the message to determine the JEMalloc arena to be used for the namespace.
- *
- *  Return the arena number, or else -1 if any error occurs.
- *
- *  Note:  This function works on unswapped data.
- */
-int as_msg_peek_namespace_jem_arena(cl_msg *msgp);
-#endif

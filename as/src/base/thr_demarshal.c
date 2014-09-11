@@ -490,7 +490,7 @@ thr_demarshal(void *arg)
 						bool found = false;
 						size_t offset = sizeof(as_msg);
 						if (!(peeked_data_sz = cf_socket_recv(fd, peekbuf, peekbuf_sz, 0))) {
-							cf_warning(AS_DEMARSHAL, "Could not peek the AS_MSG header!");
+							cf_warning(AS_DEMARSHAL, "could not peek the as_msg header");
 						} else if (peeked_data_sz > min_as_msg_sz) {
 //							cf_debug(AS_DEMARSHAL, "(Peeked %zu bytes.)", peeked_data_sz);
 							uint16_t n_fields = ntohs(((as_msg *) peekbuf)->n_fields), field_num = 0;
@@ -501,8 +501,12 @@ thr_demarshal(void *arg)
 //								cf_debug(AS_DEMARSHAL, "\tfield_sz %ld", ntohl(field->field_sz));
 //								cf_debug(AS_DEMARSHAL, "\ttype %d", field->type);
 								if (AS_MSG_FIELD_TYPE_NAMESPACE == field->type) {
-									found = true;
+									if (field->field_sz >= AS_ID_NAMESPACE_SZ) {
+										cf_warning(AS_DEMARSHAL, "namespace too long (%u) in as_msg", field->field_sz);
+										break;
+									}
 									char ns[AS_ID_NAMESPACE_SZ];
+									found = true;
 									size_t field_sz_minus_1 = ntohl(field->field_sz) - 1;
 									memcpy(ns, field->data, field_sz_minus_1);
 									ns[field_sz_minus_1] = '\0';
@@ -512,6 +516,9 @@ thr_demarshal(void *arg)
 //									cf_debug(AS_DEMARSHAL, "Message field %d is not namespace (type %d) ~~ Reading next field", field_num, field->type);
 									field_num++;
 									offset += ntohl(field->field_sz) + sizeof(as_msg_field) - 1;
+									if (offset >= peekbuf_sz) {
+										break;
+									}
 								}
 							}
 						}
