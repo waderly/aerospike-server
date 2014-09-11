@@ -73,11 +73,17 @@ typedef struct as_paxos_msg {
 
 /* as_paxos_msg_template
  * The template for a Paxos fabric message
- * Note:  There are two versions of the Paxos protocol sharing this message template:
+ * Note:  There are four versions of the Paxos protocol sharing this message template:
  *   Paxos protocol v1 doesn't have the succession / change list length.
  *   Paxos protocol v2 rightfully includes the length of the succession / change list
  *      so that it's possible to have peaceful coexistence and interoperability
- *      between nodes of different maximum cluster sizes. */
+ *      between nodes of different maximum cluster sizes.
+ *   Paxos protocol v3 includes the properties of v2 as well as adding the partition size
+ *      array used for Secondary Index Query Node determination.
+ *   Paxos protocol v4 is identical to v3 except in the value of the version identifier.
+ *      The v4 protocol is used as a tag to distinguish nodes running with Rack Aware mode
+ *      enabled so that clustering will only be possible between nodes with a common
+ *      interpretation of the internal bit field structure of node ID values. */
 static const msg_template as_paxos_msg_template[] = {
 #define AS_PAXOS_MSG_V1_IDENTIFIER 0x7078
 #define AS_PAXOS_MSG_V2_IDENTIFIER 0x7079
@@ -163,7 +169,7 @@ typedef struct as_paxos_change_t {
  * Note:  The "payload[]" field is used to convey both the types of changes
  * as well as the changing nodes.  These are re-packed from the corresponding
  * "as_paxos_change" structure, which is sized to the compiled-in maximum
- * cluster size, down to the current PAXOS maximum cluster size for consistent
+ * cluster size, down to the current Paxos maximum cluster size for consistent
  * network transmission to the rest of the cluster members.
  */
 typedef struct as_paxos_wire_change_t {
