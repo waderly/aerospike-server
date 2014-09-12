@@ -3100,6 +3100,8 @@ as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, ui
 	return(0);
 }
 
+// Set the binid'th bit of the bin_has_sindex array.
+// It is always called under SINDEX WLOCK.
 void
 as_sindex_set_binid_has_sindex(as_namespace *ns, int binid)
 {
@@ -3109,7 +3111,8 @@ as_sindex_set_binid_has_sindex(as_namespace *ns, int binid)
 	ns->binid_has_sindex[index] = temp;
 }
 
-// Should be called under Sindex WLOCK
+// Tries to reset the binid'th bit of bin_has_sindex array.
+// It is always called under SINDEX WLOCK
 void
 as_sindex_reset_binid_has_sindex(as_namespace *ns, int binid)
 {
