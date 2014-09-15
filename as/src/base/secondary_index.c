@@ -3101,7 +3101,7 @@ as_sindex_smd_accept_cb(char *module, as_smd_item_list_t *items, void *udata, ui
 }
 
 // Set the binid'th bit of the bin_has_sindex array.
-// It is always called under SINDEX WLOCK.
+// It is always called under SINDEX GWLOCK.
 void
 as_sindex_set_binid_has_sindex(as_namespace *ns, int binid)
 {
@@ -3112,18 +3112,19 @@ as_sindex_set_binid_has_sindex(as_namespace *ns, int binid)
 }
 
 // Tries to reset the binid'th bit of bin_has_sindex array.
-// It is always called under SINDEX WLOCK
+// It is always called under SINDEX GWLOCK
 void
 as_sindex_reset_binid_has_sindex(as_namespace *ns, int binid)
 {
 	// Iterate over all sindex to check if any other bin with same id has sindex.
-	int i=0;
-	int j=0;
+	int i          = 0;
+	int j          = 0;
 	as_sindex * si = NULL;
-	while (i<AS_SINDEX_MAX && j<ns->sindex_cnt) {
+
+	while (i < AS_SINDEX_MAX && j < ns->sindex_cnt) {
 		si = &ns->sindex[i];
-		if ( si ) {
-			if( si->state == AS_SINDEX_ACTIVE ) {
+		if (si != NULL) {
+			if (si->state == AS_SINDEX_ACTIVE) {
 				j++;
 				if (si->imd->binid[0] == binid) {
 					return;
@@ -3139,12 +3140,16 @@ as_sindex_reset_binid_has_sindex(as_namespace *ns, int binid)
 	ns->binid_has_sindex[index] = temp;
 }
 
+// Check the binid'th bit of bin_has_sindex array. 
+// 		If set, bin with bin-id as binid has atleast one sindex over it.
+// 		Else not.
+// It is always called under SINDEX GRLOCK
 bool
 as_sindex_binid_has_sindex(as_namespace *ns, int binid)
 {
-	int retval    = false;
-	int index     = binid / 32;
-	uint32_t temp = ns->binid_has_sindex[index];
-	retval        = temp & (1 << (binid % 32));
+	bool retval    = false;
+	int index      = binid / 32;
+	uint32_t temp  = ns->binid_has_sindex[index];
+	retval         = temp & (1 << (binid % 32));
 	return retval;
 }
