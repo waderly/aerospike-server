@@ -497,17 +497,18 @@ thr_demarshal(void *arg)
 //							cf_debug(AS_DEMARSHAL, "Found %d AS_MSG fields", n_fields);
 							while (!found && (field_num < n_fields)) {
 								as_msg_field *field = (as_msg_field *) (&peekbuf[offset]);
+								uint32_t field_sz = ntohl(field->field_sz);
 //								cf_debug(AS_DEMARSHAL, "Field #%d offset: %lu", field_num, offset);
-//								cf_debug(AS_DEMARSHAL, "\tfield_sz %ld", ntohl(field->field_sz));
+//								cf_debug(AS_DEMARSHAL, "\tfield_sz %u", field_sz);
 //								cf_debug(AS_DEMARSHAL, "\ttype %d", field->type);
 								if (AS_MSG_FIELD_TYPE_NAMESPACE == field->type) {
-									if (field->field_sz >= AS_ID_NAMESPACE_SZ) {
-										cf_warning(AS_DEMARSHAL, "namespace too long (%u) in as_msg", field->field_sz);
+									if (field_sz >= AS_ID_NAMESPACE_SZ) {
+										cf_warning(AS_DEMARSHAL, "namespace too long (%u) in as_msg", field_sz);
 										break;
 									}
 									char ns[AS_ID_NAMESPACE_SZ];
 									found = true;
-									size_t field_sz_minus_1 = ntohl(field->field_sz) - 1;
+									size_t field_sz_minus_1 = field_sz - 1;
 									memcpy(ns, field->data, field_sz_minus_1);
 									ns[field_sz_minus_1] = '\0';
 //									cf_debug(AS_DEMARSHAL, "Found ns \"%s\" in field #%d.", ns, field_num);
@@ -515,7 +516,7 @@ thr_demarshal(void *arg)
 								} else {
 //									cf_debug(AS_DEMARSHAL, "Message field %d is not namespace (type %d) ~~ Reading next field", field_num, field->type);
 									field_num++;
-									offset += ntohl(field->field_sz) + sizeof(as_msg_field) - 1;
+									offset += field_sz + sizeof(as_msg_field) - 1;
 									if (offset >= peekbuf_sz) {
 										break;
 									}
