@@ -1215,7 +1215,17 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 
 	// stamp in generation
 	r->generation = generation;
-	if (n_generations > 1) r->generation++;
+
+	if (n_generations > 1) {
+		r->generation++;
+	}
+
+	// The generation might wrap - 0 is reserved as "uninitialized". (Also, this
+	// fixes legacy deployments' generation 0.)
+	if (r->generation == 0) {
+		r->generation = 1;
+	}
+
 	r->void_time = void_time;
 	r->migrate_mark = 0;
 

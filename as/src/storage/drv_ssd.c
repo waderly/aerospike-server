@@ -531,11 +531,6 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 		return -3;
 	}
 
-	// Fix one bit of information: 0 generations coming off device.
-	if (block->generation == 0) {
-		block->generation = 1;
-	}
-
 	as_partition_reserve_migrate(ns, pid, &rsv, 0);
 	cf_atomic_int_incr(&g_config.ssdr_tree_count);
 
@@ -2889,6 +2884,7 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 	// Fix 0 generations coming off device.
 	if (block->generation == 0) {
 		block->generation = 1;
+		cf_warning_digest(AS_DRV_SSD, &block->keyd, "record-add found generation 0 - changed to 1");
 	}
 
 	// Set 0 void-time to default, if there is one.

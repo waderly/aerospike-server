@@ -2867,7 +2867,16 @@ void write_local_post_processing(as_transaction *tr, as_namespace *ns,
 			r->generation = wlg->gen_set;
 		} else {
 			r->generation++;
+
+			// The generation might wrap - 0 is reserved as "uninitialized".
+			if (r->generation == 0) {
+				r->generation = 1;
+			}
 		}
+	}
+
+	if (r->generation == 0) {
+		cf_warning_digest(AS_RW, &r->key, "unusual - setting generation 0");
 	}
 
 	cf_debug_digest(AS_RW,&r->key, "WRITE LOCAL: generation %d default_ttl %d ::",
