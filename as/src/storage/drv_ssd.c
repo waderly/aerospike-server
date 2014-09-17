@@ -1004,18 +1004,8 @@ ssd_wblock_init(drv_ssd *ssd)
 
 	at->n_wblocks = n_wblocks;
 
-	uint32_t first_id = BYTES_TO_WBLOCK_ID(ssd, ssd->header_size);
-
-	// No real need to separate the device header wblocks, but it seems better
-	// to give them an inuse_sz indicating they're full.
-	for (uint32_t i = 0; i < first_id; i++) {
-		pthread_mutex_init(&at->wblock_state[i].LOCK, 0);
-		at->wblock_state[i].state = WBLOCK_STATE_NONE;
-		cf_atomic32_set(&at->wblock_state[i].inuse_sz, ssd->write_block_size);
-		at->wblock_state[i].swb = 0;
-	}
-
-	for (uint32_t i = first_id; i < n_wblocks; i++) {
+	// Device header wblocks' inuse_sz will (also) be 0 but that doesn't matter.
+	for (uint32_t i = 0; i < n_wblocks; i++) {
 		pthread_mutex_init(&at->wblock_state[i].LOCK, 0);
 		at->wblock_state[i].state = WBLOCK_STATE_NONE;
 		cf_atomic32_set(&at->wblock_state[i].inuse_sz, 0);
@@ -2727,6 +2717,40 @@ as_storage_init_header(as_namespace *ns)
 }
 
 
+bool
+as_storage_empty_header(int fd, const char* device_name)
+{
+	void *h = cf_valloc(SSD_DEFAULT_HEADER_LENGTH);
+
+	if (! h) {
+		cf_warning(AS_DRV_SSD, "device %s: empty header: valloc failed",
+				device_name);
+		return false;
+	}
+
+	memset(h, 0, SSD_DEFAULT_HEADER_LENGTH);
+
+	if (0 != lseek(fd, 0, SEEK_SET)) {
+		cf_warning(AS_DRV_SSD, "device %s: empty header: seek error: %s",
+				device_name, cf_strerror(errno));
+		cf_free(h);
+		return false;
+	}
+
+	if (SSD_DEFAULT_HEADER_LENGTH != write(fd, h, SSD_DEFAULT_HEADER_LENGTH)) {
+		cf_warning(AS_DRV_SSD, "device %s: empty header: write error: %s",
+				device_name, cf_strerror(errno));
+		cf_free(h);
+		return false;
+	}
+
+	cf_free(h);
+	fsync(fd);
+
+	return true;
+}
+
+
 int
 as_storage_write_header(drv_ssd *ssd, ssd_device_header *header)
 {
@@ -3682,7 +3706,7 @@ ssd_set_scheduler_mode(const char* device_name, const char* mode)
 }
 
 
-static uint32_t
+static void
 check_write_block_size(uint32_t write_block_size)
 {
 	if (write_block_size > MAX_WRITE_BLOCK_SIZE) {
@@ -3695,8 +3719,6 @@ check_write_block_size(uint32_t write_block_size)
 		cf_crash(AS_DRV_SSD, "attempted to configure non-round write block size %u",
 				write_block_size);
 	}
-
-	return write_block_size;
 }
 
 
@@ -3738,25 +3760,19 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 		}
 	}
 
-	if (n_ssds == 0) {
-		cf_warning(AS_DRV_SSD, "storage: no devices, bad config");
-		return -1;
-	}
-
-	drv_ssds *ssds = cf_malloc(sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd)));
+	size_t ssds_size = sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd));
+	drv_ssds *ssds = cf_malloc(ssds_size);
 
 	if (! ssds) {
+		cf_warning(AS_DRV_SSD, "failed drv_ssds malloc");
 		return -1;
 	}
 
-	memset(ssds, 0, sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd)));
+	memset(ssds, 0, ssds_size);
 	ssds->n_ssds = n_ssds;
 	ssds->ns = ns;
-	ssds->header = 0; // created in load function
 
-	ns->ssd_size = 0;
-
-	// Initialize the devices.
+	// Raw device-specific initialization of drv_ssd structures.
 	for (int i = 0; i < n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
 
@@ -3765,12 +3781,6 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 		ssd->open_flag = O_RDWR |
 				(ns->storage_disable_odirect ? 0 : O_DIRECT) |
 				(ns->storage_enable_osync ? O_SYNC : 0);
-
-		ssd->use_signature = ns->storage_signature;
-		ssd->data_in_memory = ns->storage_data_in_memory;
-		ssd->write_block_size =
-				check_write_block_size(ns->storage_write_block_size);
-		ssd->file_id = i;
 
 		int fd = open(ssd->name, ssd->open_flag, S_IRUSR | S_IWUSR);
 
@@ -3783,9 +3793,20 @@ ssd_init_devices(as_namespace *ns, drv_ssds **ssds_p)
 		uint64_t size = 0;
 
 		ioctl(fd, BLKGETSIZE64, &size); // gets the number of bytes
-		close(fd);
 
 		ssd->file_size = check_file_size((off_t)size, "usable device");
+
+		if (ns->cold_start && ns->storage_cold_start_empty) {
+			if (! as_storage_empty_header(fd, ssd->name)) {
+				close(fd);
+				return -1;
+			}
+
+			cf_info(AS_DRV_SSD, "cold-start-empty - erased header of %s",
+					ssd->name);
+		}
+
+		close(fd);
 
 		ns->ssd_size += ssd->file_size; // increment total storage size
 
@@ -3815,35 +3836,38 @@ ssd_init_files(as_namespace *ns, drv_ssds **ssds_p)
 		}
 	}
 
-	if (n_ssds == 0) {
-		cf_warning(AS_DRV_SSD, "storage: no files, bad config");
-		return -1;
-	}
-
-	drv_ssds *ssds = cf_malloc(sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd)));
+	size_t ssds_size = sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd));
+	drv_ssds *ssds = cf_malloc(ssds_size);
 
 	if (! ssds) {
+		cf_warning(AS_DRV_SSD, "failed drv_ssds malloc");
 		return -1;
 	}
 
-	memset(ssds, 0, sizeof(drv_ssds) + (n_ssds * sizeof(drv_ssd)));
+	memset(ssds, 0, ssds_size);
 	ssds->n_ssds = n_ssds;
 	ssds->ns = ns;
 
-	ns->ssd_size = 0;
-
+	// File-specific initialization of drv_ssd structures.
 	for (int i = 0; i < n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
 
 		strcpy(ssd->name, ns->storage_files[i]);
 
+		if (ns->cold_start && ns->storage_cold_start_empty) {
+			if (0 == remove(ssd->name)) {
+				cf_info(AS_DRV_SSD, "cold-start-empty - removed %s", ssd->name);
+			}
+			else if (errno == ENOENT) {
+				cf_info(AS_DRV_SSD, "cold-start-empty - no file %s", ssd->name);
+			}
+			else {
+				cf_warning(AS_DRV_SSD, "failed remove: errno %d", errno);
+				return -1;
+			}
+		}
+
 		ssd->open_flag = O_RDWR;
-		ssd->use_signature = ns->storage_signature;
-		ssd->data_in_memory = ns->storage_data_in_memory;
-		ssd->write_block_size =
-				check_write_block_size(ns->storage_write_block_size);
-		ssd->file_id = i;
-		ssd->file_size = check_file_size(ns->storage_filesize, "file");
 
 		// Validate that file can be opened, create it if it doesn't exist.
 		int fd = open(ssd->name, ssd->open_flag | O_CREAT, S_IRUSR | S_IWUSR);
@@ -3854,9 +3878,12 @@ ssd_init_files(as_namespace *ns, drv_ssds **ssds_p)
 			return -1;
 		}
 
+		ssd->file_size = check_file_size(ns->storage_filesize, "file");
+
 		// Truncate will grow or shrink the file to the correct size.
 		if (0 != ftruncate(fd, ssd->file_size)) {
-			cf_info(AS_DRV_SSD, "unable to truncate file: errno %d", errno);
+			cf_warning(AS_DRV_SSD, "unable to truncate file: errno %d", errno);
+			close(fd);
 			return -1;
 		}
 
@@ -3884,21 +3911,20 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 {
 	drv_ssds *ssds;
 
-	if (ns->storage_devices[0] != 0) {
+	if (ns->storage_devices[0]) {
 		if (0 != ssd_init_devices(ns, &ssds)) {
 			cf_warning(AS_DRV_SSD, "ns %s can't initialize devices", ns->name);
 			return -1;
 		}
 	}
-	else if (ns->storage_files[0] != 0) {
+	else if (ns->storage_files[0]) {
 		if (0 != ssd_init_files(ns, &ssds)) {
 			cf_warning(AS_DRV_SSD, "ns %s can't initialize files", ns->name);
 			return -1;
 		}
 	}
 	else {
-		cf_warning(AS_DRV_SSD, "namespace %s: neither device nor files configured, fatal error",
-				ns->name);
+		cf_warning(AS_DRV_SSD, "ns %s has no devices or files", ns->name);
 		return -1;
 	}
 
@@ -3908,6 +3934,8 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 	ns->saved_write_smoothing_period = ns->storage_write_smoothing_period;
 	ns->storage_defrag_sleep = 0;
 	ns->storage_write_smoothing_period = 0;
+
+	check_write_block_size(ns->storage_write_block_size);
 
 	// The queue limit is more efficient to work with.
 	ns->storage_max_write_q = (int)
@@ -3919,77 +3947,66 @@ as_storage_namespace_init_ssd(as_namespace *ns, cf_queue *complete_q,
 
 	ns->storage_private = (void*)ssds;
 
-	// Create files, open file descriptors, etc.
+	// Finish initializing drv_ssd structures (non-zero-value members).
 	for (int i = 0; i < ssds->n_ssds; i++) {
 		drv_ssd *ssd = &ssds->ssds[i];
 
 		ssd->ns = ns;
+		ssd->file_id = i;
 
 		pthread_mutex_init(&ssd->LOCK, 0);
 
 		ssd->running = true;
-		ssd->current_swb = 0;
 
-		// Initialize ssd_alloc_table.
+		ssd->use_signature = ns->storage_signature;
+		ssd->data_in_memory = ns->storage_data_in_memory;
+		ssd->write_block_size = ns->storage_write_block_size;
+
 		ssd_wblock_init(ssd);
 
-		ssd->fd_q = cf_queue_create(sizeof(int), true);
+		// Note: free_wblock_q, defrag_wblock_q created after loading devices.
 
-		ssd->free_wblock_q = NULL; // created after devices are loaded
-		ssd->defrag_wblock_q = NULL; // created after devices are loaded
+		if (! (ssd->fd_q = cf_queue_create(sizeof(int), true))) {
+			cf_crash(AS_DRV_SSD, "can't create fd queue");
+		}
 
-		ssd->file_id = i;
-		ssd->inuse_size = 0;
+		if (! (ssd->swb_write_q = cf_queue_create(sizeof(void*), true))) {
+			cf_crash(AS_DRV_SSD, "can't create swb-write queue");
+		}
 
-		ssd->swb_write_q = 0;
-		ssd->swb_free_q = 0;
-		ssd->post_write_q = 0;
-
-		ssd->swb_write_q = cf_queue_create(sizeof(void*), true);
-		ssd->swb_free_q = cf_queue_create(sizeof(void*), true);
-
-		if (ssd->swb_write_q == 0 || ssd->swb_free_q == 0) {
-			cf_crash(AS_DRV_SSD, "can't create queue");
+		if (! (ssd->swb_free_q = cf_queue_create(sizeof(void*), true))) {
+			cf_crash(AS_DRV_SSD, "can't create swb-free queue");
 		}
 
 		if (! ns->storage_data_in_memory) {
-			ssd->post_write_q = cf_queue_create(sizeof(void*), false);
-
-			if (! ssd->post_write_q) {
+			if (! (ssd->post_write_q = cf_queue_create(sizeof(void*), false))) {
 				cf_crash(AS_DRV_SSD, "can't create post-write queue");
 			}
 		}
 
-		ssd->defrag_wblock_counter = 0;
-		ssd->ssd_write_buf_counter = 0;
-
 		char histname[HISTOGRAM_NAME_SIZE];
 
 		snprintf(histname, sizeof(histname), "SSD_READ_%d %s", i, ssd->name);
-		ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS);
 
-		if (! ssd->hist_read) {
+		if (! (ssd->hist_read = histogram_create(histname, HIST_MILLISECONDS))) {
 			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_LARGE_BLOCK_READ_%d %s", i, ssd->name);
-		ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS);
 
-		if (! ssd->hist_large_block_read) {
+		if (! (ssd->hist_large_block_read = histogram_create(histname, HIST_MILLISECONDS))) {
 			cf_crash(AS_DRV_SSD,"cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_WRITE_%d %s", i, ssd->name);
-		ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS);
 
-		if (! ssd->hist_write) {
+		if (! (ssd->hist_write = histogram_create(histname, HIST_MILLISECONDS))) {
 			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 
 		snprintf(histname, sizeof(histname), "SSD_FSYNC_%d %s", i, ssd->name);
-		ssd->hist_fsync = histogram_create(histname, HIST_MILLISECONDS);
 
-		if (! ssd->hist_fsync) {
+		if (! (ssd->hist_fsync = histogram_create(histname, HIST_MILLISECONDS))) {
 			cf_crash(AS_DRV_SSD, "cannot create histogram %s", histname);
 		}
 	}
