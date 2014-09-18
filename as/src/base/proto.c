@@ -988,7 +988,7 @@ uint8_t * as_msg_write_fields(uint8_t *buf, const char *ns, int ns_len,
 		mf = mf_tmp;
 	}
 
-	if (set) {
+	if (set && set_len != 0) {
 		mf->type = AS_MSG_FIELD_TYPE_SET;
 		mf->field_sz = set_len + 1;
 		//printf("write_fields: set: write_fields: %d\n", mf->field_sz);

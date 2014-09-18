@@ -280,11 +280,16 @@ as_transaction_create( as_transaction *tr, tr_create_data *  trc_data)
 	int set_len       = strlen(d->set);	
 
 	// Figure out the size of the message.
-	size_t  msg_sz          = sizeof(cl_msg);
-	if (d->ns)      msg_sz += sizeof(as_msg_field) + ns_len;
-	if (d->set)     msg_sz += sizeof(as_msg_field) + set_len;
-	if (&d->digest) msg_sz += sizeof(as_msg_field) + 1 + sizeof(cf_digest);
-	if (&d->trid)   msg_sz += sizeof(as_msg_field) + sizeof(d->trid);
+	size_t  msg_sz = sizeof(cl_msg);
+
+	msg_sz += sizeof(as_msg_field) + ns_len;
+
+	if (set_len != 0) {
+		msg_sz += sizeof(as_msg_field) + set_len;
+	}
+
+	msg_sz += sizeof(as_msg_field) + sizeof(cf_digest);
+	msg_sz += sizeof(as_msg_field) + sizeof(d->trid);
 
 	// Udf call structure will go as a part of the transaction udata.
 	// Do not pack it in the message.
@@ -304,7 +309,7 @@ as_transaction_create( as_transaction *tr, tr_create_data *  trc_data)
 	buf = as_msg_write_header(buf, msg_sz, 0, d->msg_type, 0, 0, 0, 0, 2 /*n_fields*/, 0);
 
 	// Now write the fields.
-	buf = as_msg_write_fields(buf, d->ns->name, ns_len, NULL, 0, &(d->digest), 0, 0 , 0, 0);
+	buf = as_msg_write_fields(buf, d->ns->name, ns_len, d->set, set_len, &(d->digest), 0, 0 , 0, 0);
 	
 	tr->incoming_cluster_key = 0;
 	// Using the scan job fd. Reservation of this fd takes place at the
