@@ -546,14 +546,13 @@ ssd_record_defrag(drv_ssd *ssd, drv_ssd_block *block, uint64_t rblock_id,
 		if (r->storage_key.ssd.file_id == ssd->file_id &&
 				r->storage_key.ssd.rblock_id == rblock_id) {
 			if (r->generation != block->generation) {
-				cf_warning(AS_DRV_SSD, "defrag: block points here but generation different (%d:%d), surprising",
-						r->generation, block->generation);
+				cf_warning_digest(AS_DRV_SSD, &r->key, "device %s defrag: rblock_id %lu generation mismatch (%u:%u) ",
+						ssd->name, rblock_id, r->generation, block->generation);
 			}
 
 			if (r->storage_key.ssd.n_rblocks != n_rblocks) {
-				cf_warning(AS_DRV_SSD, "device %s defrag key %lx rblock-id %lu had mismatched n_blocks: %u, %u",
-						ssd->name, rblock_id, *(uint64_t*)&r->key,
-						r->storage_key.ssd.n_rblocks, n_rblocks);
+				cf_warning_digest(AS_DRV_SSD, &r->key, "device %s defrag: rblock_id %lu n_blocks mismatch (%u:%u) ",
+						ssd->name, rblock_id, r->storage_key.ssd.n_rblocks, n_rblocks);
 			}
 
 			as_storage_rd rd;
@@ -1077,9 +1076,9 @@ as_storage_record_read_ssd(as_storage_rd *rd)
 	as_record *r = rd->r;
 
 	if (STORAGE_RBLOCK_IS_INVALID(r->storage_key.ssd.rblock_id)) {
-		cf_warning(AS_DRV_SSD, "**** ssd_read: record %"PRIx64" has no block associated, fail",
-				*(uint64_t*)&rd->keyd);
-		return-1;
+		cf_warning_digest(AS_DRV_SSD, &rd->keyd, "{%s} read_ssd: invalid rblock_id ",
+				rd->ns->name);
+		return -1;
 	}
 
 	uint64_t record_offset = RBLOCKS_TO_BYTES(r->storage_key.ssd.rblock_id);
@@ -1979,6 +1978,8 @@ ssd_write(as_record *r, as_storage_rd *rd)
 	drv_ssd *ssd = rd->u.ssd.ssd;
 
 	if (! ssd) {
+		cf_warning(AS_DRV_SSD, "{%s} ssd_write: no drv_ssd for file_id %d",
+				rd->ns->name, ssd_get_file_id(ssds, &rd->keyd));
 		return -1;
 	}
 
@@ -2877,14 +2878,14 @@ ssd_record_add(drv_ssds* ssds, drv_ssd* ssd, drv_ssd_block* block,
 					&block->keyd, &r_ref, ns);
 
 	if (rv < 0) {
-		cf_warning(AS_DRV_SSD, "record-add as_record_get_create() failed");
+		cf_warning_digest(AS_DRV_SSD, &block->keyd, "record-add as_record_get_create() failed ");
 		return -1;
 	}
 
 	// Fix 0 generations coming off device.
 	if (block->generation == 0) {
 		block->generation = 1;
-		cf_warning_digest(AS_DRV_SSD, &block->keyd, "record-add found generation 0 - changed to 1");
+		cf_warning_digest(AS_DRV_SSD, &block->keyd, "record-add found generation 0 - changed to 1 ");
 	}
 
 	// Set 0 void-time to default, if there is one.

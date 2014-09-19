@@ -630,8 +630,8 @@ int rw_cleanup(write_request *wr, as_transaction *tr, bool first_time,
 	}
 	if (first_time) {
 		if ((wr->msgp != NULL) || wr->rsv_valid) {
-			cf_warning(AS_RW,
-					"{%s:%d} rw_cleanup: illegal state write-request set in first call for %s-request n-dupl %u dupl-nodes[0] %lx [%p %p %d]",
+			cf_warning_digest(AS_RW, &wr->keyd,
+					"{%s:%d} rw_cleanup: illegal state write-request set in first call for %s-request n-dupl %u dupl-nodes[0] %lx [%p %p %d] ",
 					tr->rsv.ns->name, tr->rsv.pid, wr->is_read ? "read" : "write",
 					(uint32_t)tr->rsv.n_dupl, tr->rsv.dupl_nodes[0],
 					wr->msgp, tr->msgp, wr->rsv_valid);
@@ -649,8 +649,8 @@ int rw_cleanup(write_request *wr, as_transaction *tr, bool first_time,
 		}
 	} else {
 		if ((wr->msgp != tr->msgp) || !wr->rsv_valid) {
-			cf_warning(AS_RW,
-					"{%s:%d} rw_cleanup: illegal state write-request set in second call for %s-request n-dupl %u dupl-nodes[0] %lx [%p %p %d]",
+			cf_warning_digest(AS_RW, &wr->keyd,
+					"{%s:%d} rw_cleanup: illegal state write-request set in second call for %s-request n-dupl %u dupl-nodes[0] %lx [%p %p %d] ",
 					tr->rsv.ns->name, tr->rsv.pid, wr->is_read ? "read" : "write",
 					(uint32_t)tr->rsv.n_dupl, tr->rsv.dupl_nodes[0],
 					wr->msgp, tr->msgp, wr->rsv_valid);
@@ -2003,7 +2003,7 @@ rw_dup_prole(cf_node node, msg *m)
 		as_storage_rd rd;
 
 		if (0 != as_storage_record_open(rsv.ns, r, &rd, keyd)) {
-			cf_debug(AS_RECORD, "pickle: couldn't open record");
+			cf_debug(AS_RW, "pickle: couldn't open record");
 			msg_set_unset(m, RW_FIELD_VINFOSET);
 			cf_atomic_int_incr(&g_config.rw_err_dup_internal);
 			goto Out3;
@@ -2189,7 +2189,7 @@ write_local_pickled(cf_digest *keyd, as_partition_reservation *rsv,
 	as_index *r = r_ref.r;
 
 	if (rv < 0) {
-		cf_warning(AS_RW, "{%s}: write_local_pickled: fail as_record_get_create()", rsv->ns->name);
+		cf_warning_digest(AS_RW, keyd, "{%s} write_local_pickled: fail as_record_get_create() ", rsv->ns->name);
 		return -1;
 	}
 
@@ -2248,7 +2248,7 @@ write_local_pickled(cf_digest *keyd, as_partition_reservation *rsv,
 	as_storage_record_close(r, &rd);
 
 	if ((tree == 0) || (rsv->ns == 0) || (rsv->p == 0)) {
-		cf_crash(AS_RECORD,
+		cf_crash(AS_RW,
 				"record merge: bad reservation. tree %p ns %p part %p",
 				tree, rsv->ns, rsv->p);
 		return (-1);
@@ -3262,6 +3262,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 		int rv = as_record_get_create(tree, &tr->keyd, &r_ref, ns);
 
 		if (rv < 0) {
+			cf_warning_digest(AS_RW, &tr->keyd, "{%s} write_local: fail as_record_get_create() ", ns->name);
 			write_local_failed(tr, 0, record_created, tree, 0, AS_PROTO_RESULT_FAIL_UNKNOWN);
 			return -1;
 		}
@@ -3483,7 +3484,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 
 	if (merge) {
 		version = as_record_unused_version_get(&rd);
-		cf_info(AS_RECORD, "merge: inserting version %d", version);
+		cf_info(AS_RW, "merge: inserting version %d", version);
 	}
 
 	// Loop over ops to perform bin-level checks and gather sizing information.
@@ -3771,7 +3772,7 @@ write_local(as_transaction *tr, write_local_generation *wlg,
 	uint8_t stack_particles[stack_particles_sz]; // stack allocate space for new particles when data on device
 	uint8_t *p_stack_particles = stack_particles;
 
-	cf_detail(AS_RECORD, "write local: mask %x %"PRIx64, as_index_vinfo_mask_get(r, ns->allow_versions), *(uint64_t *)&tr->keyd);
+	cf_detail(AS_RW, "write local: mask %x %"PRIx64, as_index_vinfo_mask_get(r, ns->allow_versions), *(uint64_t *)&tr->keyd);
 
 	bool increment_generation = false;
 	op = 0;
