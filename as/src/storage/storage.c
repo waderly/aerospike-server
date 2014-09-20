@@ -659,6 +659,11 @@ as_storage_record_get_n_bytes_memory(as_storage_rd *rd)
 		return 0;
 	}
 
+	if (rd->n_bins == 0) {
+		// Don't count overhead in this case.
+		return 0;
+	}
+
 	uint64_t n_bytes_memory = 0;
 
 	for (uint16_t i = 0; i < rd->n_bins; i++) {
