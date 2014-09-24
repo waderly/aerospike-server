@@ -3149,5 +3149,5 @@ as_sindex_binid_has_sindex(as_namespace *ns, int binid)
 {
 	int index      = binid / 32;
 	uint32_t temp  = ns->binid_has_sindex[index];
-	return ((temp & (1 << (binid % 32))) != 0) ? true : false;
+	return (temp & (1 << (binid % 32))) ? true : false;
 }
