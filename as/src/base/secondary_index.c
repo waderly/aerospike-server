@@ -3147,9 +3147,7 @@ as_sindex_reset_binid_has_sindex(as_namespace *ns, int binid)
 bool
 as_sindex_binid_has_sindex(as_namespace *ns, int binid)
 {
-	bool retval    = false;
 	int index      = binid / 32;
 	uint32_t temp  = ns->binid_has_sindex[index];
-	retval         = temp & (1 << (binid % 32));
-	return retval;
+	return ((temp & (1 << (binid % 32))) != 0) ? true : false;
 }
