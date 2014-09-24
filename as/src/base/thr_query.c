@@ -1387,6 +1387,7 @@ as_query__process_udfreq(as_query_request *qudf)
 
 			// Fill the structure needed by internal transaction create
 			tr_create_data d;
+			memset(&d, 0, sizeof(tr_create_data));
 			d.digest   = dt->digs[i];
 			d.ns       = qtr->ns;
 			d.call     = &(qtr->call);

@@ -139,8 +139,7 @@ as_record_get_create(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, 
 		cf_detail(AS_RECORD, "record get_create: digest %"PRIx64" found record %p", *(uint64_t *)keyd , r_ref->r);
 
 		if (r_ref->r->storage_key.ssd.rblock_id == 0) {
-			cf_warning_digest(AS_DRV_SSD, keyd, "fail as_record_get_create(): rblock_id 0 ");
-			r_ref->r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
+			cf_debug_digest(AS_RECORD, keyd, "fail as_record_get_create(): rblock_id 0 ");
 			as_record_done(r_ref, ns);
 			rv = -1;
 		}
@@ -241,8 +240,7 @@ as_record_get(as_index_tree *tree, cf_digest *keyd, as_index_ref *r_ref, as_name
 		cf_detail(AS_RECORD, "record get: digest %"PRIx64" found record %p", *(uint64_t *)keyd, r_ref->r);
 
 		if (r_ref->r->storage_key.ssd.rblock_id == 0) {
-			cf_warning_digest(AS_DRV_SSD, keyd, "fail as_record_get(): rblock_id 0 ");
-			r_ref->r->storage_key.ssd.rblock_id = STORAGE_INVALID_RBLOCK;
+			cf_debug_digest(AS_RECORD, keyd, "fail as_record_get(): rblock_id 0 ");
 			as_record_done(r_ref, ns);
 			rv = -1; // masquerade as a not-found, which is handled everywhere
 		}
@@ -1078,7 +1076,7 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 
 	int rv = as_record_get_create(tree, keyd, &r_ref, rsv->ns);
 	if (rv == -1) {
-		cf_debug(AS_RECORD, "record merge: could not get-create record");
+		cf_warning_digest(AS_RECORD, keyd, "{%s} record merge: could not get-create record ", rsv->ns->name);
 		return(-1);
 	}
 	as_record *r = r_ref.r;
@@ -1215,7 +1213,17 @@ as_record_merge(as_partition_reservation *rsv, cf_digest *keyd, uint16_t n_compo
 
 	// stamp in generation
 	r->generation = generation;
-	if (n_generations > 1) r->generation++;
+
+	if (n_generations > 1) {
+		r->generation++;
+	}
+
+	// The generation might wrap - 0 is reserved as "uninitialized". (Also, this
+	// fixes legacy deployments' generation 0.)
+	if (r->generation == 0) {
+		r->generation = 1;
+	}
+
 	r->void_time = void_time;
 	r->migrate_mark = 0;
 
@@ -1461,7 +1469,7 @@ as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
 				}
 				tree = rsv->sub_tree;
 				cf_assert((n_components == 1) && COMPONENT_IS_MIG(&components[0]),
-						AS_RW, CF_CRITICAL,
+						AS_RECORD, CF_CRITICAL,
 						"LDT_COMPONENT: Subrecord Component for Non Migration Case received %"PRIx64"", *((uint64_t *)keyd));
 				cf_detail(AS_RECORD, "LDT_MERGE merge component is LDT_SUB %d", components[0].flag);
 			} else {
@@ -1497,7 +1505,7 @@ as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
 	if (*winner_idx != -1) {
 		as_record_merge_component *c = &components[*winner_idx];
 		if (COMPONENT_IS_LDT_DUMMY(c)) {
-			cf_assert(COMPONENT_IS_DUP(c), AS_RW, CF_CRITICAL,
+			cf_assert(COMPONENT_IS_DUP(c), AS_RECORD, CF_CRITICAL,
 					"DUMMY LDT Component in Non Duplicate Resolution Code");
 			cf_detail(AS_RECORD, "Ship Operation");
 			// NB: DO NOT CHANGE THIS RETURN. IT MEANS A SPECIAL THING TO THE CALLER
@@ -1507,14 +1515,14 @@ as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
 				as_storage_record_open(rsv->ns, r_ref.r, &rd, keyd);
 			} else {
 				if (-1 == as_record_get_create(tree, keyd, &r_ref, rsv->ns)) {
-					cf_debug(AS_RECORD, "record merge: could not get-create record");
+					cf_warning_digest(AS_RECORD, keyd, "{%s} record flatten: could not get-create record ", rsv->ns->name);
 					return(-1);
 				}
 				r = r_ref.r;
 				as_storage_record_create(rsv->ns, r_ref.r, &rd, keyd);
 			}
 
-			cf_detail(AS_RW, "Local (%d:%d) Remote (%d:%d)", r->generation, r->void_time, c->generation, c->void_time);
+			cf_detail(AS_RECORD, "Local (%d:%d) Remote (%d:%d)", r->generation, r->void_time, c->generation, c->void_time);
 
 			if (COMPONENT_IS_LDT(c)) {
 				cf_detail(AS_RECORD, "Flatten Record Remote LDT Winner @ %d", *winner_idx);
@@ -1529,7 +1537,7 @@ as_record_flatten(as_partition_reservation *rsv, cf_digest *keyd,
 			}
 		}
 	} else {
-		cf_assert(has_local_copy, AS_RW, CF_CRITICAL,
+		cf_assert(has_local_copy, AS_RECORD, CF_CRITICAL,
 				"Local Copy Won when there is no local copy");
 		cf_detail(AS_LDT, "Local Copy Win %d %d rv=%d", r->generation, r->void_time, rv);
 	}
