@@ -197,7 +197,7 @@ send_response(udf_call *call, const char *key, size_t klen, int vtype, void *val
 		cf_free(sp_p);
 	}
 	return 0;
-}
+} // end send_response()
 
 /**
  * Send failure notification for CDT (list, map) serialization error.
@@ -208,7 +208,6 @@ send_cdt_failure(udf_call *call, int vtype, void *val, size_t vlen)
 	call->transaction->result_code = AS_PROTO_RESULT_FAIL_UDF_EXECUTION;
 	return send_response(call, "FAILURE", 7, vtype, val, vlen);
 }
-
 
 /**
  * Send failure notification of general UDF execution, but check for special
@@ -243,7 +242,7 @@ send_udf_failure(udf_call *call, int vtype, void *val, size_t vlen)
 
 	// Start with the space, if it exists, as the marker for where we start
 	// looking for the LDT error contents.
-	if (( charptr = strchr((const char *) val, ' ')) != NULL ) {
+	if ((charptr = strchr((const char *) val, ' ')) != NULL) {
 		// We must be at least 10 chars from the end, so if we're less than that
 		// we are obviously not looking at an LDT error.
 		if (&charptr[9] < &valptr[vlen]) {
@@ -255,7 +254,11 @@ send_udf_failure(udf_call *call, int vtype, void *val, size_t vlen)
 					call->transaction->result_code = error_code;
 					cf_debug(AS_UDF, "LDT Error: Code(%ld) String(%s)",
 							error_code, (char *) val);
-					return send_response(call, "FAILURE", 7, vtype, val, vlen);
+					// Send an "empty" response, with no failure bin.
+					as_transaction *    tr          = call->transaction;
+					single_transaction_response(tr, tr->rsv.ns, NULL/*ops*/,
+							NULL /*bin*/, 0 /*nbins*/, 0, 0, NULL, NULL);
+					return 0;
 				}
 			}
 		}
