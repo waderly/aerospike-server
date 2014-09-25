@@ -578,3 +578,6 @@ extern int as_sindex_smd_can_accept_cb(char* module, as_smd_item_t *item,
 									   void *udata);
 extern uint64_t as_sindex_get_ns_memory_used(as_namespace *ns);
 extern void as_query_histogram_dumpall();
+extern void as_sindex_set_binid_has_sindex(as_namespace *ns, int binid);
+extern void as_sindex_reset_binid_has_sindex(as_namespace *ns, int binid);
+extern bool as_sindex_binid_has_sindex(as_namespace *ns, int binid);

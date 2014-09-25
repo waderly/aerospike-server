@@ -199,9 +199,70 @@ send_response(udf_call *call, const char *key, size_t klen, int vtype, void *val
 	return 0;
 }
 
+/**
+ * Send failure notification for CDT (list, map) serialization error.
+ */
 static inline int
-send_failure(udf_call *call, int vtype, void *val, size_t vlen)
+send_cdt_failure(udf_call *call, int vtype, void *val, size_t vlen)
 {
+	call->transaction->result_code = AS_PROTO_RESULT_FAIL_UDF_EXECUTION;
+	return send_response(call, "FAILURE", 7, vtype, val, vlen);
+}
+
+
+/**
+ * Send failure notification of general UDF execution, but check for special
+ * LDT errors and return specific Wire Protocol error codes for these cases:
+ * (1) Record not found (2)
+ * (2) LDR Collection item not found (125)
+ *
+ * All other errors get the generic 100 (UDF FAIL) code.
+ *
+ * Parse (Actually, probe) the error string, and if we see this pattern:
+ * FileName:Line# 4digits:LDT-<Error String>
+ * For example:
+ * .../aerospike-lua-core/src/ldt/lib_llist.lua:982: 0002:LDT-Top Record Not Found
+ * All UDF errors (LDT included), have the "filename:line# " prefix, and then
+ * LDT errors follow that with a known pattern:
+ * (4 digits, colon, LDT-<Error String>).
+ * We will check the error string by looking for specific markers after the
+ * the space that follows the filename:line#.  If we see the markers, we will
+ * parse the LDT error code and use that as the wire protocol error if it is
+ * one of the special ones:
+ * (1)  "0002:LDT-Top Record Not Found"
+ * (2)  "0125:LDT-Item Not Found"
+ */
+static inline int
+send_udf_failure(udf_call *call, int vtype, void *val, size_t vlen)
+{
+	// We need to do a quick look to see if this is an LDT error string.  If it
+	// is, then we'll look deeper.  We start looking after the first space.
+	char * charptr;
+	char * valptr = (char *) val;
+	long error_code;
+
+	// Start with the space, if it exists, as the marker for where we start
+	// looking for the LDT error contents.
+	if (( charptr = strchr((const char *) val, ' ')) != NULL ) {
+		// We must be at least 10 chars from the end, so if we're less than that
+		// we are obviously not looking at an LDT error.
+		if (&charptr[9] < &valptr[vlen]) {
+			if (memcmp(&charptr[5], ":LDT-", 5) == 0) {
+				error_code = strtol(&charptr[1], NULL, 10);
+				if (error_code == AS_PROTO_RESULT_FAIL_NOTFOUND ||
+					error_code == AS_PROTO_RESULT_FAIL_COLLECTION_ITEM_NOT_FOUND)
+				{
+					call->transaction->result_code = error_code;
+					cf_debug(AS_UDF, "LDT Error: Code(%ld) String(%s)",
+							error_code, (char *) val);
+					return send_response(call, "FAILURE", 7, vtype, val, vlen);
+				}
+			}
+		}
+	}
+
+	cf_debug(AS_UDF, "Non-special LDT or General UDF Error(%s)", (char *) val);
+
 	call->transaction->result_code = AS_PROTO_RESULT_FAIL_UDF_EXECUTION;
 	return send_response(call, "FAILURE", 7, vtype, val, vlen);
 }
@@ -220,6 +281,9 @@ send_success(udf_call *call, int vtype, void *val, size_t vlen)
 void
 send_result(as_result * res, udf_call * call, void *udata)
 {
+	// The following "no-op" line serves to quiet the compiler warning of an
+	// otherwise unused variable.
+	udata = udata;
 	as_val * v = res->value;
 	if ( res->is_success ) {
 
@@ -278,13 +342,15 @@ send_result(as_result * res, udf_call * call, void *udata)
 					int res = as_serializer_serialize(&s, v, &buf);
 
 					if (res != 0) {
-						const char * error = "Serialization failure";
+						const char * error = "Complex Data Type Serialization failure";
 						cf_warning(AS_UDF, "%s (%d)", (char *)error, res);
 						as_buffer_destroy(&buf);
-						send_failure(call, AS_PARTICLE_TYPE_STRING, (char *)error, strlen(error));
+						send_cdt_failure(call, AS_PARTICLE_TYPE_STRING, (char *)error, strlen(error));
 					}
 					else {
-						cf_detail_binary(AS_UDF, buf.data, buf.size, CF_DISPLAY_HEX_COLUMNS, "serialized %d bytes: ", buf.size);
+						// Do not use this until after cf_detail_binary() can accept larger buffers.
+						// cf_detail_binary(AS_UDF, buf.data, buf.size, CF_DISPLAY_HEX_COLUMNS, 
+						// "serialized %d bytes: ", buf.size);
 						send_success(call, to_particle_type(as_val_type(v)), buf.data, buf.size);
 						// Not needed stack allocated - unless serialize has internal state
 						// as_serializer_destroy(&s);
@@ -307,8 +373,8 @@ send_result(as_result * res, udf_call * call, void *udata)
 		as_string * s   = as_string_fromval(v);
 		char *      rs  = (char *) as_string_tostring(s);
 
-		cf_warning(AS_UDF, "FAILURE when calling %s %s %s", call->filename, call->function, rs);
-		send_failure(call, AS_PARTICLE_TYPE_STRING, rs, as_string_len(s));
+		cf_debug(AS_UDF, "FAILURE when calling %s %s %s", call->filename, call->function, rs);
+		send_udf_failure(call, AS_PARTICLE_TYPE_STRING, rs, as_string_len(s));
 	}
 }
 

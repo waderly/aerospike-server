@@ -198,6 +198,8 @@ static int udf_type_getid(char *type) {
 typedef struct udf_get_data_s {
 	cf_dyn_buf *db;        // DynBuf for output.
 	pthread_cond_t *cv;    // Condition variable for signaling callback completion.
+	pthread_mutex_t *mt;   // Mutex protecting the condition variable.
+	bool done;             // Has the callback finished?
 } udf_get_data_t;
 
 /*
@@ -205,19 +207,19 @@ typedef struct udf_get_data_s {
  */
 static int udf_cask_get_metadata_cb(char *module, as_smd_item_list_t *items, void *udata)
 {
-	udf_get_data_t *get_data = (udf_get_data_t *) udata;
-	cf_dyn_buf *out = get_data->db;
+	udf_get_data_t *p_get_data = (udf_get_data_t *) udata;
+	cf_dyn_buf *out = p_get_data->db;
 
 	unsigned char   hash[SHA_DIGEST_LENGTH];
 	// hex string to be returned to the client
 	unsigned char   sha1_hex_buff[CF_SHA_HEX_BUFF_LEN];
-	// Currently just return directly for LUA	
-	uint8_t	udf_type	= AS_UDF_TYPE_LUA;
+	// Currently just return directly for LUA
+	uint8_t udf_type = AS_UDF_TYPE_LUA;
 
 	for (int index = 0; index < items->num_items; index++) {
 		as_smd_item_t *item = items->item[index];
 		cf_debug(AS_UDF, "UDF metadata item[%d]:  module \"%s\" ; key \"%s\" ; value \"%s\" ; generation %u ; timestamp %lu",
-                	index, item->module_name, item->key, item->value, item->generation, item->timestamp);
+				 index, item->module_name, item->key, item->value, item->generation, item->timestamp);
 		cf_dyn_buf_append_string(out, "filename=");
 		cf_dyn_buf_append_buf(out, (uint8_t *)item->key, strlen(item->key));
 		cf_dyn_buf_append_string(out, ",");
@@ -232,10 +234,15 @@ static int udf_cask_get_metadata_cb(char *module, as_smd_item_list_t *items, voi
 		cf_dyn_buf_append_string(out, ";");
 	}
 
-	int retval = pthread_cond_signal(get_data->cv);
+	pthread_mutex_lock(p_get_data->mt);
+
+	p_get_data->done = true;
+	int retval = pthread_cond_signal(p_get_data->cv);
 	if (retval) {
 		cf_warning(AS_UDF, "pthread_cond_signal failed (rv %d)", retval);
-}
+	}
+
+	pthread_mutex_unlock(p_get_data->mt);
 
 	return retval;
 }
@@ -253,17 +260,22 @@ int udf_cask_info_list(char *name, cf_dyn_buf *out)
 	udf_get_data_t get_data;
 	get_data.db = out;
 	get_data.cv = &get_data_cond_var;
+	get_data.mt = &get_data_mutex;
+	get_data.done = false;
 
 	pthread_mutex_lock(&get_data_mutex);
 
 	int retval = as_smd_get_metadata(udf_smd_module_name, "", udf_cask_get_metadata_cb, &get_data);
 	if (!retval) {
-		if ((retval = pthread_cond_wait(&get_data_cond_var, &get_data_mutex))) {
-			cf_warning(AS_UDF, "pthread_cond_wait failed (rv %d)", retval);
-		}
+		do { // [Note:  Loop protects against spurious wakeups.]
+			if ((retval = pthread_cond_wait(&get_data_cond_var, &get_data_mutex))) {
+				cf_warning(AS_UDF, "pthread_cond_wait failed (rv %d)", retval);
+				break;
+			}
+		} while (!get_data.done);
 	} else {
 		cf_warning(AS_UDF, "failed to get UDF metadata (rv %d)", retval);
-	} 
+	}
 
 	pthread_mutex_unlock(&get_data_mutex);
 
