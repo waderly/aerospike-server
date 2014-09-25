@@ -2379,7 +2379,6 @@ ssd_free_swbs(drv_ssd *ssd)
 			break;
 		}
 
-		cf_info(AS_DRV_SSD, "device %s: freeing swb", ssd->name);
 		swb_destroy(swb);
 	}
 }
