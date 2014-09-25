@@ -311,14 +311,14 @@ typedef struct as_sindex_query_context_s {
 	uint64_t         n_bdigs;
 		
 	// Physical Tree offset
-	bool             first;		// If new tree
+	bool             new_ibtr;		  // If new tree
 	int              pimd_idx;
 
 	// IBTR offset
-	bool             last;      // If nbtr was finished
-								// next iteration starts
-								// from key next to bkey
-	struct ai_obj   *bkey;      // offset in ibtr
+	bool             nbtr_done;       // If nbtr was finished
+								      // next iteration starts
+							          // from key next to bkey
+	struct ai_obj   *bkey;     	      // offset in ibtr
 
 	// NBTR offset
 	cf_digest        bdig;

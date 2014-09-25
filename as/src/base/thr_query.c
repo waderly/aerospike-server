@@ -1612,7 +1612,7 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 	int      qret            = as_sindex_query(qtr->si, srange, &qtr->qctx);
 	cf_detail(AS_QUERY, "start %ld end %ld @ %d pimd found %d", srange->start.u.i64, srange->end.u.i64, qctx->pimd_idx, qctx->n_bdigs);
 
-	qctx->first              = 0;
+	qctx->new_ibtr           = false;
 	if (qret < 0) { // [AS_SINDEX_OK, AS_SINDEX_CONTINUE] -> OK
 		qtr->result_code     = as_sindex_err_to_clienterr(qret,
 								__FILE__, __LINE__);
@@ -1630,8 +1630,8 @@ as_query__generator_get_nextbatch(as_query_transaction *qtr)
 		qtr->querying_ai_time_ns += cf_getns() - time_ns;
 	}
 	if (qctx->n_bdigs < qctx->bsize) {
-		qctx->first          = 1;
-		qctx->last           = false;
+		qctx->new_ibtr       = true;
+		qctx->nbtr_done      = false;
 		qctx->pimd_idx++;
 		cf_detail(AS_QUERY, "All the Data finished moving to next tree %d", qctx->pimd_idx);
 		if (!srange->isrange || (qctx->pimd_idx == si->imd->nprts)) {
@@ -1705,8 +1705,8 @@ as_query__generator(as_query_transaction *qtr)
 		qtr->result_code          = AS_PROTO_RESULT_OK;
 		// start with the threshold value
 		qtr->qctx.bsize           = g_config.query_threshold;
-		qtr->qctx.first           = 1;
-		qtr->qctx.last            = false;
+		qtr->qctx.new_ibtr        = true;
+		qtr->qctx.nbtr_done       = false;
 		qtr->qctx.pimd_idx        = -1;
 		qtr->priority             = g_config.query_priority;
 		qtr->bb_r                 = as_query__bb_poolrequest();

@@ -748,7 +748,7 @@ add_recs_from_nbtr(as_sindex_metadata *imd, ai_obj *ikey, bt *nbtr, as_sindex_qc
 }
 
 static int
-add_recs_from_arr(as_sindex_metadata *imd, ai_obj *ikey, ai_arr *arr, as_sindex_qctx *qctx, bool fullrng)
+add_recs_from_arr(as_sindex_metadata *imd, ai_obj *ikey, ai_arr *arr, as_sindex_qctx *qctx)
 {
 	bool ret = 0;
 
@@ -763,7 +763,7 @@ add_recs_from_arr(as_sindex_metadata *imd, ai_obj *ikey, ai_arr *arr, as_sindex_
 		// thing.
 	}
 	// mark nbtr as finished and copy the offset
-	qctx->last = true;
+	qctx->nbtr_done = true;
 	if (ikey) {
 		ai_objClone(qctx->bkey, ikey);
 	}
@@ -786,15 +786,15 @@ get_recl(as_sindex_metadata *imd, ai_obj *afk, as_sindex_qctx *qctx)
 	}
 
 	if (anbtr->is_btree) {
-		if (add_recs_from_nbtr(imd, NULL, anbtr->u.nbtr, qctx, qctx->first)) {
+		if (add_recs_from_nbtr(imd, NULL, anbtr->u.nbtr, qctx, qctx->new_ibtr)) {
 			return -1;
 		}
 	} else {
 		// If already entire batch is returned
-		if (qctx->last) {
+		if (qctx->nbtr_done) {
 			return 0;
 		}
-		if (add_recs_from_arr(imd, NULL, anbtr->u.arr, qctx, qctx->first)) {
+		if (add_recs_from_arr(imd, NULL, anbtr->u.arr, qctx)) {
 			return -1;
 		}
 	}
@@ -809,19 +809,20 @@ static int
 get_numeric_range_recl(as_sindex_metadata *imd, uint64_t begk, uint64_t endk, as_sindex_qctx *qctx)
 {
 	ai_obj sfk;
-	init_ai_objLong(&sfk, qctx->first ? begk : qctx->bkey->l);
+	init_ai_objLong(&sfk, qctx->new_ibtr ? begk : qctx->bkey->l);
 	ai_obj efk;
 	init_ai_objLong(&efk, endk);
 	as_sindex_pmetadata *pimd = &imd->pimd[qctx->pimd_idx];
-	bool fullrng = qctx->first;
-	int ret = 0;
-	btSIter *bi = btGetRangeIter(pimd->ibtr, &sfk, &efk, 1);
+	bool fullrng              = qctx->new_ibtr;
+	int ret                   = 0;
+	btSIter *bi               = btGetRangeIter(pimd->ibtr, &sfk, &efk, 1);
 	btEntry *be;
 
 	if (bi) {
 		while ((be = btRangeNext(bi, 1))) {
-			ai_obj *ikey = be->key;
+			ai_obj  *ikey  = be->key;
 			ai_nbtr *anbtr = be->val;
+
 			if (!anbtr) {
 				ret = -1;
 				break;
@@ -834,8 +835,11 @@ get_numeric_range_recl(as_sindex_metadata *imd, uint64_t begk, uint64_t endk, as
 			if (!fullrng) {
 				if (!ai_objEQ(&sfk, ikey)) {
 					fullrng = 1; // bkey disappeared
-				} else if (qctx->last) {
-					qctx->last = false;
+				} else if (qctx->nbtr_done) {
+					qctx->nbtr_done = false;
+					// If we are moving to the next key, we need 
+					// to search the full range.
+					fullrng = 1;
 					continue;
 				}
 			}
@@ -846,15 +850,23 @@ get_numeric_range_recl(as_sindex_metadata *imd, uint64_t begk, uint64_t endk, as
 					break;
 				}
 			} else {
-				if (add_recs_from_arr(imd, ikey, anbtr->u.arr, qctx, fullrng)) {
+				if (add_recs_from_arr(imd, ikey, anbtr->u.arr, qctx)) {
 					ret = -1;
 					break;
 				}
 			}
+
+			// Since add_recs_from_arr() returns entire thing and do not support the batch limit,
+			// >= operator is needed here.
 			if (qctx->n_bdigs >= qctx->bsize) {
 				break;
 			}
-			fullrng = 1;
+
+			// If it reaches here, this means last key could not fill the batch.
+			// So if we are to start a new key, search should be done on full range 
+			// and the new nbtr is obviously not done.
+			fullrng         = 1;
+			qctx->nbtr_done = false;
 		}
 		btReleaseRangeIterator(bi);
 	}
