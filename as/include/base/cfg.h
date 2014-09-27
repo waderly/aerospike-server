@@ -154,7 +154,7 @@ typedef struct as_config_s {
 
 	/*
 	 * heartbeat: takes the lock and fills in this structure
-	 * paxos: read only uses it for detecting  changes
+	 * paxos: read only uses it for detecting changes
 	 */
 	cf_node				hb_paxos_succ_list_index[AS_CLUSTER_SZ];
 	cf_node				hb_paxos_succ_list[AS_CLUSTER_SZ][AS_CLUSTER_SZ];

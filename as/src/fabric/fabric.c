@@ -2659,7 +2659,7 @@ as_fabric_send_list(cf_node *nodes, int nodes_sz, msg *m, int priority)
 	if (nodes_sz == 1)
 		return(as_fabric_send(nodes[0], m, priority));
 
-	cf_debug(AS_FABRIC, "fabric_send_all sending: m %p", m);
+	cf_debug(AS_FABRIC, "as_fabric_send_list sending: m %p", m);
 	for (uint j = 0; j < nodes_sz; j++) {
 		cf_debug(AS_FABRIC, "  destination: %"PRIx64"\n", nodes[j]);
 	}
@@ -2678,7 +2678,6 @@ as_fabric_send_list(cf_node *nodes, int nodes_sz, msg *m, int priority)
 Cleanup:
 	as_fabric_msg_put(m);
 	return(rv);
-
 }
 
 static int
