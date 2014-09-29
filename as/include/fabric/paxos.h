@@ -176,8 +176,8 @@ typedef struct as_paxos_wire_change_t {
 	cf_node p_node;
 	int n_change;
 	uint8_t payload[];	// Structure of payload is:
-						//  uint8_t type[CurrentPaxosMaxClusterSize];
-						//  cf_node id[CurrentPaxosMaxClusterSize] type;
+						//   uint8_t type[CurrentPaxosMaxClusterSize];
+						//   cf_node id[CurrentPaxosMaxClusterSize];
 } __attribute__((__packed__)) as_paxos_wire_change;
 
 /* as_paxos_transaction
@@ -205,18 +205,16 @@ typedef enum {
  * NB: This will be called under the protection of the Paxos lock! */
 typedef void (*as_paxos_change_callback) (as_paxos_generation gen, as_paxos_change *change, cf_node succession[], void *udata);
 
-
 #define MAX_CHANGE_CALLBACKS 6
 
 /* as_paxos
  * Runtime information for a Paxos instance */
 typedef struct as_paxos_t {
 	pthread_mutex_t lock;
-	pthread_cond_t cv;
 
 	cf_queue *msgq;
 
-	bool ready;
+	bool ready;                    // Is Paxos intialized?
 
 	as_paxos_generation gen;
 	cf_node succession[AS_CLUSTER_SZ];
@@ -230,7 +228,7 @@ typedef struct as_paxos_t {
 	void *cb_udata[MAX_CHANGE_CALLBACKS];
 
 	as_partition_vinfo *c_partition_vinfo[AS_NAMESPACE_SZ][AS_CLUSTER_SZ];
-	uint64_t            c_partition_size[AS_NAMESPACE_SZ][AS_CLUSTER_SZ][AS_PARTITIONS];
+	uint64_t c_partition_size[AS_NAMESPACE_SZ][AS_CLUSTER_SZ][AS_PARTITIONS];
 
 	as_paxos_transaction pending[AS_PAXOS_ALPHA];
 
@@ -242,7 +240,6 @@ typedef struct as_paxos_t {
 	bool cluster_has_integrity;    // Is true when there is no cluster integrity fault.
 } as_paxos;
 
-
 /* as_paxos_petition_type
  * What sorts of changes can be requested */
 typedef enum {
@@ -252,32 +249,29 @@ typedef enum {
 
 
 /* Function declarations */
-extern void as_paxos_dump_succession_list( char * msg, cf_node slist[], int index );
-extern void as_paxos_init();
-extern int as_paxos_register_change_callback(as_paxos_change_callback cb, void *udata);
-extern int as_paxos_deregister_change_callback(as_paxos_change_callback cb, void *udata);
-extern int as_paxos_msgq_push();
-extern int as_paxos_event();
-extern void as_paxos_start();
 
-extern cf_node as_paxos_succession_getprincipal(void);
-extern bool as_paxos_succession_ismember(cf_node n);
 
-/* as_paxos_succession_getprincipal
- * Get the head of the Paxos succession list, or zero if there is none */
-extern cf_node as_paxos_succession_getprincipal();
+void as_paxos_init();
+void as_paxos_start();
+int as_paxos_register_change_callback(as_paxos_change_callback cb, void *udata);
+int as_paxos_deregister_change_callback(as_paxos_change_callback cb, void *udata);
+cf_node as_paxos_succession_getprincipal(void);
+bool as_paxos_succession_ismember(cf_node n);
+
+// Get the head of the Paxos succession list, or zero if there is none.
+cf_node as_paxos_succession_getprincipal();
 
 // Set the Paxos protocol version.
-extern int as_paxos_set_protocol(paxos_protocol_enum protocol);
+int as_paxos_set_protocol(paxos_protocol_enum protocol);
 
 // Set the Paxos recovery policy.
-extern int as_paxos_set_recovery_policy(paxos_recovery_policy_enum policy);
+int as_paxos_set_recovery_policy(paxos_recovery_policy_enum policy);
 
 // Get the Paxos cluster integrity state.
-extern bool as_paxos_get_cluster_integrity(as_paxos *p);
+bool as_paxos_get_cluster_integrity(as_paxos *p);
 
 // Set the Paxos cluster integrity state.
-extern void as_paxos_set_cluster_integrity(as_paxos *p, bool state);
+void as_paxos_set_cluster_integrity(as_paxos *p, bool state);
 
 /* Paxos Info. command functions. */
 
