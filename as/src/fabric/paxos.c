@@ -2209,8 +2209,6 @@ as_paxos_process_retransmit_check()
 	cf_node missing_nodes[AS_CLUSTER_SZ];
 	memset(missing_nodes, 0, sizeof(missing_nodes));
 
-	bool cluster_integrity_fault = !g_config.paxos->cluster_has_integrity;
-
 	// lock
 	pthread_mutex_lock(&g_config.hb_paxos_lock);
 
@@ -2223,12 +2221,11 @@ as_paxos_process_retransmit_check()
 	// for each node in the succession list
 	// compare the node's succession list with this server's succession list
 
-	bool hb_state_ok = true;
+	bool cluster_integrity_fault = false;
 	bool are_nodes_not_dunned = false;
 	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
 		cf_debug(AS_PAXOS, "Cluster Integrity Check: %d, %"PRIx64"", i, succ_list_index[i]);
 		if (succ_list_index[i] == (cf_node) 0) {
-			cf_detail(AS_PAXOS, "BREAK HERE");
 			break; // we are done
 		}
 		char sbuf[(AS_CLUSTER_SZ * 17) + 27];
@@ -2248,20 +2245,18 @@ as_paxos_process_retransmit_check()
 			as_paxos_dump_succession_list( "Node List", succ_list[i], i );
 #endif
 
-			cluster_integrity_fault = true;
-
 			if (g_config.auto_dun) {
 				as_hb_set_is_node_dunned(succ_list_index[i], true, "paxos");
 			}
 
-			hb_state_ok = false;
+			cluster_integrity_fault = true;
 			as_paxos_add_missing_nodes(missing_nodes, succ_list[i], &are_nodes_not_dunned);
 		}
 	} // end for each node
 
 	cf_node p_node = as_paxos_succession_getprincipal();
 
-	if (hb_state_ok == false) {
+	if (cluster_integrity_fault) {
 		char sbuf[(AS_CLUSTER_SZ * 17) + 99];
 
 		switch (g_config.paxos_recovery_policy) {
@@ -2383,39 +2378,18 @@ as_paxos_process_retransmit_check()
 
 	as_paxos_set_cluster_integrity(p, !cluster_integrity_fault);
 
-	// Taken from code below
+	// If migration is enabled, we are already in a cluster, hence we are done.
 	if (as_partition_get_migration_flag() == true) {
 		return;
 	}
 
-	// we are in the middle of a Paxos reconfiguration of the cluster
-
+	// Otherwise, we are in the middle of a Paxos reconfiguration of the cluster:
+	//   - Principal sends a SYNC message to all cluster nodes (including itself.)
+	//   - Non-principals send a PARTITION_SYNC_REQUEST message to the principal.
 	if (g_config.self_node == as_paxos_succession_getprincipal()) {
-		/*
-		 * DO NOT ALLOW CLUSTER REPAIR DURING A PAXOS RECONFIGURATION
-		 * THIS COULD RESULT IN A CASE WHERE A JUST REMOVED NODE IS ADDED BACK TO
-		 * THE SUCCESSION LIST AND CAUSE THE PAXOS RECONFIGURATION TO NEVER COMPLETE
-		 */
-//		if (hb_state_ok == false) {
-//			if (big_guy) {
-//				for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
-//					if (missing_nodes[i] == (cf_node) 0)
-//						break;
-//	           		if (0 != as_paxos_succession_insert(missing_nodes[i]))
-//						cf_crash(AS_PAXOS, "succession list full");
-//				}
-//				cf_info(AS_PAXOS, "Cluster Integrity Check: Starting cluster repair ... from %"PRIx64"", p_node);
-//				as_paxos_start_second_phase();
-//			}
-//			else // wait to be assimilated do nothing
-//				cf_info(AS_PAXOS, "Cluster Integrity Check: Node %"PRIx64" waiting to be assimilated by %"PRIx64"", p_node, max_node);
-//		}
-//		else {
 		cf_info(AS_PAXOS, "as_paxos_retransmit_check: principal %"PRIx64" retransmitting sync messages to nodes that have not responded yet ... ", p_node);
 		as_paxos_send_sync_messages();
-//		}
-	}
-	else {
+	} else {
 		cf_info(AS_PAXOS, "as_paxos_retransmit_check: node %"PRIx64" retransmitting partition sync request to principal %"PRIx64" ... ", g_config.self_node, p_node);
 		as_paxos_send_partition_sync_request(p_node);
 	}
