@@ -304,6 +304,7 @@ main(int argc, char **argv)
 
 #ifdef USE_ASM
 	g_asm_hook_enabled = g_asm_cb_enabled = c->asmalloc_enabled;
+
 	int initial_tid = syscall(SYS_gettid);
 #endif
 
@@ -357,8 +358,10 @@ main(int argc, char **argv)
 #ifdef USE_ASM
 	// Log the main thread's Linux Task ID (pre- and post-fork) to the console.
 	fprintf(stderr, "Initial main thread tid: %d\n", initial_tid);
-	if (c->run_as_daemon) {
-		fprintf(stderr, "Post-daemonize main thread tid: %d\n", syscall(SYS_gettid));
+
+	if (! run_in_foreground && c->run_as_daemon) {
+		fprintf(stderr, "Post-daemonize main thread tid: %d\n",
+				syscall(SYS_gettid));
 	}
 #endif
 
