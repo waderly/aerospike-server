@@ -638,9 +638,14 @@ as_hb_get_is_node_dunned(cf_node node)
 {
 	as_hb_pulse *a_p_pulse = NULL;
 
+	if (node == g_config.self_node) {
+		// Self is never dunned.
+		return false;
+	}
+
 	if (!g_hb.adjacencies) {
 		cf_warning(AS_HB, "no adjacency list ~~ considering all nodes dunned");
-		return (true);
+		return true;
 	}
 
 	// NB: Stack allocation!!
@@ -648,7 +653,7 @@ as_hb_get_is_node_dunned(cf_node node)
 		cf_crash(AS_HB, "failed to alloca() a heartbeat pulse of size %d", AS_HB_PULSE_SIZE());
 
 	if (SHASH_ERR_NOTFOUND == shash_get(g_hb.adjacencies, &node, a_p_pulse)) {
-		return (false);
+		return false;
 	}
 
 	return (a_p_pulse->dunned);
@@ -672,19 +677,18 @@ as_hb_set_is_node_dunned(cf_node node, bool is_dunned, char *context)
 
 	if (SHASH_ERR_NOTFOUND == shash_get_vlock(g_hb.adjacencies, &node, (void **) &p_pulse, &vlock)) {
 		if (is_dunned) {
-			cf_info(AS_HB, "could not dun node - node not found in node list");
+			cf_info(AS_HB, "could not dun node %"PRIx64" - node not found in node list", node);
 		} else {
-			cf_info(AS_HB, "could not undun node - node not found in node list");
+			cf_info(AS_HB, "could not undun node %"PRIx64" - node not found in node list", node);
 		}
-
 		return;
 	}
 
 	if (! p_pulse->new && p_pulse->dunned != is_dunned) {
 		if (is_dunned) {
-			cf_info(AS_HB, "%s dunning node %"PRIx64, context, node);
+			cf_info(AS_HB, "%s dunning node %"PRIx64" (updated %d)", context, node, p_pulse->updated);
 		} else {
-			cf_info(AS_HB, "%s un-dunning node %"PRIx64, context, node);
+			cf_info(AS_HB, "%s un-dunning node %"PRIx64" (updated %d)", context, node, p_pulse->updated);
 		}
 
 		p_pulse->dunned = is_dunned;
@@ -787,22 +791,29 @@ as_hb_set_are_nodes_dunned(char *nodes_str, int nodes_str_len, bool is_dunned)
 {
 	cf_node nodes[AS_CLUSTER_SZ];
 	int num_nodes = 0;
+	bool all_nodes = false;
 
-	if (as_hb_nodes_str_to_cf_nodes(nodes_str, nodes_str_len, nodes, &num_nodes)) {
-		cf_warning(AS_HB, "%sdun command: failed to parse node list string (\"%s\") to nodes", (is_dunned ? "" : "un"), nodes_str);
-		return -1;
-	}
-
-	cf_node *nodes_p = nodes;
-	bool self_in_list = false;
-	while (*nodes_p) {
-		if (*nodes_p++ == g_config.self_node) {
-			self_in_list = true;
-			break;
+	if (!strcmp(nodes_str, "all")) {
+		all_nodes = true;
+	} else {
+		if (as_hb_nodes_str_to_cf_nodes(nodes_str, nodes_str_len, nodes, &num_nodes)) {
+			cf_warning(AS_HB, "%sdun command: failed to parse node list string (\"%s\") to nodes", (is_dunned ? "" : "un"), nodes_str);
+			return -1;
 		}
+
+		cf_node *nodes_p = nodes;
+		bool self_in_list = false;
+		while (*nodes_p) {
+			if (*nodes_p++ == g_config.self_node) {
+				self_in_list = true;
+				break;
+			}
+		}
+
+		all_nodes = self_in_list;
 	}
 
-	if (self_in_list) {
+	if (all_nodes) {
 		cf_dyn_buf_define(db);
 
 		nodes_to_dun_udata u;
@@ -2107,7 +2118,8 @@ void as_hb_copy_to_paxos(cf_node id, cf_node *anv)
 	// i is the position for this node
 	cf_detail(AS_HB, "SETTING index %d, node %"PRIx64"", i, id);
 	g_config.hb_paxos_succ_list_index[i] =  id;
-	memcpy (g_config.hb_paxos_succ_list[i], anv, sizeof(cf_node) * g_config.paxos_max_cluster_size); //adding anv of a node to hb paxos_succ_list
+	// Add node's ANV to the ith hb_paxos_succ_list.
+	memcpy(g_config.hb_paxos_succ_list[i], anv, sizeof(cf_node) * g_config.paxos_max_cluster_size);
 }
 
 /* as_hb_monitor_reduce
@@ -2246,43 +2258,37 @@ as_hb_monitor_reduce(void *key, void *data, void *udata)
 	 * does not complete properly
 	 */
 	bool node_in_slist = false;
-	for (int i = 0; i < g_config.paxos_max_cluster_size; i++)
-	{
-		if ((p->anv[i] != (cf_node)0) && (p->anv[i] == id))
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		if ((p->anv[i] != (cf_node)0) && (p->anv[i] == id)) {
 			node_in_slist = true;
+		}
 	}
 	/*
 	 * Check if this node's succession list is in sync with ours
 	 */
 	bool slists_match = true;
-	cf_node *s = g_config.paxos->succession;
-	char str1[] = "same";
-	char str2[] = "different";
+	as_paxos *px = g_config.paxos;
+	char *same_diff = (px->succession[0] == p->anv[0] ? "same" : "different");
 
-	for (int i = 0; i < g_config.paxos_max_cluster_size; i++)
-		if (s[i] != p->anv[i]) {
+	for (int i = 0; i < g_config.paxos_max_cluster_size; i++) {
+		if (px->succession[i] != p->anv[i]) {
 			slists_match = false;
 			break;
 		}
+	}
 
-	char *prstr;
-	if (p->anv[0] != s[0])
-		prstr = str2;
-	else
-		prstr = str1;
-
-	// These warnings are crucial to inform us about the cluster's paxos health
+	// These warnings are crucial to inform us about the cluster's Paxos health.
 	if (! node_in_slist) {
 		if (slists_match) { // a really weird case of one way partitioning
-			cf_warning(AS_HB, "HB node %"PRIx64" in %s cluster is not in its own succession list - succession lists match", id, prstr);
+			cf_warning(AS_HB, "HB node %"PRIx64" in %s cluster is not in its own succession list - succession lists match", id, same_diff);
 		} else { // A second weird case - should not really happen
-			cf_warning(AS_HB, "HB node %"PRIx64" in %s cluster is not in its own succession list - succession lists don't match", id, prstr);
+			cf_warning(AS_HB, "HB node %"PRIx64" in %s cluster is not in its own succession list - succession lists don't match", id, same_diff);
 		}
 	} else {
 		if (slists_match) // This is the normal case - print with debug level
-			cf_debug(AS_HB, "HB node %"PRIx64" in %s cluster - succession lists match", id, prstr);
+			cf_debug(AS_HB, "HB node %"PRIx64" in %s cluster - succession lists match", id, same_diff);
 		else { // this is ths case where a node is just going to join a cluster or two clusters are merging
-			cf_info(AS_HB, "HB node %"PRIx64" in %s cluster - succession lists don't match", id, prstr);
+			cf_info(AS_HB, "HB node %"PRIx64" in %s cluster - succession lists don't match", id, same_diff);
 		}
 	}
 
@@ -2310,10 +2316,11 @@ as_hb_monitor_thr(void *arg)
 		memset(g_config.hb_paxos_succ_list_index, 0, sizeof(g_config.hb_paxos_succ_list_index));
 		memset(g_config.hb_paxos_succ_list, 0, sizeof(g_config.hb_paxos_succ_list));
 
-		if (g_hb.adjacencies)
+		if (g_hb.adjacencies) {
 			shash_reduce_delete(g_hb.adjacencies, as_hb_monitor_reduce, &u);
-		else
+		} else {
 			cf_debug(AS_HB, "not processing heartbeat adjacency");
+		}
 
 		// unlock
 		pthread_mutex_unlock(&g_config.hb_paxos_lock);
@@ -2331,44 +2338,40 @@ as_hb_monitor_thr(void *arg)
 		 * above to avoid deadlocking if someone recurses back into the
 		 * heartbeat system */
 		if (g_hb.cb_sz) {
-
 			/*
 			 * Create a batched list of callback events in an array
 			 */
 			as_hb_event_node events[AS_CLUSTER_SZ];
-			if (g_config.paxos_max_cluster_size < (u.n_delete + u.n_insert + u.n_dun + u.n_undun))
-			{
+			if (g_config.paxos_max_cluster_size < (u.n_delete + u.n_insert + u.n_dun + u.n_undun)) {
 				cf_warning(AS_HB, "Number of heartbeat events (%d) exceeds cluster size", (u.n_delete + u.n_insert + u.n_dun + u.n_undun));
 			}
-			for (int i = 0; i < u.n_delete; i++)
-			{
+			for (int i = 0; i < u.n_delete; i++) {
 				events[i].evt = AS_HB_NODE_DEPART;
 				events[i].nodeid = u.delete[i];
 				cf_info(AS_HB, "removing node on heartbeat failure: %"PRIx64"", events[i].nodeid);
 			}
-			for (int i = u.n_delete; i < (u.n_delete + u.n_insert); i++)
-			{
+			for (int i = u.n_delete; i < (u.n_delete + u.n_insert); i++) {
 				events[i].evt = AS_HB_NODE_ARRIVE;
 				events[i].nodeid = u.insert[i - u.n_delete];
 				events[i].p_node = u.insert_p_node[i - u.n_delete];
 				cf_info(AS_HB, "new heartbeat received: %"PRIx64" principal node is %"PRIx64"", events[i].nodeid, events[i].p_node);
 			}
-			for (int i = (u.n_delete + u.n_insert); i < (u.n_delete + u.n_insert + u.n_dun); i++)
-			{
+			for (int i = (u.n_delete + u.n_insert); i < (u.n_delete + u.n_insert + u.n_dun); i++) {
 				events[i].evt = AS_HB_NODE_DUN;
 				events[i].nodeid = u.dun[i - u.n_delete - u.n_insert];
 				cf_info(AS_HB, "removing dunned node: %"PRIx64"", events[i].nodeid);
 			}
-			for (int i = (u.n_delete + u.n_insert + u.n_dun); i < (u.n_delete + u.n_insert + u.n_dun + u.n_undun); i++)
-			{
+			for (int i = (u.n_delete + u.n_insert + u.n_dun); i < (u.n_delete + u.n_insert + u.n_dun + u.n_undun); i++) {
 				events[i].evt = AS_HB_NODE_UNDUN;
 				events[i].nodeid = u.undun[i - u.n_delete - u.n_insert - u.n_dun];
 				events[i].p_node = u.undun_p_node[i - u.n_delete - u.n_insert - u.n_dun];
 				cf_info(AS_HB, "re-adding undunned node: %"PRIx64" principal node is %"PRIx64"", events[i].nodeid, events[i].p_node);
 			}
-			if (0 < (u.n_delete + u.n_insert + u.n_dun + u.n_undun))
-				for (uint j = 0; j < g_hb.cb_sz; j++)
+			if (0 < (u.n_delete + u.n_insert + u.n_dun + u.n_undun)) {
+				for (uint j = 0; j < g_hb.cb_sz; j++) {
 					(g_hb.cb[j])((u.n_delete + u.n_insert + u.n_dun + u.n_undun), events, g_hb.cb_udata[j]);
+				}
+			}
 		}
 
 		usleep(MAX(g_config.hb_interval, 1) * 1000);
@@ -2376,6 +2379,7 @@ as_hb_monitor_thr(void *arg)
 	} while (1);
 
 	cf_warning(AS_HB, "heartbeat monitoring stopping");
+
 	return(NULL);
 }
 
