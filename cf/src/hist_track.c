@@ -154,12 +154,15 @@ cf_hist_track_create(const char* name, histogram_scale scale)
 
 	switch (scale) {
 	case HIST_MILLISECONDS:
+		this->hist.scale_tag = HIST_TAG_MILLISECONDS;
 		this->hist.time_div = 1000 * 1000;
 		break;
 	case HIST_MICROSECONDS:
+		this->hist.scale_tag = HIST_TAG_MICROSECONDS;
 		this->hist.time_div = 1000;
 		break;
 	default:
+		this->hist.scale_tag = HIST_TAG_RAW;
 		this->hist.time_div = 0;
 		// If cf_hist_track_insert_data_point() is called for a raw histogram,
 		// the divide by 0 will crash - consider that a high-performance assert.

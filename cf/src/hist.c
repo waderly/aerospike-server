@@ -66,12 +66,15 @@ histogram_create(const char *name, histogram_scale scale)
 
 	switch (scale) {
 	case HIST_MILLISECONDS:
+		h->scale_tag = HIST_TAG_MILLISECONDS;
 		h->time_div = 1000 * 1000;
 		break;
 	case HIST_MICROSECONDS:
+		h->scale_tag = HIST_TAG_MICROSECONDS;
 		h->time_div = 1000;
 		break;
 	default:
+		h->scale_tag = HIST_TAG_RAW;
 		h->time_div = 0;
 		// If histogram_insert_data_point() is called for a raw histogram, the
 		// divide by 0 will crash - consider that a high-performance assert.
@@ -98,9 +101,6 @@ histogram_clear(histogram *h)
 // Note - DO NOT change the log output format in
 // this method - tools such as as_log_latency
 // assume this format.
-//
-// TODO - print the scale so as_log_latency can
-// label its columns appropriately.
 //
 void
 histogram_dump(histogram *h)
@@ -133,7 +133,8 @@ histogram_dump(histogram *h)
 
 	buf[0] = '\0';
 
-	cf_info(AS_INFO, "histogram dump: %s (%lu total)", h->name, total_count);
+	cf_info(AS_INFO, "histogram dump: %s (%lu total) %s", h->name, total_count,
+			h->scale_tag);
 
 	for ( ; i <= j; i++) {
 		if (counts[i] == 0) { // print only non-zero columns

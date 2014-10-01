@@ -44,10 +44,15 @@ typedef enum {
 	HIST_SCALE_MAX_PLUS_1
 } histogram_scale;
 
+#define HIST_TAG_MILLISECONDS	"msec"
+#define HIST_TAG_MICROSECONDS	"usec"
+#define HIST_TAG_RAW			"count"
+
 // DO NOT access this member data directly - use the API!
 // (Except for cf_hist_track, for which histogram is a base class.)
 typedef struct histogram_s {
 	char name[HISTOGRAM_NAME_SIZE];
+	const char* scale_tag;
 	uint32_t time_div;
 	cf_atomic64 counts[N_BUCKETS];
 } histogram;
