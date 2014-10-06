@@ -791,7 +791,7 @@ as_msg_send_reply(as_file_handle *fd_h, uint32_t result_code, uint32_t generatio
 		else if (rv < 0) {
 			if (errno != EWOULDBLOCK) {
 				// common message when a client aborts
-				cf_warning(AS_PROTO, "protocol write fail: fd %d sz %zd pos %zd rv %d errno %d", fd_h->fd, msg_sz, pos, rv, errno);
+				cf_debug(AS_PROTO, "protocol write fail: fd %d sz %zd pos %zd rv %d errno %d", fd_h->fd, msg_sz, pos, rv, errno);
 				shutdown(fd_h->fd, SHUT_RDWR);
 				rv = -1;
 				goto Exit;
