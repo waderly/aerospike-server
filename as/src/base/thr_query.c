@@ -523,7 +523,7 @@ as_query__put_qtr(as_query_transaction * qtr)
 
 	int rc = rchash_put_unique(g_query_job_hash, &qtr->trid, sizeof(qtr->trid), qtr);
 	if (rc) {
-		cf_warning(AS_SINDEX, "QTR Put in hash failed.");
+		cf_warning(AS_SINDEX, "QTR Put in hash failed with error %d", rc);
 	} else {
 		cf_atomic64_incr(&g_config.query_tracked);
 	}
@@ -1737,8 +1737,12 @@ as_query__generator(as_query_transaction *qtr)
 		if (!qtr->track) {
 			if ((cf_getns() - qtr->start_time) > g_config.query_untracked_time) {
 				qtr->track = true;
-				if (as_query__put_qtr(qtr)) {
+				int ret = as_query__put_qtr(qtr);
+				if (ret != 0 && ret != AS_QUERY_CONTINUE) {
 					qtr->err       = true;
+					// track should be disabled otherwise at the 
+					// qtr cleanup stage some other qtr with the same 
+					// trid can get cleaned up.
 					qtr->track     = false;
 					goto Cleanup;
 				}
