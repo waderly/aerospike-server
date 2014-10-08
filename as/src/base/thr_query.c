@@ -1738,7 +1738,9 @@ as_query__generator(as_query_transaction *qtr)
 			if ((cf_getns() - qtr->start_time) > g_config.query_untracked_time) {
 				qtr->track = true;
 				if (as_query__put_qtr(qtr)) {
-					(qtr)->err       =  true;
+					qtr->err       = true;
+					qtr->track     = false;
+					goto Cleanup;
 				}
 			}
 		}
