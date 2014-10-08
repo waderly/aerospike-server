@@ -268,6 +268,8 @@ typedef enum as_hb_err_type_e
 	AS_HB_ERR_EXPIRE_FAB_DEAD,
 	AS_HB_ERR_EXPIRE_FAB_ALIVE,
 	AS_HB_ERR_UNPARSABLE_MSG,
+	AS_HB_ERR_MESH_CONNECT_FAIL,
+	AS_HB_ERR_REMOTE_CLOSE,
 	AS_HB_ERR_MAX_TYPE
 } as_hb_err_type;
 
@@ -301,7 +303,9 @@ static char *as_hb_error_msg[AS_HB_ERR_MAX_TYPE][2] =
 	{ "expire hb", "eh", },
 	{ "expire fab dead", "efd", },
 	{ "expire fab alive", "efa", },
-	{ "unparsable msg", "um" }
+	{ "unparsable msg", "um" },
+	{ "mesh connect fail", "mcf" },
+	{ "remote close", "rc" }
 };
 
 // Occurrence counts for each type of heartbeat error detected.
@@ -1036,7 +1040,8 @@ void as_hb_try_connecting_remote(mesh_host_list_element * e)
 					&& inet_ntop(AF_INET, &addr_in.sin_addr.s_addr, (char *)some_addr, sizeof(some_addr)) != NULL) {
 				cf_info(AS_HB, "initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
 			} else {
-				cf_warning(AS_HB, "failed - initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
+				as_hb_error(AS_HB_ERR_MESH_CONNECT_FAIL);
+				cf_debug(AS_HB, "failed - initiated connection to mesh host at %s:%d socket %d from %s:%d", e->host, e->port, s.sock,some_addr, ntohs(addr_in.sin_port));
 			}
 			cf_atomic_int_incr(&g_config.heartbeat_connections_opened);
 
@@ -1997,7 +2002,8 @@ as_hb_thr(void *arg)
 				/* Catch remotely-closed connections */
 				if (events[i].events & (EPOLLRDHUP | EPOLLERR | EPOLLHUP)) {
 CloseSocket:
-					cf_info(AS_HB, "remote close: fd %d event %x", fd, events[i].events);
+					as_hb_error(AS_HB_ERR_REMOTE_CLOSE);
+					cf_debug(AS_HB, "remote close: fd %d event %x", fd, events[i].events);
 					g_hb.endpoint_txlist[fd] = false;
 					//HB Bug :remove for discovered list
 					if (g_hb.endpoint_txlist_node_id[fd]) {
