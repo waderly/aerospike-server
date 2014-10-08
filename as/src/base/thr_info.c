@@ -2067,6 +2067,8 @@ info_service_config_get(cf_dyn_buf *db)
 	cf_dyn_buf_append_uint64(db, g_config.query_rec_count_bound);
 	cf_dyn_buf_append_string(db, ";query-threshold=");
 	cf_dyn_buf_append_uint64(db, g_config.query_threshold);
+	cf_dyn_buf_append_string(db, ";query-untracked-time=");
+	cf_dyn_buf_append_uint64(db, g_config.query_untracked_time/1000); // Show it in micro seconds
 
 	return(0);
 }
@@ -2845,6 +2847,15 @@ info_command_config_set(char *name, char *params, cf_dyn_buf *db)
 				goto Error;
 			cf_info(AS_INFO, "Changing value of query-threshold from %"PRIu64" to %"PRIu64"", g_config.query_threshold, val);
 			g_config.query_threshold = val;
+		}
+		else if (0 == as_info_parameter_get(params, "query-untracked-time", context, &context_len)) {
+			uint64_t val = atoll(context);
+			cf_debug(AS_INFO, "query-untracked-time = %"PRIu64" micro seconds", val);
+			if (val < 0)
+				goto Error;
+			cf_info(AS_INFO, "Changing value of query-untracked-time from %"PRIu64" micro seconds to %"PRIu64" micro seconds", 
+						g_config.query_untracked_time/1000, val);
+			g_config.query_untracked_time = val * 1000;
 		}
 		else if (0 == as_info_parameter_get(params, "query-rec-count-bound", context, &context_len)) {
 			uint64_t val = atoll(context);
