@@ -1708,7 +1708,6 @@ WorkItemDone:
 							job->tid, job, job->fd_h, job->uit_queued);
 					SCAN_JOB_DONE_ON(job);
 				} else {
-					tscan_job_done(job, rsp);
 					clean_job = true;
 				}
 			}
@@ -1729,6 +1728,10 @@ WorkItemDone:
 			if (RCHASH_OK == rchash_delete(g_scan_job_hash, &job->tid, sizeof(job->tid))) {
 				cf_debug(AS_SCAN, "scan job %d for '%s' - %s", job->tid, job->ns->name,
 						job_early_terminate ? "terminated early" : "completed");
+
+				// Only one thread will find and delete the job, ensuring this
+				// only happens once per job.
+				tscan_job_done(job, rsp);
 			}
 		}
 
