@@ -165,6 +165,7 @@ typedef struct {
 	uint8_t partition_done[AS_PARTITIONS];
 } scan_job_partitions_tracker;
 
+void  scan_job_release_and_destroy(tscan_job *job);
 int   tscan_send_fin_to_client(tscan_job *job, uint32_t result_code);
 int   tscan_enqueue_udfjob(tscan_job *job);
 int   tscan_start_job(tscan_job *job, as_transaction *tr, bool scan_disconnected_job);
@@ -205,7 +206,7 @@ as_tscan_udf_tr_complete( as_transaction *tr, int retcode )
 	cf_atomic64_set(&job->uit_total_run_time, cf_atomic64_add(&job->uit_total_run_time, processing_time));
 	cf_detail(AS_SCAN, "UDF: Internal transaction completed %d, remaining %d, processing_time for this transaction %d, total txn processing time %"PRIu64"",
 			completed, queued, processing_time, job->uit_total_run_time);
-	cf_rc_release(job);
+	scan_job_release_and_destroy(job);
 	return 0;
 }
 
@@ -300,12 +301,21 @@ tscan_job_destructor( void *udata )
 		// @TODO clean job type specific allocation for storage-based scanning
 	}
 	pthread_mutex_destroy(&job->LOCK);
-	if (cf_rc_count(job) > 1) {
-		cf_warning(AS_SCAN, "likely leaking a scan_job %p %d", job, cf_rc_count(job));
+
+	if (cf_rc_count(job) != 0) {
+		cf_warning(AS_SCAN, "likely ref-count problem with scan_job %p", job);
 	}
-	cf_rc_releaseandfree(job);
 }
 
+// Note that an rchash_delete() also does exactly this.
+void
+scan_job_release_and_destroy(tscan_job *job)
+{
+	if (0 == cf_rc_release(job)) {
+		tscan_job_destructor(job);
+		cf_rc_free(job);
+	}
+}
 
 uint32_t
 tscan_job_tid_hash(void *value, uint32_t keylen)
@@ -371,7 +381,7 @@ as_tscan_sindex_populate(void *param)
 		cf_warning(AS_SCAN, "Failed to create Background index creation for index %s:%s:%s. Error = %d",
 				imd->ns_name, imd->set, imd->iname, hp_rc);
 		cf_warning(AS_SCAN, "not starting scan %d because rchash_put() failed with error %d", job->tid, hp_rc);
-		cf_rc_releaseandfree(job);
+		scan_job_release_and_destroy(job);
 		return -2;
 	}
 
@@ -421,7 +431,7 @@ as_tscan_sindex_populateall(void *param)
 	if (RCHASH_OK != (hp_rc = rchash_put_unique(g_scan_job_hash, &job->tid, sizeof(job->tid), job))) {
 		cf_warning(AS_SCAN, "Failed to create background scan job for namespace %s index population", ns->name);
 		cf_warning(AS_SCAN, "not starting scan %d because rchash_put() failed with error %d", job->tid, hp_rc);
-		cf_rc_releaseandfree(job);
+		scan_job_release_and_destroy(job);
 		return -2;
 	}
 
@@ -511,7 +521,9 @@ tscan_enqueue_udfjob(tscan_job *job)
 			if (CF_QUEUE_EMPTY != cf_queue_pop(g_scan_job_slotq, &slot, CF_QUEUE_FOREVER)) {
 				cf_detail(AS_SCAN, "UDF: Added new work item for job [%"PRIu64" %d %d] slot %d", job->tid, i, cycler, slot);
 				cf_queue_push(g_scan_partition_work_q_array[cycler++ % n_threads], &workitem);
-				if(count++ == (MAX_SCAN_UDF_WORKITEM_PER_ITERATION * n_threads)) break;
+				if (count++ == (MAX_SCAN_UDF_WORKITEM_PER_ITERATION * n_threads)) {
+					break;
+				}
 			}
 		}
 
@@ -610,9 +622,7 @@ tscan_start_udfjob(tscan_job *job, as_transaction *tr, bool disconnected)
 		cf_rc_release(job->fd_h);
 		job->fd_h           = 0;
 	}
-	// Reserve the copy in queue.
-	//cf_info(AS_SCAN, "UDF: Reserved %d", cf_rc_reserve(job));
-	cf_rc_reserve(job);
+
 	return cf_queue_push(g_scan_udf_job_q, &job);
 }
 
@@ -754,7 +764,7 @@ as_tscan(as_transaction *tr)
 			// Eventually we will support this -- but for now, it is a request of an
 			// unsupported feature (-5).
 			cf_info(AS_SCAN, "Only Background Scan UDF supported !!");
-			tscan_job_destructor(job);
+			scan_job_release_and_destroy(job);
 			return -5;
 		} else {
 			job->scan_type = SCAN_UDF_BG;
@@ -805,7 +815,7 @@ as_tscan(as_transaction *tr)
 	// Add job to global hash for tracking purposes.
 	if (RCHASH_OK != (hp_rc = rchash_put_unique(g_scan_job_hash, &job->tid, sizeof(job->tid), job))) {
 		cf_warning(AS_SCAN, "not starting scan %d because rchash_put() failed with error %d", job->tid, hp_rc);
-		tscan_job_destructor(job);
+		scan_job_release_and_destroy(job);
 		return -2;
 	}
 
@@ -883,7 +893,6 @@ as_internal_scan_udf_txn_setup(tr_create_data * d)
 	cf_atomic_int_incr(&job->uit_queued);
 	cf_detail(AS_SCAN, "UDF: [%d] internal transactions enqueued", job->uit_queued);
 
-	//cf_info(AS_SCAN, "UDF: Reserved %d", cf_rc_reserve(job));
 	cf_rc_reserve(job);
 
 	// Reset start time.
@@ -895,7 +904,6 @@ as_internal_scan_udf_txn_setup(tr_create_data * d)
 				"transaction.. ", tr.keyd, job->uit_queued);
 		cf_free(tr.msgp);
 		tr.msgp = 0;
-		// cf_info(AS_SCAN, "UDF: Released %d", cf_rc_release(job));
 		cf_rc_release(job);
 		cf_atomic_int_decr(&job->uit_queued);
 		return -1;
@@ -1297,9 +1305,6 @@ scan_udf_job_manager(void *q_to_wait_on)
 			// Destroy now and don't requeue.
 			// Using similar thinking as with default scan.
 			rchash_delete(g_scan_job_hash, &job->tid, sizeof(job->tid));
-			if (0 == cf_rc_release(job)) {
-				tscan_job_destructor(job);
-			}
 			goto NextElement;
 		}
 
@@ -1360,7 +1365,7 @@ as_tscan_set_priority(uint64_t trid, uint16_t priority) {
 	pthread_mutex_lock(&job->LOCK);
 	job->n_threads = priority;
 	pthread_mutex_unlock(&job->LOCK);
-	cf_rc_release(job);
+	scan_job_release_and_destroy(job);
 	return true;
 }
 
@@ -1376,9 +1381,7 @@ as_tscan_abort(uint64_t trid)
 	pthread_mutex_lock(&job->LOCK);
 	SCAN_JOB_ABORTED_ON(job);
 	pthread_mutex_unlock(&job->LOCK);
-	// Give the reference back.
-	//cf_info(AS_SCAN, "UDF: Released %d", cf_rc_release(job));
-	cf_rc_release(job);
+	scan_job_release_and_destroy(job);
 	return 0;
 }
 
@@ -1712,22 +1715,26 @@ WorkItemDone:
 		}
 		pthread_mutex_unlock(&job->LOCK);
 
-		// Release the reference from the hash_get.
-		uint64_t val = cf_rc_release(job);
-		// cf_info(AS_SCAN, "UDF: Released %d", val);
 		if (job->hasudf) {
 			int i = 0;
 			cf_queue_push(g_scan_job_slotq, &i);
-		} else {
-			if (val == 0) {
-				tscan_job_destructor(job);
+		}
+
+		if (clean_job) {
+			// Note that we never get here for a UDF job - UDF jobs are removed
+			// from g_scan_job_hash only in scan_udf_job_manager().
+
+			// Note also that this call won't destroy and free the job, since
+			// we're still within the hash_get's reference.
+			if (RCHASH_OK == rchash_delete(g_scan_job_hash, &job->tid, sizeof(job->tid))) {
+				cf_debug(AS_SCAN, "scan job %d for '%s' - %s", job->tid, job->ns->name,
+						job_early_terminate ? "terminated early" : "completed");
 			}
 		}
 
-		// Hash entry won't be found in the hash anymore.
-		if (clean_job) {
-			rchash_delete(g_scan_job_hash, &job->tid, sizeof(job->tid));
-		}
+		// Release the reference from the hash_get.
+		scan_job_release_and_destroy(job);
+
 		cf_debug(AS_SCAN, "finished workitem");
 	} while(1);
 
@@ -1940,7 +1947,7 @@ as_tscan_get_jobstat(uint64_t trid)
 	stat            = cf_malloc(sizeof(as_mon_jobstat));
 	if (!stat) return NULL;
 	tscan_fill_jobstat(job, stat);
-	cf_rc_release(job);
+	scan_job_release_and_destroy(job);
 	return stat;
 }
 
