@@ -654,8 +654,7 @@ btds_t *btds = NULL;
 
 static dwd_t deletekey(bt   *btr,  bt_n *x,  bt_data_t k,    int    s, bool drt,
                        bt_n *p,    int   pi, cf_ll     *plist, void **c2Cp,
-                       bool leafd) { btds->del_calls++;
-    char delbuf[MAX_KEY_SIZE]; // NOTE: ksize > 8B needs buffer for CASE 1 */
+                       bool leafd, char delbuf[]) { btds->del_calls++;
     bt_n *xp, *y, *z; bt_data_t kp;
     int   yn, zn, i = 0, r = -1, ks = btr->s.ksize;
     if (s != DK_NONE) { /* min or max node deletion */
@@ -720,7 +719,7 @@ static dwd_t deletekey(bt   *btr,  bt_n *x,  bt_data_t k,    int    s, bool drt,
             ADD_BP(plist, x, i)
             //printf("CASE2A recurse: key: "); printKey(btr, x, i);
             dwd_t dwd  = deletekey(btr, xp, NULL, DK_2A, drt,
-                                   x, i, plist, c2Cp, leafd);
+                                   x, i, plist, c2Cp, leafd, delbuf);
             //DEBUG_SET_BTKEY_2A
             if (drt) x = incrDR(btr, x, i, ++dwd.dr, p, pi);
             else     x = setDR (btr, x, i, dwd.dr,   p, pi);
@@ -739,7 +738,7 @@ static dwd_t deletekey(bt   *btr,  bt_n *x,  bt_data_t k,    int    s, bool drt,
             ADD_BP(plist, x, i + 1)
             //printf("CASE2B recurse: key: "); printKey(btr, x, i);
             dwd_t dwd  = deletekey(btr, xp, NULL, DK_2B, drt,
-                                   x, i + 1, plist, c2Cp, leafd);
+                                   x, i + 1, plist, c2Cp, leafd, delbuf);
             //DEBUG_SET_BTKEY_2B
             if (drt) { // prev key inherits DR+1
                 x      = incrCase2B (btr, x, i, (getDR(btr, x, i) + 1));
@@ -776,7 +775,7 @@ static dwd_t deletekey(bt   *btr,  bt_n *x,  bt_data_t k,    int    s, bool drt,
             bt_free_btreenode(btr, z);
             ADD_BP(plist, x, i)
             //printf("CASE2C key: "); printKey(btr, x, i);
-            return deletekey(btr, y, k, s, drt, x, i, plist, c2Cp, leafd);
+            return deletekey(btr, y, k, s, drt, x, i, plist, c2Cp, leafd, delbuf);
         }
     }
     /* Case 3:
@@ -872,7 +871,7 @@ static dwd_t deletekey(bt   *btr,  bt_n *x,  bt_data_t k,    int    s, bool drt,
     } //printf("RECURSE CASE 3\n");
     btds->case3_del++;
     ADD_BP(plist, x, i)                                 //DEBUG_DEL_POST_CASE_3
-    dwd_t dwd = deletekey(btr, xp, k, s, drt, x, i, plist, c2Cp, leafd);
+    dwd_t dwd = deletekey(btr, xp, k, s, drt, x, i, plist, c2Cp, leafd, delbuf);
     // CASE2A/B pull keys up from depths, scion must be decremented
     if (s != DK_NONE) {
         if (drt) decr_scion(x, 1 + dwd.dr);
@@ -932,8 +931,9 @@ static dwd_t remove_key(bt *btr, bt_data_t k, bool drt, bool leafd) {
         cf_ll_init(plist, ll_ai_bp_destroy_fn, false);
         ADD_BP(plist, p, pi);//FR110
     } else plist = NULL;
-    dwd_t dwd   = deletekey(btr, btr->root, k, DK_NONE, drt,
-                            p, pi, plist, &c2Cp, leafd);
+    char delbuf[MAX_KEY_SIZE]; // NOTE: ksize > 8B needs buffer for CASE 1
+	dwd_t dwd   = deletekey(btr, btr->root, k, DK_NONE, drt,
+                            p, pi, plist, &c2Cp, leafd, delbuf);
 #ifdef DEBUG_DEL_CASE_STATS
 	print_del_case_stats(leafd, dwd, btr);
 #endif
