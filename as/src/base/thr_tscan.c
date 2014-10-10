@@ -250,6 +250,7 @@ tscan_job_create(uint64_t trid)
 	job->end_time         = 0;
 	job->net_io_bytes     = 0;
 	job->mem_buf          = 0;
+	job->result           = AS_PROTO_RESULT_OK;
 
 	SCAN_JOB_ABORTED_OFF(job);
 	SCAN_JOB_DONE_OFF(job);
@@ -1543,7 +1544,6 @@ tscan_partition_thr(void *q_to_wait_on)
 		tscan_job *job = NULL;
 
 		bool job_early_terminate = false;
-		int rsp = AS_PROTO_RESULT_OK;
 		uint32_t partition_state =  SCAN_PARTITION_STATE_FINISHED;
 
 		cf_debug(AS_SCAN, "waiting for workitem");
@@ -1560,7 +1560,7 @@ tscan_partition_thr(void *q_to_wait_on)
 		// Check the cluster_key and see if we need to cancel out.
 		if (job->fail_on_cluster_change && job->cluster_key != as_paxos_get_cluster_key()) {
 			cf_info(AS_SCAN, "scan_partition: job early terminate due to cluster change %d {%s:%d}.", workitem.tid, job->ns->name, workitem.pid);
-			rsp = AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
+			job->result = AS_PROTO_RESULT_FAIL_CLUSTER_KEY_MISMATCH;
 			job_early_terminate = true;
 			goto WorkItemDone;
 		}
@@ -1570,7 +1570,7 @@ tscan_partition_thr(void *q_to_wait_on)
 			cf_atomic_int_incr(&g_config.tscan_aborted);
 			job_early_terminate = true;
 			cf_detail(AS_SCAN, "UDF: Client initiated abort on job %"PRIu64"", job->tid);
-			rsp = AS_PROTO_RESULT_FAIL_SCAN_ABORT;
+			job->result = AS_PROTO_RESULT_FAIL_SCAN_ABORT;
 			goto WorkItemDone;
 		}
 
