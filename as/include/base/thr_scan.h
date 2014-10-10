@@ -77,6 +77,7 @@ typedef struct {
 	cf_vector *         binlist;
 	as_scan_state_logged scan_state_logged;			// To log the aborted scan only once per namespace not for each partition.
 	cl_msg *            msgp;
+	volatile int        result;                     // not used by UDF scan jobs
 
 	// Scan UDF specific fields
 	bool                hasudf;              		// Has record UDF
