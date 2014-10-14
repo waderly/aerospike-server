@@ -532,6 +532,11 @@ info_get_stats(char *name, cf_dyn_buf *db)
 	cf_dyn_buf_append_string(db, ";info_queue=");
 	cf_dyn_buf_append_int(db, as_info_queue_get_size());
 
+	cf_dyn_buf_append_string(db, ";delete_queue=");
+	APPEND_STAT_COUNTER(db, as_nsup_queue_get_size());
+
+	cf_dyn_buf_append_string(db, ";proxy_in_progress=");
+	APPEND_STAT_COUNTER(db, as_proxy_inprogress());
 	cf_dyn_buf_append_string(db, ";proxy_initiate=");
 	APPEND_STAT_COUNTER(db, g_config.proxy_initiate);
 	cf_dyn_buf_append_string(db, ";proxy_action=");
