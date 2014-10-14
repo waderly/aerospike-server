@@ -128,6 +128,7 @@ typedef int (*ureq_cb)(struct as_transaction_s *tr, int retcode);
 typedef int (*ures_cb)(struct as_transaction_s *tr, int retcode);
 
 typedef enum {
+	UDF_UNDEF_REQUEST = -1,
 	UDF_SCAN_REQUEST  = 0,
 	UDF_QUERY_REQUEST = 1
 } udf_request_type;
@@ -144,7 +145,8 @@ typedef struct udf_request_data {
 	(ureq)->req_cb    = NULL;	\
 	(ureq)->req_udata = NULL;	\
 	(ureq)->res_cb    = NULL;	\
-	(ureq)->res_udata = NULL;
+	(ureq)->res_udata = NULL;   \
+	(ureq)->req_type  = UDF_UNDEF_REQUEST;
 
 #define UREQ_DATA_RESET UREQ_DATA_INIT
 
@@ -152,7 +154,8 @@ typedef struct udf_request_data {
 	(dest)->req_cb    = (src)->req_cb;		\
 	(dest)->req_udata = (src)->req_udata;	\
 	(dest)->res_cb    = (src)->res_cb;		\
-	(dest)->res_udata = (src)->res_udata;
+	(dest)->res_udata = (src)->res_udata;   \
+	(dest)->req_type  = (src)->req_type;
 
 #define AS_TRANSACTION_FLAG_NSUP_DELETE     0x0001
 #define AS_TRANSACTION_FLAG_INTERNAL        0x0002
