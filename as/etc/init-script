@@ -26,6 +26,11 @@ if [ -n $LD_PRELOAD ]; then export LD_PRELOAD; fi
 
 set_shmall() {
 	mem=`/sbin/sysctl -n kernel.shmall`
+	if [ ${#mem} > 19 ]; then
+		# This is an absurdly large number
+		return
+	fi
+
 	min=4294967296
 	if [ "$mem" -lt $min ]
 	then
@@ -36,6 +41,11 @@ set_shmall() {
 
 set_shmmax() {
 	mem=`/sbin/sysctl -n kernel.shmmax`
+	if [ ${#mem} > 19 ]; then
+		# This is an absurdly large number
+		return
+	fi
+
 	min=1073741824
 	if [ "$mem" -lt $min ]
 	then
